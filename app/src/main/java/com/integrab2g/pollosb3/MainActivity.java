@@ -94,6 +94,18 @@ public class MainActivity extends Activity {
                 });
             }).start();
         }
+        /** Open only verified wa.me applicant links, without exposing arbitrary Intent URLs. */
+        @JavascriptInterface public void openApplicantWhatsApp(String url) {
+            try {
+                Uri uri = Uri.parse(url);
+                if (!"https".equals(uri.getScheme()) || !"wa.me".equals(uri.getHost())) return;
+                String path = uri.getPath();
+                if (path == null || !path.matches("/519[0-9]{8}")) return;
+                String message = uri.getQueryParameter("text");
+                if (message == null || message.length() > 350 || !message.startsWith("Hola, estoy interesado(a) en trabajar en Pollos B3.")) return;
+                startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            } catch (Exception ignored) { }
+        }
         @JavascriptInterface public void openMaps(String url) {
             try {
                 Uri uri = Uri.parse(url);
