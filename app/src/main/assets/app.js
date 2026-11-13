@@ -384,15 +384,26 @@ function completeCarouselMotion(m,accepted){
  });
  setTimeout(finish,460);
 }
-function animateCarousel(kind,index,direction){
- const len=carouselCount(kind);if(len<2)return;
- if(carouselMotion.active)return;
+function animateCarousel(kind,index,direction,automatic=false){
+ const len=carouselCount(kind);if(len<2||carouselMotion.active)return;
  const key=kind==='hero'?'carousel':'promo';
  const from=((st[key]%len)+len)%len,to=((index%len)+len)%len;
  if(from===to)return;
  const dir=direction||((to-from+len)%len <=len/2?1:-1);
  const motion=prepareCarouselMotion(kind,to,dir);
- if(motion)completeCarouselMotion(motion,true);
+ if(!motion)return;
+ if(!automatic||reducedMotion()){completeCarouselMotion(motion,true);return;}
+ // Autoplay recrea el arrastre táctil real con la misma función de movimiento.
+ // Después usa exactamente la misma animación de soltado que el dedo.
+ const start=performance.now(),dragDuration=180,dragFraction=.48;
+ function dragFrame(now){
+  if(carouselMotion.active!==motion||!motion.stage.isConnected)return;
+  const progress=Math.min(1,(now-start)/dragDuration);
+  moveCarousel(motion,-motion.direction*motion.width*dragFraction*progress);
+  if(progress<1)requestAnimationFrame(dragFrame);
+  else completeCarouselMotion(motion,true);
+ }
+ requestAnimationFrame(dragFrame);
 }
 root.addEventListener('click',e=>{
  if(Date.now()<carouselMotion.suppressClickUntil&&e.target.closest('.hero-carousel,.promos')){
@@ -440,13 +451,13 @@ setInterval(()=>{
  if(autoplayTick%5!==0)return;
  // Los dos carruseles se desplazan en secuencia corta y no reinician toda Inicio.
  const heroCount=carouselCount('hero');
- if(heroCount>1)animateCarousel('hero',(st.carousel+1)%heroCount,1);
+ if(heroCount>1)animateCarousel('hero',(st.carousel+1)%heroCount,1,true);
  setTimeout(()=>{
   if(st.stage!=='app'||st.tab!=='inicio'||document.hidden||fulfillmentModal||
      carouselMotion.active||carouselMotion.touch||Date.now()<carouselMotion.pauseUntil)return;
   const promoCount=carouselCount('promo');
-  if(promoCount>1)animateCarousel('promo',(st.promo+1)%promoCount,1);
- },520);
+  if(promoCount>1)animateCarousel('promo',(st.promo+1)%promoCount,1,true);
+ },750);
 },1000);
 window.handleB3Back=()=>{
   if(st.stage==='app'){
