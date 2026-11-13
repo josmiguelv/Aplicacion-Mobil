@@ -168,7 +168,7 @@ function main(){return `<div class="shell">${demo}<main class="main">${st.tab===
 /* Published B3 stores, one independently configurable schedule for each weekday. */
 const storeDayNames=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
 const storeDayKeys=['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
-const validStoreTime=t=>typeof t==='string'&&/^([01]\\d|2[0-3]):[0-5]\\d$/.test(t);
+const validStoreTime=t=>typeof t==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(t);
 function storeTime(t){const [h,m]=t.split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+(h<12?' a. m.':' p. m.')}
 function storeDailyHours(s){
  const raw=s.weeklyHours||s.weekly_hours||s.openingHours||s.opening_hours||s.schedule||s.hours;
