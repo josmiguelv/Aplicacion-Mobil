@@ -179,3 +179,73 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 @keyframes b3-sheet-in{from{transform:translateY(18px);opacity:.87}to{transform:translateY(0);opacity:1}}
 @media(max-width:350px){.home-v10 .b3-compact-header{padding:8px 10px;gap:7px}.home-v10 .b3-header-logo{width:61px;height:61px;flex-basis:61px}.home-v10 .b3-destination-label{font-size:12px}.home-v10 .b3-destination-line{font-size:11px}.b3-modal-sheet{padding-left:13px;padding-right:13px}.b3-modal-modes button{padding:13px 9px}}
 @media(prefers-reduced-motion:reduce){.b3-modal-sheet{animation:none}}
+
+/* B3 V12 — carro de tarjetas premium, sin afectar el tamaño de otras pantallas. */
+.home-v10 .b3-compact-header{
+  min-height:72px;padding:7px 13px 8px;gap:8px;
+  border-bottom:1px solid #f4f2f1;box-shadow:0 2px 8px #15151507;
+}
+.home-v10 .b3-header-logo{width:58px;height:58px;flex:0 0 58px}
+.home-v10 .b3-header-target{min-height:56px;gap:1px}
+.home-v10 .b3-destination-label{font-size:12.5px}
+.home-v10 .b3-destination-line{font-size:11.5px;line-height:1.22}
+.home-v10 .b3-header-edit{min-width:28px}
+@media(max-width:350px){
+  .home-v10 .b3-compact-header{padding:6px 10px;gap:6px;min-height:67px}
+  .home-v10 .b3-header-logo{width:52px;height:52px;flex-basis:52px}
+  .home-v10 .b3-header-target{min-height:52px}
+}
+/* Main featured carousel: slightly taller, vivid food photos without overzoom. */
+.home-v10 .hero-card{aspect-ratio:1.55;max-height:375px;touch-action:pan-y;user-select:none;-webkit-user-select:none}
+.home-v10 .hero-img{object-position:center 58%;background:#fff}
+.home-v10 .hero-card:active:not(.b3-motion-stage *){filter:saturate(1.04)}
+/* Combo region is purposefully taller than the previous 170px rectangle. */
+.home-v10 .promos .promo-card{
+ height:auto;aspect-ratio:1.54;min-height:218px;max-height:345px;
+ background:linear-gradient(125deg,#fffaf5,#fff);
+ border:1px solid #f3e6de;border-radius:21px;
+ box-shadow:0 12px 30px #3f241414;touch-action:pan-y;
+ user-select:none;-webkit-user-select:none;
+}
+.home-v10 .promos .promo-card>img{
+ width:100%;height:100%;object-fit:contain;object-position:76% center;
+ filter:none;background:#fff;transform:scale(1.01);
+}
+.home-v10 .promos .promo-info{
+ justify-content:flex-end;align-items:flex-start;
+ background:linear-gradient(0deg,rgba(18,13,11,.85) 0%,rgba(18,13,11,.39) 38%,transparent 67%);
+ padding:15px 17px 18px;color:#fff;pointer-events:none;
+}
+.home-v10 .promos .promo-info span{color:#ffe36b;font-size:10px;max-width:88%}
+.home-v10 .promos .promo-info strong{
+ font-size:clamp(19px,5vw,26px);font-weight:900;
+ max-width:84%;line-height:1.06;margin:5px 0 6px;
+ text-shadow:0 2px 10px #0003;
+}
+.home-v10 .promos .promo-info b{font-size:clamp(18px,4.8vw,23px);color:#fff}
+.home-v10 .promos .published-promotion .promo-info{
+ background:linear-gradient(125deg,#fffaf3,#f9ecdf);color:#282222;
+ justify-content:center;
+}
+.home-v10 .promos .published-promotion .promo-info span{color:#9d1725}
+/* Two visual cards slide in the same clipped viewport; no full-home re-render. */
+.b3-carousel-motion{position:relative;width:100%;overflow:hidden;isolation:isolate;border-radius:20px;contain:layout paint}
+.home-v10 .b3-carousel-motion>.hero-card,
+.home-v10 .b3-carousel-motion>.promo-card{
+ position:absolute!important;inset:0!important;width:100%!important;
+ height:100%!important;min-height:0!important;max-height:none!important;
+ aspect-ratio:auto!important;margin:0!important;border-radius:inherit!important;
+ box-sizing:border-box;will-change:transform,opacity;
+}
+.b3-carousel-motion>.hero-card:nth-child(2),
+.b3-carousel-motion>.promo-card:nth-child(2){z-index:2}
+.home-v10 .reco-scroll{
+ scroll-behavior:smooth;-webkit-overflow-scrolling:touch;
+ overscroll-behavior-x:contain;
+}
+.home-v10 .reco{transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease}
+.home-v10 .reco:active{transform:scale(.985)}
+@media(prefers-reduced-motion:reduce){
+ .home-v10 .reco{transition:none}
+ .home-v10 .reco-scroll{scroll-behavior:auto}
+}
