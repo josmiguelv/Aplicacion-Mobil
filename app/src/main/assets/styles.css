@@ -256,3 +256,37 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .reco .b3-no-photo{height:112px;width:100%}
 .item-picture .b3-no-photo{width:100%;height:100%}
 .promo-card>.b3-no-photo{position:absolute;inset:0;width:100%;height:100%}
+
+
+/* Published stores: compact photo-free homepage cards and a restrained detail sheet. */
+.b3-home-stores{padding-top:9px}
+.b3-home-store-card{width:100%;border:1px solid #e8e8e8;border-radius:17px;background:#fff;box-shadow:0 3px 12px rgba(20,20,20,.055);display:flex;gap:12px;align-items:center;text-align:left;padding:15px 13px;min-height:112px;color:#191919}
+.b3-home-store-symbol{width:46px;height:46px;border-radius:13px;background:#fff0f0;color:#c51725;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.b3-home-store-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
+.b3-home-store-copy strong{font-size:15px;font-weight:850;line-height:1.2}
+.b3-home-store-copy small{font-size:11px;color:#666;line-height:1.3;overflow-wrap:anywhere}
+.b3-home-store-end{display:flex;flex-direction:column;align-items:flex-end;gap:14px;flex-shrink:0}
+.b3-store-badge{display:inline-flex;align-items:center;border-radius:20px;padding:5px 8px;font-size:10px;line-height:1;font-weight:800;white-space:nowrap}
+.b3-store-badge.open{background:#e5f7e9;color:#087b31}
+.b3-store-badge.closed{background:#ffeaed;color:#bc2030}
+.b3-store-badge.unknown{background:#f3f3f3;color:#666}
+.b3-stores-empty{margin:0;border:1px solid #ececec;border-radius:14px;padding:18px;font-size:12px;color:#666}
+.home-v10 .b3-carousel-motion>.b3-home-store-card{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;border-radius:inherit!important;box-sizing:border-box;will-change:transform,opacity}
+.b3-store-detail{position:relative;max-height:92dvh;overflow-y:auto;padding:20px 19px 25px}
+.b3-store-detail-close{position:absolute;top:15px;right:16px;width:31px;height:31px;border-radius:50%;display:grid;place-items:center;background:#f1f1f1;color:#333;z-index:2}
+.b3-store-detail-photo{display:block;width:100%;height:118px;object-fit:cover;border-radius:13px;margin:10px 0 15px}
+.b3-store-detail h2{font-size:20px;margin:12px 35px 8px 0;color:#181818}
+.b3-store-detail>p{display:flex;align-items:flex-start;gap:6px;margin:8px 0;font-size:12px;color:#616161;line-height:1.5}
+.b3-store-detail-status{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;margin-top:12px}
+.b3-store-detail-week{border-top:1px solid #eaeaea;margin-top:18px;padding-top:13px}
+.b3-store-detail-week h3,.b3-store-detail-modes h3{font-size:14px;margin:0 0 12px;font-weight:850;color:#171717;display:flex;align-items:center;gap:7px}
+.b3-store-detail-week>div{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid #f3f3f3;font-size:12px}
+.b3-store-detail-week>div span{color:#555}
+.b3-store-detail-week>div strong{text-align:right;font-size:12px;font-weight:700}
+.b3-store-detail-modes{margin-top:18px;border:1px solid #ececec;border-radius:13px;padding:14px}
+.b3-store-detail-modes button{display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:12px 3px;background:transparent;border-bottom:1px solid #eee;color:#222}
+.b3-store-detail-modes button:last-child{border:0}
+.b3-store-detail-modes button>span{flex:1;font-weight:800;font-size:13px;display:flex;flex-direction:column;gap:3px}
+.b3-store-detail-modes button small{font-weight:450;font-size:11px;color:#777}
+.b3-store-detail-modes button:disabled{opacity:.35}
+.b3-store-directions{display:flex;gap:8px;align-items:center;justify-content:center;width:100%;padding:13px;margin-top:12px;background:#fff;color:#b80b1b;border:1px solid #f0cbd0;border-radius:12px;font-weight:800;font-size:13px}
