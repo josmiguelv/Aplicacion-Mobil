@@ -68,6 +68,8 @@ const API_BASE=(()=>{
 })();
 let publishedRevision=0;
 let publishedPromotions=[];
+let publishedVacancies=[];
+let selectedVacancyId=null;
 function modeName(m){return ({delivery:'Pollo Delivery',pickup:'Pide y Retira'})[m]||'Elegir modalidad'}
 const storeAllowed=(s,m)=>!!s&&s.active!==false&&(m==='delivery'?s.delivery_enabled!==false:m==='pickup'?s.pickup_enabled!==false:s.dine_in_enabled===true);
 function availableStores(m){return shops.filter(s=>s.active!==false)}
@@ -87,7 +89,7 @@ function straightDistanceKm(s){
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
 function paymentOptions(){const s=shops.find(x=>x.id===st.store);const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];if(!st.configReady||!s)return choices;return choices.filter(x=>(s.paymentMethods?.[st.mode]||[]).includes(x[0]))}
-async function fetchConfig(){if(!API_BASE)return;try{const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!r.ok)throw Error('API unavailable');const c=await r.json();if(!c.ready){resetDemoStores();st.configReady=false;st.quote=null;render();return}if(!Array.isArray(c.products)||!Array.isArray(c.stores))throw Error('Invalid schema');const revisionChanged=st.configReady&&publishedRevision!==c.revision;publishedRevision=c.revision;publishedPromotions=Array.isArray(c.promotions)?c.promotions:[];if(st.cart.length&&revisionChanged){st.cart=[];st.notice='La carta publicada cambió. Verifica y vuelve a agregar los productos.'}products.splice(0,products.length,...c.products.map(x=>({id:x.id,name:x.name,desc:x.description||'',cat:x.category||'Otros',price:Number(x.pricePen),imageUrl:x.image_url||x.imageUrl,pic:1})));shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm),deliveryFeePen:x.deliveryFeePen})));storeGeocoding=false;if(st.coords)resolveStoreDistances();st.configReady=true;if(revisionChanged){st.quote=null;st.store=''}save();render()}catch(err){console.warn('Catalog unavailable; demo unchanged',err.message)}}
+async function fetchConfig(){if(!API_BASE)return;try{const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!r.ok)throw Error('API unavailable');const c=await r.json();if(!c.ready){resetDemoStores();publishedVacancies=[];st.configReady=false;st.quote=null;render();return}if(!Array.isArray(c.products)||!Array.isArray(c.stores))throw Error('Invalid schema');const revisionChanged=st.configReady&&publishedRevision!==c.revision;publishedRevision=c.revision;publishedPromotions=Array.isArray(c.promotions)?c.promotions:[];publishedVacancies=Array.isArray(c.vacancies)?c.vacancies:[];if(st.cart.length&&revisionChanged){st.cart=[];st.notice='La carta publicada cambió. Verifica y vuelve a agregar los productos.'}products.splice(0,products.length,...c.products.map(x=>({id:x.id,name:x.name,desc:x.description||'',cat:x.category||'Otros',price:Number(x.pricePen),imageUrl:x.image_url||x.imageUrl,pic:1})));shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm),deliveryFeePen:x.deliveryFeePen})));storeGeocoding=false;if(st.coords)resolveStoreDistances();st.configReady=true;if(revisionChanged){st.quote=null;st.store=''}save();render()}catch(err){console.warn('Catalog unavailable; demo unchanged',err.message)}}
 async function resolveDelivery(){
  if(!st.configReady||!API_BASE){
   st.quote=null;st.store='';save();fulfillmentModal=null;nav('inicio');
@@ -152,8 +154,8 @@ const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configRea
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*products.find(p=>p.id===x.id).price,0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 function toast(t){st.notice=t;render();setTimeout(()=>{if(st.notice===t){st.notice='';render()}},2400)}
-function screen(n){selectedHomeStore=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render()}
-function nav(tab){selectedHomeStore=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
+function screen(n){selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render()}
+function nav(tab){selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
 const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${st.configReady?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
@@ -379,14 +381,59 @@ function summary(){let s=shops.find(x=>x.id===st.store);return `<div class="page
 function success(){let o=st.orders[0];return `<div class="success"><div class="success-mark">${ic('check',54)}</div><h1>¡Pedido de prueba registrado!</h1><p>Este pedido se guardó en tu teléfono. <b>No fue enviado a Pollos B3 ni cobrado.</b></p><div class="success-box"><b>${esc(o?.id||'')}</b><span>${cash(o?.total||0)}</span><small>Simulación local</small></div><button class="primary full" data-tab="pedidos">Ver mis pedidos</button><button class="outline full" data-tab="inicio">Volver al inicio</button></div>`}
 function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3','app')}<div class="chat-info">${ic('chat')}<span>Chat de demostración · TU VERSO aún no conectado</span></div><div class="chat-messages"><div class="message agent">¡Hola! Esta es una vista previa del chat. Cuando se integre TU VERSO, aquí podrás conversar con un agente de Pollos B3.</div>${st.chat.map(m=>`<div class="message customer">${esc(m)}</div>`).join('')}</div><form id="chat-form" class="chat-compose"><input id="chat-message" placeholder="Escribe un mensaje de prueba..." aria-label="Mensaje de prueba"><button type="submit">${ic('chev')}</button></form></div>`}
 function about(){return `<div class="page about">${heading('Sobre la App','app')}<div class="about-copy"><p>Pollos B3 App para Android</p><p class="version">Versión 1.0.0</p><p>Todos los derechos reservados<br>Pollos B3</p></div><img class="integra-logo" src="images/integra.png" alt="Logotipo original INTEGRA B2G"><p class="smallprint">Piloto funcional sin servicios externos.</p></div>`}
+function vacancyPhoto(v){
+ const src=v.imageUrl;
+ if(typeof src!=='string'||!/^\/api\/v1\/mobile\/images\/[0-9a-f-]{36}$/.test(src)||!API_BASE)return '';
+ return '<img src="'+esc(API_BASE+src)+'" alt="Imagen publicada para '+esc(v.title)+'" loading="lazy">';
+}
+function jobsScreen(){
+ const items=publishedVacancies.filter(v=>v&&typeof v.id==='string'&&typeof v.title==='string');
+ return '<div class="page b3-jobs">'+heading('Trabaja con nosotros','app')+
+ '<p class="sub">Conoce las oportunidades de trabajo publicadas por Pollos B3.</p>'+
+ (items.length?'<div class="b3-job-list">'+items.map(v=>
+  '<button class="b3-job-card" data-vacancy="'+esc(v.id)+'">'+
+  '<span class="b3-job-thumb">'+(vacancyPhoto(v)||ic('store',26))+'</span>'+
+  '<span class="b3-job-copy"><strong>'+esc(v.title)+'</strong>'+
+  '<small>'+esc(v.summary||'Conoce los detalles de esta vacante.')+'</small>'+
+  (v.locationLabel?'<span class="b3-job-location">'+ic('pin',13)+' '+esc(v.locationLabel)+'</span>':'')+
+  '<span class="b3-job-more">Ver detalle '+ic('chev',14)+'</span></span></button>').join('')+'</div>':
+ '<div class="empty-state">'+ic('store',34)+'<h2>No hay vacantes publicadas por ahora</h2><p>Las oportunidades aparecerán aquí cuando Pollos B3 las publique.</p></div>')+'</div>';
+}
+function vacancyDetail(){
+ const v=publishedVacancies.find(x=>x.id===selectedVacancyId);
+ if(!v)return jobsScreen();
+ const rows=[['Puesto',v.title],['Horario',v.schedule],['Modalidad',v.employmentType],['Sede',v.locationLabel]].filter(x=>x[1]);
+ const phone=String(v.whatsappPhone||'');
+ const allowed=/^519\d{8}$/.test(phone);
+ return '<div class="page b3-job-detail">'+heading('Detalle de vacante','jobs')+
+ '<div class="b3-job-hero">'+(vacancyPhoto(v)||'<div class="b3-job-placeholder">'+ic('store',35)+'</div>')+'</div>'+
+ '<h2>'+esc(v.title)+'</h2>'+
+ (v.summary?'<p class="sub">'+esc(v.summary)+'</p>':'')+
+ '<div class="b3-job-facts">'+rows.map(([name,value])=>'<div><strong>'+esc(name)+'</strong><span>'+esc(value)+'</span></div>').join('')+'</div>'+
+ (v.description?'<section class="b3-job-section"><h3>Descripción</h3><p>'+esc(v.description)+'</p></section>':'')+
+ (v.requirements?'<section class="b3-job-section"><h3>Requisitos</h3><p>'+esc(v.requirements)+'</p></section>':'')+
+ (allowed?'<button type="button" class="b3-job-whatsapp" data-apply-vacancy="'+esc(v.id)+'">'+ic('chat',22)+' Postular por WhatsApp</button>':
+ '<p class="smallprint">Contacto de postulación no disponible.</p>')+
+ '</div>';
+}
+function applyVacancy(id){
+ const v=publishedVacancies.find(x=>x.id===id);
+ if(!v||!/^519\d{8}$/.test(String(v.whatsappPhone||'')))return toast('WhatsApp de postulación no disponible');
+ const message='Hola, estoy interesado(a) en trabajar en Pollos B3. Quisiera información sobre la vacante de '+v.title+'.';
+ const url='https://wa.me/'+v.whatsappPhone+'?text='+encodeURIComponent(message);
+ if(window.AndroidBridge?.openApplicantWhatsApp)window.AndroidBridge.openApplicantWhatsApp(url);
+ else window.open(url,'_blank','noopener,noreferrer');
+}
 function infoScreen(){const content={profile:['Mi perfil','Tu nombre y celular se utilizan para facilitar pedidos.'],address:['Direcciones guardadas','Las direcciones se guardan únicamente en este teléfono de prueba.'],methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],notifications:['Notificaciones','Las notificaciones estarán disponibles cuando se configure el servicio.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.'],jobs:['Trabaja con nosotros','Canal oficial de postulaciones pendiente de confirmar.'],privacy:['Privacidad y protección de datos','Este piloto guarda datos solo en el dispositivo. No uses información personal real para probarlo.'],faq:['Preguntas frecuentes','¿Puedo pedir sin registrarme? Sí. ¿El piloto cobra? No. ¿Funciona el chat con agentes? Aún no.'],claims:['Libro de reclamaciones','Se enlazará al Libro de Reclamaciones oficial cuando el negocio proporcione su dirección.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p>${st.stage==='profile'?`<div class="profile-data">${esc((st.profile.first+' '+st.profile.last).trim()||'Sin nombre guardado')}<br>${esc(st.profile.phone||'Sin teléfono guardado')}</div>`:''}${st.stage==='privacy'?'<button class="outline full" data-clear="1">Eliminar datos locales de prueba</button>':''}</div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='address')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='about')html=about();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'');}
+function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='address')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'');}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkReady(){if(!st.mode){screen('choice');return false} if((st.mode==='pickup'||st.mode==='dine_in')&&!st.store){screen('locations');return false}if(st.mode==='delivery'&&(!st.profile.address||st.configReady&&!st.quote)){screen('address');return false}return true}
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return toast('Producto no disponible para esta demo');let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido')}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+if(b.dataset.vacancy){selectedVacancyId=b.dataset.vacancy;screen('vacancyDetail');return}
+if(b.dataset.applyVacancy){applyVacancy(b.dataset.applyVacancy);return}
 if(b.hasAttribute('data-home-store-close')){if(b.classList.contains('b3-store-detail-backdrop')&&e.target!==b)return;selectedHomeStore=null;render();return}
 if(b.dataset.homeStore){selectedHomeStore=b.dataset.homeStore;render();return}
 if(b.dataset.homeLocal!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('local',Number(b.dataset.homeLocal));return}
@@ -602,7 +649,7 @@ window.handleB3Back=()=>{
     return false; // First launch login: close app on Back, not splash.
   }
   if(st.stage.startsWith('signin-')){screen('login');return true}
-  const previous={choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
+  const previous={jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
   screen(previous[st.stage]||'app');return true
 };
 render();
