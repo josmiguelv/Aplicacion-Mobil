@@ -403,3 +403,22 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-about-credit img{width:108px;height:108px;object-fit:contain;display:block;margin:0 auto 9px}
 .b3-about-credit strong{font-size:12px;letter-spacing:.02em;color:#292d41}
 .b3-about-credit span{font-size:11px;margin-top:4px;color:#7c747a}
+
+
+/* Privacy & notifications — customer-facing functional transparency. */
+.b3-privacy-page,.b3-notifications-page{padding-bottom:100px}
+.b3-privacy-intro,.b3-notifications-banner{display:flex;align-items:flex-start;gap:13px;padding:17px;border-radius:17px;background:#fff5f5;color:#b21928;border:1px solid #f1dfe1;margin:12px 0 20px}
+.b3-privacy-intro>svg,.b3-notifications-banner>svg{flex-shrink:0}
+.b3-privacy-intro h2,.b3-notifications-banner strong{font-size:16px;font-weight:800;color:#261a1f;margin:0 0 5px}
+.b3-privacy-intro p,.b3-notifications-banner p{font-size:12px;line-height:1.5;color:#67545b;margin:0}
+.b3-privacy-section{padding:15px 0 17px;border-bottom:1px solid #eee8eb}
+.b3-privacy-section h3,.b3-privacy-delete h3{font-size:15px;color:#252024;margin:0 0 9px}
+.b3-privacy-section p,.b3-privacy-delete p{font-size:13px;line-height:1.62;color:#60565e;margin:8px 0}
+.b3-privacy-secondary{padding:10px 0;display:flex;align-items:center;gap:6px;background:none;border:0;color:#a71d2a;font-size:13px;font-weight:750;text-align:left}
+.b3-privacy-delete{background:#fff8f7;border:1px solid #efdfe0;border-radius:15px;margin:20px 0;padding:16px}
+.b3-privacy-delete button{margin-top:12px;color:#9e1927;border-color:#da9ca4}
+.b3-notifications-page h2{font-size:17px;margin:18px 0 10px}
+.b3-notification-type{border:1px solid #eee8ec;border-radius:14px;background:#fff;margin:10px 0;padding:15px}
+.b3-notification-type strong{font-size:14px;color:#281e22}
+.b3-notification-type p{font-size:12px;color:#6e6067;line-height:1.5;margin:6px 0 0}
+.b3-notifications-page .outline{margin-top:15px}
