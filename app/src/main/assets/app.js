@@ -934,6 +934,13 @@ setInterval(()=>{
   const count=carouselCount('local');if(count>1)animateCarousel('local',(st.local+1)%count,1,true);
  },1550);
 },1000);
+// Android App Link /abrir: keep the current single-page navigation, do not require sign-in.
+window.b3OpenFromLink=()=>{
+  reviewSheetOrderId=null;
+  favoritePromptOrderId=null;
+  loginFromAccount=false;
+  nav('inicio');
+};
 window.handleB3Back=()=>{
   if(st.stage==='app'){
     if(st.tab!=='inicio'){nav('inicio');return true}
