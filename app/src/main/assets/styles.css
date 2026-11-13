@@ -292,3 +292,7 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-store-directions{display:flex;gap:8px;align-items:center;justify-content:center;width:100%;padding:13px;margin-top:12px;background:#fff;color:#b80b1b;border:1px solid #f0cbd0;border-radius:12px;font-weight:800;font-size:13px}
 
 .b3-stores-demo-note{margin:0 0 9px;font-size:10px;font-weight:750;letter-spacing:.025em;color:#8b6666;line-height:1.4}
+
+/* Kilometraje automático de sedes: visible sin botones adicionales. */
+.b3-home-store-distance{font-size:11px!important;font-weight:800;color:#b61323!important}
+.b3-store-km{font-size:12px;font-weight:700;color:#b61323}
