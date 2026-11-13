@@ -348,3 +348,18 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-modal-saved .b3-address-actions button{font-size:12px}
 .b3-modal-saved .b3-address-card p{font-size:12px;margin:6px 0}
 @media(max-width:355px){.b3-address-top{gap:6px}.b3-address-default{font-size:9px;padding:5px}.b3-address-actions{gap:5px}}
+
+
+/* Customer profile — restrained mobile form. */
+.b3-profile-page{padding-bottom:96px}
+.b3-profile-hero{display:flex;gap:12px;align-items:center;margin:8px 0 22px;padding:14px;border:1px solid #f0e5e6;background:#fffafa;border-radius:16px}
+.b3-profile-hero strong{display:block;font-size:15px;color:#20171b}
+.b3-profile-hero small{display:block;margin-top:4px;font-size:12px;color:#74666a;line-height:1.35}
+.b3-profile-avatar{display:flex;width:52px;height:52px;min-width:52px;align-items:center;justify-content:center;background:#c71924;color:white;border-radius:16px}
+.b3-profile-page>label:not(.b3-profile-optin){display:block;margin:13px 0}
+.b3-profile-page input[type="date"]{width:100%;min-height:43px;border:1px solid #dedbde;border-radius:10px;padding:9px;background:#fff;color:#211b1d;margin-top:6px}
+.b3-profile-optin{display:flex;align-items:flex-start;gap:10px;background:#fff;border:1px solid #eee1e3;border-radius:15px;padding:15px;margin:19px 0 10px}
+.b3-profile-optin input{width:19px;height:19px;flex-shrink:0;accent-color:#c71924;margin-top:2px}
+.b3-profile-optin span{display:flex;flex-direction:column;gap:5px}
+.b3-profile-optin strong{font-size:14px;color:#211719}
+.b3-profile-optin small{font-size:12px;line-height:1.4;color:#71696a}
