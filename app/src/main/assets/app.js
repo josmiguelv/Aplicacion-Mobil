@@ -509,9 +509,9 @@ function profileScreen(){
 function saveProfile(){
  const first=v('profile-first'),last=v('profile-last'),phone=v('profile-phone'),email=v('profile-email'),birthday=v('profile-birthday');
  if(first.length<2||last.length<2)return toast('Completa tus nombres y apellidos');
- if(phone&&!/^9\\d{8}$/.test(phone))return toast('Ingresa un celular peruano válido de 9 dígitos');
- if(email&&!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email))return toast('Verifica el correo electrónico');
- if(birthday&&(birthday>new Date().toISOString().slice(0,10)||!/^\\d{4}-\\d{2}-\\d{2}$/.test(birthday)))return toast('Fecha de nacimiento inválida');
+ if(phone&&!/^9\d{8}$/.test(phone))return toast('Ingresa un celular peruano válido de 9 dígitos');
+ if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return toast('Verifica el correo electrónico');
+ if(birthday&&(birthday>new Date().toISOString().slice(0,10)||!/^\d{4}-\d{2}-\d{2}$/.test(birthday)))return toast('Fecha de nacimiento inválida');
  st.profile={...st.profile,first,last,phone,email,birthday,marketingConsent:!!document.getElementById('profile-marketing')?.checked};
  save();nav('cuenta');toast('Perfil actualizado en este dispositivo');
 }
