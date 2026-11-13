@@ -105,7 +105,7 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .fulfillment-title{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
 .fulfillment-title h2{font-size:17px;line-height:1.3;margin:0;font-weight:800;color:#181818}
 .fulfillment-title small{font-size:11px;color:#6d6d6d}
-.fulfillment-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.fulfillment-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
 .fulfillment-tile{min-width:0;min-height:78px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border:1.5px solid #e7e7e7;background:#fff;border-radius:14px;color:#222;font-weight:700;font-size:12px;padding:9px 3px;cursor:pointer}
 .fulfillment-tile svg{color:#e30613;flex-shrink:0}
 .fulfillment-tile.selected{border-color:#e30613;background:#fff0f0;color:#b90510;box-shadow:inset 0 0 0 1px #e30613}
@@ -116,3 +116,23 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 
 .published-promotion{min-height:130px;background:linear-gradient(120deg,#bf0b18,#5f0810);color:#fff;padding:20px;border-radius:16px;display:flex;align-items:center}
 .published-promotion .promo-info{position:static;display:flex;flex-direction:column;gap:6px;color:#fff}.published-promotion strong{color:#fff;font-size:22px}.published-promotion small{color:#fff;opacity:.85}
+/* V11 Pide y Retira: no photos, status and hours only when published. */
+.pickup-page{padding-bottom:calc(105px + env(safe-area-inset-bottom))}
+.pickup-origin{padding:13px 0 18px;display:flex;flex-direction:column;gap:9px}
+.pickup-origin .smallprint{margin:0}
+.pickup-origin label{display:block;font-size:13px;font-weight:650}
+.pickup-origin input{width:100%;max-width:100%;box-sizing:border-box;min-height:44px;margin-top:7px}
+.pickup-list{display:flex;flex-direction:column;gap:11px;margin-top:8px}
+.pickup-location{border:1px solid #e9e9e9;border-radius:16px;background:#fff;padding:15px;box-shadow:0 3px 12px #0000000b}
+.pickup-location.unavailable{background:#fafafa}
+.pickup-location-title{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:9px;margin-bottom:9px}
+.pickup-location-title b{font-size:clamp(14px,3.6vw,17px);line-height:1.35}
+.pickup-status{font-size:11px;font-weight:750;display:inline-flex;border-radius:20px;padding:5px 9px;line-height:1.4}
+.pickup-status.open{background:#e7f7eb;color:#17652b}
+.pickup-status.closed{background:#f4e9e9;color:#9a1720}
+.pickup-address,.pickup-distance{display:flex;align-items:flex-start;gap:7px;color:#555;font-size:12px;line-height:1.45;margin:7px 0}
+.pickup-address svg,.pickup-distance svg{flex:none}
+.pickup-actions{display:flex;align-items:center;justify-content:flex-end;margin-top:12px;min-height:36px}
+.pickup-actions .primary{min-width:125px;min-height:42px}
+.pickup-actions .smallprint{font-size:12px;color:#777;margin:0}
+@media(max-width:350px){.pickup-location{padding:12px}.pickup-location-title{flex-direction:column;gap:5px}.pickup-actions .primary{width:100%}}
