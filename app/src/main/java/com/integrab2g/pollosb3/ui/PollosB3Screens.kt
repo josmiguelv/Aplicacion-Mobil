@@ -96,6 +96,9 @@ private enum class Destination(val label: String, val icon: ImageVector) {
 fun PollosB3App() {
     var selected by remember { mutableStateOf(Destination.HOME) }
     var chatOpen by remember { mutableStateOf(false) }
+    var fulfillment by remember { mutableStateOf<OrderContext?>(null) }
+    var pendingMode by remember { mutableStateOf<FulfillmentMode?>(null) }
+    val fulfillmentService = remember { CatalogFulfillmentService() }
 
     MaterialTheme(
         colorScheme = lightColorScheme(
@@ -145,13 +148,20 @@ fun PollosB3App() {
             when (selected) {
                 Destination.HOME -> PollosB3Home(
                     modifier = Modifier.padding(padding),
-                    onOpenMenu = { selected = Destination.MENU }
+                    onOpenMenu = { selected = Destination.MENU },
+                    currentOrder = fulfillment,
+                    onChooseFulfillment = { pendingMode = it }
                 )
                 else -> PlaceholderPage(
                     title = selected.label,
                     modifier = Modifier.padding(padding)
                 )
             }
+        }
+        pendingMode?.let { mode ->
+            FulfillmentSetup(mode = mode, service = fulfillmentService,
+                onDismiss = { pendingMode = null },
+                onConfirmed = { newOrder -> fulfillment = newOrder; pendingMode = null })
         }
         if (chatOpen) {
             AlertDialog(
@@ -167,7 +177,9 @@ fun PollosB3App() {
 }
 
 @Composable
-fun PollosB3Home(modifier: Modifier = Modifier, onOpenMenu: () -> Unit = {}) {
+fun PollosB3Home(modifier: Modifier = Modifier, onOpenMenu: () -> Unit = {},
+    currentOrder: OrderContext? = null,
+    onChooseFulfillment: (FulfillmentMode) -> Unit = {}) {
     var search by remember { mutableStateOf("") }
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -216,6 +228,11 @@ fun PollosB3Home(modifier: Modifier = Modifier, onOpenMenu: () -> Unit = {}) {
                         )
                     }
                 }
+            }
+        }
+        item {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                FulfillmentSelector(currentOrder, onChooseFulfillment)
             }
         }
         item {
