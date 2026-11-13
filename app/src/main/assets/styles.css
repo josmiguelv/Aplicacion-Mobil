@@ -296,3 +296,30 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 /* Kilometraje automático de sedes: visible sin botones adicionales. */
 .b3-home-store-distance{font-size:11px!important;font-weight:800;color:#b61323!important}
 .b3-store-km{font-size:12px;font-weight:700;color:#b61323}
+
+
+/* Trabaja con nosotros — approved vacancies from the B3 admin catalog. */
+.b3-jobs,.b3-job-detail{padding-bottom:95px}
+.b3-job-list{display:grid;gap:12px;margin-top:16px}
+.b3-job-card{display:flex;gap:13px;width:100%;text-align:left;border:1px solid #e9e9ec;border-radius:17px;background:#fff;padding:10px;min-height:148px;box-shadow:0 3px 15px rgba(26,20,23,.055);align-items:stretch}
+.b3-job-thumb{width:112px;min-width:112px;min-height:132px;border-radius:12px;background:#f3f3f4;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.b3-job-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.b3-job-copy{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+.b3-job-copy strong{font-size:15px;line-height:1.24;color:#19151a}
+.b3-job-copy small{font-size:12px;color:#646069;line-height:1.4;overflow-wrap:anywhere}
+.b3-job-location{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#9b2229;font-weight:650}
+.b3-job-more{display:flex;align-items:center;justify-content:center;gap:5px;background:#ffcc13;border-radius:10px;color:#20150b;font-size:12px;font-weight:800;padding:9px;margin-top:auto}
+.b3-job-hero{width:100%;border-radius:18px;overflow:hidden;background:#f6f6f6;margin:12px 0 15px;display:grid;place-items:center}
+.b3-job-hero img{width:100%;max-height:390px;object-fit:contain;display:block}
+.b3-job-placeholder{height:175px;display:grid;place-items:center}
+.b3-job-detail h2{font-size:21px;line-height:1.23;margin:5px 0 12px}
+.b3-job-facts{border:1px solid #eaeaea;border-radius:14px;overflow:hidden;margin:14px 0}
+.b3-job-facts>div{display:grid;grid-template-columns:105px 1fr;gap:10px;padding:12px;font-size:12px;border-bottom:1px solid #eee}
+.b3-job-facts>div:last-child{border-bottom:0}
+.b3-job-facts strong{color:#9e1821}
+.b3-job-facts span{line-height:1.4;white-space:pre-wrap;overflow-wrap:anywhere}
+.b3-job-section{border:1px solid #eee;border-radius:14px;padding:15px;margin:13px 0}
+.b3-job-section h3{margin:0 0 8px;font-size:15px}
+.b3-job-section p{font-size:13px;line-height:1.6;white-space:pre-line;margin:0}
+.b3-job-whatsapp{width:100%;min-height:54px;display:flex;align-items:center;justify-content:center;gap:10px;background:#078c31;color:#fff;border:0;border-radius:15px;font-size:15px;font-weight:800;margin:20px 0}
+@media(max-width:360px){.b3-job-thumb{width:94px;min-width:94px}.b3-job-card{gap:10px}.b3-job-copy strong{font-size:14px}}
