@@ -249,3 +249,10 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
  .home-v10 .reco{transition:none}
  .home-v10 .reco-scroll{scroll-behavior:auto}
 }
+
+/* Un producto publicado sin fotografía se muestra sin imágenes de demostración. */
+.b3-no-photo{background:#f5f3f1;display:block}
+.hero-card>.b3-no-photo.hero-img{position:absolute;inset:0;width:100%;height:100%}
+.reco .b3-no-photo{height:112px;width:100%}
+.item-picture .b3-no-photo{width:100%;height:100%}
+.promo-card>.b3-no-photo{position:absolute;inset:0;width:100%;height:100%}
