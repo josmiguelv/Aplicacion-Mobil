@@ -25,7 +25,11 @@ const enterApp=()=>{localStorage.setItem('b3-visitor-entered-v9','1');enteredBef
 const icons={home:'<path d="m3 10 9-7 9 7v10h-6v-6H9v6H3z"/>',menu:'<path d="M5 5h14M5 10h14M5 15h14M5 20h14"/>',orders:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 9h6M9 13h6"/>',account:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',chat:'<path d="M21 11a8 8 0 0 1-8 8 9 9 0 0 1-4-.9L3 21l2-5a8 8 0 1 1 16-5z"/>',back:'<path d="m15 5-7 7 7 7"/>',cart:'<path d="M3 4h2l2 12h11l3-9H6M10 21h.01M18 21h.01"/>',close:'<path d="m5 5 14 14M19 5 5 19"/>',pin:'<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/>',chev:'<path d="m9 5 7 7-7 7"/>',bike:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M7 17l4-8 5 8M11 9H7M14 7h4l2 3"/>',store:'<path d="M3 10V5h18v5l-2 3H5zM5 13v8h14v-8M9 21v-6h6v6"/>',check:'<path d="m4 12 5 5 11-11"/>',card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',help:'<circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 1 1 5 2l-2 2v2M12 18h.01"/>',minus:'<path d="M5 12h14"/>',plus:'<path d="M5 12h14M12 5v14"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',trash:'<path d="M4 7h16M10 4h4M6 7l1 14h10l1-14M10 11v6M14 11v6"/>',map:'<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15"/>',mail:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="m2 7 10 7 10-7"/>',bell:'<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 21h4"/>',shield:'<path d="M12 2 4 6v6c0 5 4 8 8 10 4-2 8-5 8-10V6z"/>',book:'<path d="M3 4h8v16H3zM13 4h8v16h-8z"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',phone:'<path d="M7 3 4 6c0 8 6 14 14 14l3-3-5-4-3 3a12 12 0 0 1-5-5l3-3z"/>'};
 const ic=(n,s=22)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[n]||icons.info}</svg>`;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const cash=n=>'S/ '+Number(n).toFixed(2), photo=p=>p.imageUrl&&(/^https:\/\//.test(p.imageUrl)||p.imageUrl.startsWith('/api/v1/mobile/images/'))?(p.imageUrl.startsWith('/')?API_BASE+p.imageUrl:p.imageUrl):`images/combo${p.pic||p}.jpg`;
+// Las nueve fotos entregadas solo sustituyen recursos visuales de la DEMOSTRACIÓN local.
+// Un catálogo publicado siempre utiliza las fotos autorizadas por la web administrativa.
+const demoPhotoById={p1:5,p2:8,p3:1,p4:3,p5:2,p6:4,p7:7,p8:6};
+const previewPhoto=n=>`images/b3-photo-${String(n).padStart(2,'0')}.webp`;
+const cash=n=>'S/ '+Number(n).toFixed(2), photo=p=>p.imageUrl&&(/^https:\/\//.test(p.imageUrl)||p.imageUrl.startsWith('/api/v1/mobile/images/'))?(p.imageUrl.startsWith('/')?API_BASE+p.imageUrl:p.imageUrl):(!st.configReady&&(p.previewPhoto||demoPhotoById[p.id])?previewPhoto(p.previewPhoto||demoPhotoById[p.id]):`images/combo${p.pic||p}.jpg`);
 // App ID is registered by the super administrator. An app ID maps to exactly one tenant on the server.
 const APP_ID='com.integrab2g.pollosb3';
 // Configure only an HTTPS address when the admin server is deployed; never place credentials in Android.
@@ -162,6 +166,7 @@ function main(){return `<div class="shell">${demo}<main class="main">${st.tab===
 function home(){
   const featured=products.slice(0,4);
   const f=featured.length?featured[st.carousel%featured.length]:null;
+  const heroVisual=f&&!st.configReady&&f.id==='p4'?{...f,previewPhoto:9}:f;
   const promos=st.configReady?publishedPromotions:products.filter(p=>p.cat==='Promociones');
   const pp=promos.length?promos[st.promo%promos.length]:null;
   const shop=shops.length?shops[st.local%shops.length]:null;
@@ -170,7 +175,7 @@ function home(){
     <section class="hero-carousel" aria-label="Destacados referenciales">
       <div class="section-head section-head-featured"><h2>Para disfrutar hoy</h2><span class="minor">Productos de demostración</span></div>
       ${f?`<div class="hero-card" data-product="${f.id}" tabindex="0" role="button" aria-label="Ver ${esc(f.name)}">
-        ${img(f,'hero-img')}
+        ${img(heroVisual,'hero-img')}
         <div class="hero-scrim"></div>
         <div class="hero-top"><span>DESTACADO</span><small>${st.carousel%featured.length+1} / ${featured.length}</small></div>
         <div class="hero-overlay"><div><span class="hero-label">POLLOS B3</span><h2>${esc(f.name)}</h2><strong>${cash(f.price)}</strong></div></div>
