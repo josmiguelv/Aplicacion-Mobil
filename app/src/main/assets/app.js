@@ -19,6 +19,8 @@ if(st.mode==='dine_in')st.mode=''; // Retirado de la navegación de Pollos B3 V1
 // Demo-only flag: stores whether the visitor already chose guest access or test sign-in.
 let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
+let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
+
 const enterApp=()=>{localStorage.setItem('b3-visitor-entered-v9','1');enteredBefore=true;nav('inicio')};
 const icons={home:'<path d="m3 10 9-7 9 7v10h-6v-6H9v6H3z"/>',menu:'<path d="M5 5h14M5 10h14M5 15h14M5 20h14"/>',orders:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 9h6M9 13h6"/>',account:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',chat:'<path d="M21 11a8 8 0 0 1-8 8 9 9 0 0 1-4-.9L3 21l2-5a8 8 0 1 1 16-5z"/>',back:'<path d="m15 5-7 7 7 7"/>',cart:'<path d="M3 4h2l2 12h11l3-9H6M10 21h.01M18 21h.01"/>',close:'<path d="m5 5 14 14M19 5 5 19"/>',pin:'<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/>',chev:'<path d="m9 5 7 7-7 7"/>',bike:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M7 17l4-8 5 8M11 9H7M14 7h4l2 3"/>',store:'<path d="M3 10V5h18v5l-2 3H5zM5 13v8h14v-8M9 21v-6h6v6"/>',check:'<path d="m4 12 5 5 11-11"/>',card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',help:'<circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 1 1 5 2l-2 2v2M12 18h.01"/>',minus:'<path d="M5 12h14"/>',plus:'<path d="M5 12h14M12 5v14"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',trash:'<path d="M4 7h16M10 4h4M6 7l1 14h10l1-14M10 11v6M14 11v6"/>',map:'<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15"/>',mail:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="m2 7 10 7 10-7"/>',bell:'<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 21h4"/>',shield:'<path d="M12 2 4 6v6c0 5 4 8 8 10 4-2 8-5 8-10V6z"/>',book:'<path d="M3 4h8v16H3zM13 4h8v16h-8z"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',phone:'<path d="M7 3 4 6c0 8 6 14 14 14l3-3-5-4-3 3a12 12 0 0 1-5-5l3-3z"/>'};
 const ic=(n,s=22)=>`<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[n]||icons.info}</svg>`;
@@ -68,7 +70,70 @@ function nav(tab){st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
 const img=(p,c='')=>`<img class="${c}" src="${photo(p)}" alt="Imagen referencial de ${esc(p.name||'combo')}">`;
-function main(){return `<div class="shell">${demo}<main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${cartCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(subtotal())}</b><span>${cartCount()}</span></button>`:''}${bar()}</div>`}
+function deliveryConfigured(){return st.mode==='delivery'&&!!st.profile.address&&!!st.profile.district}
+function pickupConfigured(){return st.mode==='pickup'&&!!shops.find(s=>s.id===st.store&&eligibleForPickup(s))}
+function headerAddress(){
+ if(deliveryConfigured())return {label:'Enviar a:',line1:st.profile.address,line2:[st.profile.district,st.profile.reference].filter(Boolean).join(' · ')};
+ const store=shops.find(s=>s.id===st.store);
+ if(pickupConfigured()&&store)return {label:'Retiro en:',line1:store.name,line2:[store.address,straightDistanceKm(store)].filter(Boolean).join(' · ')};
+ return {label:'¿Para dónde hoy?',line1:'Configura tu entrega o recojo',line2:''};
+}
+function fulfillmentHeader(){
+ const value=headerAddress();
+ return \`<header class="b3-compact-header">
+   <img class="b3-header-logo" src="images/pollosb3-header-logo.png" alt="Pollos B3">
+   <button class="b3-header-target" type="button" data-open-fulfillment="1" aria-label="Cambiar modalidad o destino del pedido">
+    <span class="b3-destination-label">\${esc(value.label)}</span>
+    <span class="b3-destination-line">\${esc(value.line1)}</span>
+    \${value.line2?\`<span class="b3-destination-line">\${esc(value.line2)}</span>\`:''}
+   </button>
+   <button class="b3-header-edit" type="button" data-open-fulfillment="1" aria-label="Editar destino">\${ic('chev',19)}</button>
+ </header>\`;
+}
+function fulfillmentOverlay(){
+ if(!fulfillmentModal)return '';
+ const choice=fulfillmentModal==='choose';
+ const pick=fulfillmentModal==='pickup';
+ const delivery=fulfillmentModal==='delivery';
+ const rows=shops.filter(s=>s.active!==false).sort((a,b)=>{
+  const x=straightDistanceKm(a),y=straightDistanceKm(b);
+  return x&&y?Number.parseFloat(x)-Number.parseFloat(y):x?-1:y?1:0;
+ });
+ const modeButtons=\`<div class="b3-modal-modes">
+   <button type="button" data-modal-mode="delivery" class="\${st.mode==='delivery'?'chosen':''}">\${ic('bike',25)}<strong>Pollo Delivery</strong><small>A donde estés</small></button>
+   <button type="button" data-modal-mode="pickup" class="\${st.mode==='pickup'?'chosen':''}">\${ic('store',25)}<strong>Pide y Retira</strong><small>Recoge en el local</small></button>
+ </div>\`;
+ const deliveryPanel=\`<div class="b3-modal-fields">
+   <button type="button" class="outline full" data-gps="1">\${ic('pin',18)} Usar mi ubicación actual</button>
+   <p class="smallprint">\${st.coords?'Ubicación GPS recibida. Verifica tu dirección.':'La ubicación es opcional. Puedes ingresar la dirección manualmente.'}</p>
+   <label>Dirección completa<input id="address" autocomplete="street-address" placeholder="Calle, avenida, número e interior" value="\${esc(st.profile.address)}"></label>
+   <label>Distrito<input id="district" placeholder="Distrito de entrega" value="\${esc(st.profile.district||'')}"></label>
+   <label>Referencia (opcional)<input id="reference" placeholder="Piso, puerta u otras indicaciones" value="\${esc(st.profile.reference||'')}"></label>
+   <div class="b3-modal-info">La cobertura y el costo de reparto deben verificarse con la web administrativa. No se asignará una tienda sin validación.</div>
+   <button type="button" class="primary full" data-modal-save-delivery="1">Confirmar dirección</button>
+ </div>\`;
+ const pickupPanel=\`<div class="b3-modal-fields">
+   <button type="button" class="outline full" data-gps="1">\${ic('pin',18)} Usar mi ubicación actual</button>
+   <label>O ingresa una dirección de referencia<input id="pickup-origin" placeholder="Calle, número y distrito" value="\${esc(st.pickupOrigin||'')}"></label>
+   <button type="button" class="outline full" data-pickup-origin-save="1">Guardar dirección de referencia</button>
+   \${!st.coords?'<p class="smallprint">Los kilómetros se mostrarán cuando se conozcan las coordenadas de origen y destino.</p>':''}
+   <div class="b3-modal-store-list">\${rows.length?rows.map(s=>\`<div class="b3-modal-store">
+     <div class="b3-store-top"><strong>\${esc(s.name)}</strong>\${storeStatusHtml(s)}</div>
+     \${s.address?\`<span class="b3-store-line">\${ic('pin',15)}\${esc(s.address)}</span>\`:''}
+     \${straightDistanceKm(s)?\`<span class="b3-store-line">\${ic('map',15)}\${esc(straightDistanceKm(s))}</span>\`:''}
+     \${eligibleForPickup(s)?\`<button type="button" class="b3-store-select" data-modal-pickstore="\${esc(s.id)}">Elegir local \${ic('chev',16)}</button>\`:'<span class="b3-store-unavailable">No disponible para retiro inmediato</span>'}
+   </div>\`).join(''):'<div class="notice">No hay locales activos publicados por la web administrativa.</div>'}</div>
+ </div>\`;
+ return \`<div class="b3-modal-backdrop" data-modal-close="1">
+   <section class="b3-modal-sheet" role="dialog" aria-modal="true" aria-label="Configurar pedido">
+    <div class="b3-modal-handle" aria-hidden="true"></div>
+    <div class="b3-modal-heading"><div><h2>\${choice?'¿Para dónde hoy?':delivery?'Pollo Delivery':'Pide y Retira'}</h2><p>\${choice?'Elige cómo quieres recibir tu pedido':delivery?'Indica dónde entregaremos tu pedido':'Elige dónde recogerás tu pedido'}</p></div>
+    <button type="button" data-modal-close="1" class="b3-modal-close" aria-label="Cerrar">\${ic('close',21)}</button></div>
+    \${!choice?\`<button type="button" class="b3-modal-back" data-modal-back="1">\${ic('back',17)} Cambiar modalidad</button>\`:''}
+    \${choice?modeButtons:delivery?deliveryPanel:pickupPanel}
+   </section></div>\`;
+}
+function main(){return \`<div class="shell">\${demo}<main class="main">\${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>\${cartCount()?\`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">\${ic('cart',19)}<b>\${cash(subtotal())}</b><span>\${cartCount()}</span></button>\`:''}\${bar()}</div>\${fulfillmentOverlay()}\`}
 function home(){
   const featured=products.slice(0,4);
   const f=featured.length?featured[st.carousel%featured.length]:null;
@@ -76,21 +141,7 @@ function home(){
   const pp=promos.length?promos[st.promo%promos.length]:null;
   const shop=shops.length?shops[st.local%shops.length]:null;
   return `<div class="home home-v10">
-    <header class="home-masthead">
-      <div class="home-masthead-top"><span class="home-brandname">POLLOS <strong>B3</strong></span><span class="home-location-label">${ic('pin',14)} Santa Anita</span></div>
-      <p class="home-eyebrow">EL SABOR QUE NOS UNE</p>
-      <h1>¿Qué se te <em>antoja hoy?</em></h1>
-      <form class="home-search" id="home-search-form" role="search">
-        <span class="search-glyph" aria-hidden="true">${ic('menu',19)}</span>
-        <input id="home-search-field" type="search" enterkeyhint="search" autocomplete="off" maxlength="60" placeholder="Buscar pollo, combo o bebida" aria-label="Buscar en la carta">
-        <button type="submit" aria-label="Buscar productos">${ic('chev',19)}</button>
-      </form>
-    </header>
-    <section class="fulfillment-home" aria-label="Cómo recibir tu pedido">
-      <div class="fulfillment-title"><h2>¿Cómo quieres tu pedido?</h2><small>Puedes cambiarlo después</small></div>
-      <div class="fulfillment-tiles">${[['delivery','bike','Pollo Delivery'],['pickup','store','Pide y Retira']].map(([m,icon,label])=>`<button type="button" class="fulfillment-tile ${st.mode===m?'selected':''}" data-mode="${m}" aria-pressed="${st.mode===m}">${ic(icon,23)}<span>${label}</span></button>`).join('')}</div>
-      ${st.mode?`<p class="selected-fulfillment">${ic('check',15)} ${modeName(st.mode)} · ${st.store?esc(shops.find(x=>x.id===st.store)?.name||'Local pendiente'):'Selecciona local o dirección'}</p>`:''}
-    </section>
+    ${fulfillmentHeader()}
     <section class="hero-carousel" aria-label="Destacados referenciales">
       <div class="section-head section-head-featured"><h2>Para disfrutar hoy</h2><span class="minor">Productos de demostración</span></div>
       ${f?`<div class="hero-card" data-product="${f.id}" tabindex="0" role="button" aria-label="Ver ${esc(f.name)}">
