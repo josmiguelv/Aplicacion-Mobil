@@ -20,6 +20,7 @@ if(st.mode==='dine_in')st.mode=''; // Retirado de la navegación de Pollos B3 V1
 let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
+let selectedHomeStore=null;
 
 const enterApp=()=>{localStorage.setItem('b3-visitor-entered-v9','1');enteredBefore=true;nav('inicio')};
 const icons={home:'<path d="m3 10 9-7 9 7v10h-6v-6H9v6H3z"/>',menu:'<path d="M5 5h14M5 10h14M5 15h14M5 20h14"/>',orders:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 9h6M9 13h6"/>',account:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',chat:'<path d="M21 11a8 8 0 0 1-8 8 9 9 0 0 1-4-.9L3 21l2-5a8 8 0 1 1 16-5z"/>',back:'<path d="m15 5-7 7 7 7"/>',cart:'<path d="M3 4h2l2 12h11l3-9H6M10 21h.01M18 21h.01"/>',close:'<path d="m5 5 14 14M19 5 5 19"/>',pin:'<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/>',chev:'<path d="m9 5 7 7-7 7"/>',bike:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M7 17l4-8 5 8M11 9H7M14 7h4l2 3"/>',store:'<path d="M3 10V5h18v5l-2 3H5zM5 13v8h14v-8M9 21v-6h6v6"/>',check:'<path d="m4 12 5 5 11-11"/>',card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',help:'<circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 1 1 5 2l-2 2v2M12 18h.01"/>',minus:'<path d="M5 12h14"/>',plus:'<path d="M5 12h14M12 5v14"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',trash:'<path d="M4 7h16M10 4h4M6 7l1 14h10l1-14M10 11v6M14 11v6"/>',map:'<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15"/>',mail:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="m2 7 10 7 10-7"/>',bell:'<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 21h4"/>',shield:'<path d="M12 2 4 6v6c0 5 4 8 8 10 4-2 8-5 8-10V6z"/>',book:'<path d="M3 4h8v16H3zM13 4h8v16h-8z"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',phone:'<path d="M7 3 4 6c0 8 6 14 14 14l3-3-5-4-3 3a12 12 0 0 1-5-5l3-3z"/>'};
@@ -94,8 +95,8 @@ const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configRea
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*products.find(p=>p.id===x.id).price,0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 function toast(t){st.notice=t;render();setTimeout(()=>{if(st.notice===t){st.notice='';render()}},2400)}
-function screen(n){if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render()}
-function nav(tab){fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
+function screen(n){selectedHomeStore=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render()}
+function nav(tab){selectedHomeStore=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
 const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${st.configReady?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
@@ -162,7 +163,70 @@ function fulfillmentOverlay(){
     ${choice?modeButtons:delivery?deliveryPanel:pickupPanel}
    </section></div>`;
 }
-function main(){return `<div class="shell">${demo}<main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${cartCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(subtotal())}</b><span>${cartCount()}</span></button>`:''}${bar()}</div>${fulfillmentOverlay()}`}
+function main(){return `<div class="shell">${demo}<main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${cartCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(subtotal())}</b><span>${cartCount()}</span></button>`:''}${bar()}</div>${selectedHomeStore?homeStoreSheet():fulfillmentOverlay()}`}
+
+/* Published B3 stores, one independently configurable schedule for each weekday. */
+const storeDayNames=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+const storeDayKeys=['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+const validStoreTime=t=>typeof t==='string'&&/^([01]\\d|2[0-3]):[0-5]\\d$/.test(t);
+function storeTime(t){const [h,m]=t.split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+(h<12?' a. m.':' p. m.')}
+function storeDailyHours(s){
+ const raw=s.weeklyHours||s.weekly_hours||s.openingHours||s.opening_hours||s.schedule||s.hours;
+ return storeDayNames.map((day,i)=>{
+  if(!raw)return {day,description:'Horario no publicado'};
+  const item=Array.isArray(raw)?raw[i]:raw[storeDayKeys[i]]??raw[day.toLowerCase()]??raw[String((i+1)%7)];
+  if(item===false||item?.closed===true||item?.isClosed===true)return {day,description:'Cerrado'};
+  if(typeof item==='string')return {day,description:item.slice(0,90)};
+  const open=item?.open||item?.opensAt||item?.openTime||item?.open_time;
+  const close=item?.close||item?.closesAt||item?.closeTime||item?.close_time;
+  return {day,description:validStoreTime(open)&&validStoreTime(close)?storeTime(open)+' – '+storeTime(close):'Horario no publicado'};
+ });
+}
+function storeBadge(s){
+ if(s.hoursConfigured!==true||typeof s.isOpen!=='boolean')return '<span class="b3-store-badge unknown">Horario pendiente</span>';
+ return '<span class="b3-store-badge '+(s.isOpen?'open':'closed')+'">'+(s.isOpen?'Abierto':'Cerrado')+'</span>';
+}
+function storeToday(s){
+ if(s.hoursConfigured!==true||typeof s.isOpen!=='boolean')return 'Horario no confirmado';
+ if(s.isOpen&&validStoreTime(s.closesAt))return 'Cierra a las '+storeTime(s.closesAt);
+ if(!s.isOpen&&validStoreTime(s.opensAt))return 'Abre a las '+storeTime(s.opensAt);
+ return s.isOpen?'En horario de atención':'Fuera del horario de atención';
+}
+function storeHomeCard(s){
+ return '<button class="b3-home-store-card" type="button" data-home-store="'+esc(String(s.id))+'">'+
+ '<span class="b3-home-store-symbol">'+ic('store',24)+'</span>'+
+ '<span class="b3-home-store-copy"><strong>'+esc(s.name||'Sede')+'</strong><small>'+esc(s.address||s.addr||'Dirección no publicada')+'</small><small>'+esc(storeToday(s))+'</small></span>'+
+ '<span class="b3-home-store-end">'+storeBadge(s)+ic('chev',17)+'</span></button>';
+}
+function homeStores(){
+ const rows=shops.filter(s=>s.active!==false);
+ if(!rows.length)return '<section class="block b3-home-stores"><div class="section-head"><h2>Nuestras sedes</h2></div><p class="b3-stores-empty">Las sedes aparecerán cuando Pollos B3 publique sus datos oficiales.</p></section>';
+ const index=((st.local%rows.length)+rows.length)%rows.length;
+ return '<section class="block b3-home-stores" aria-label="Nuestras sedes"><div class="section-head"><h2>Nuestras sedes</h2><span class="minor">Desliza para explorar</span></div>'+
+ storeHomeCard(rows[index])+'<div class="dots" role="group" aria-label="Cambiar sede">'+rows.map((_,i)=>'<button data-home-local="'+i+'" aria-label="Sede '+(i+1)+'" aria-pressed="'+(index===i)+'" class="'+(index===i?'on':'')+'"></button>').join('')+'</div></section>';
+}
+function homeStoreSheet(){
+ const s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!s)return '';
+ const addr=s.address||s.addr||'';
+ const cover=s.photoUrl||s.photo_url||s.imageUrl||s.image_url||'';
+ const safeCover=typeof cover==='string'&&/^https:\/\//i.test(cover);
+ const directions=addr?'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(addr+', Perú'):'';
+ const km=straightDistanceKm(s);
+ return '<div class="b3-modal-backdrop b3-store-detail-backdrop" data-home-store-close="1"><section class="b3-modal-sheet b3-store-detail" role="dialog" aria-modal="true" aria-label="Información de sede">'+
+ '<div class="b3-modal-handle" aria-hidden="true"></div><button class="b3-store-detail-close" data-home-store-close="1" aria-label="Cerrar">'+ic('close',20)+'</button>'+
+ (safeCover?'<img class="b3-store-detail-photo" src="'+esc(cover)+'" alt="Fotografía publicada de la sede">':'')+
+ '<h2>'+esc(s.name||'Sede')+'</h2><p>'+ic('pin',16)+' '+esc(addr||'Dirección no publicada')+'</p>'+
+ '<div class="b3-store-detail-status">'+storeBadge(s)+'<span>'+esc(storeToday(s))+'</span></div>'+
+ '<p class="b3-store-km">'+ic('map',16)+' '+esc(km||'Distancia pendiente de ubicación y coordenadas')+'</p>'+
+ '<div class="b3-store-detail-week"><h3>'+ic('clock',18)+' Horario de atención</h3>'+
+ storeDailyHours(s).map(d=>'<div><span>'+d.day+'</span><strong>'+esc(d.description)+'</strong></div>').join('')+'</div>'+
+ '<div class="b3-store-detail-modes"><h3>¿Cómo deseas recibir tu pedido?</h3>'+
+ '<button data-home-store-mode="delivery" '+(!storeAllowed(s,'delivery')?'disabled':'')+'>'+ic('bike',20)+'<span>Pollo Delivery<small>Verificar cobertura</small></span>'+ic('chev',17)+'</button>'+
+ '<button data-home-store-mode="pickup" '+(!eligibleForPickup(s)?'disabled':'')+'>'+ic('store',20)+'<span>Pide y Retira<small>Recoge en esta sede</small></span>'+ic('chev',17)+'</button></div>'+
+ (directions?'<button class="b3-store-directions" data-openmaps="'+esc(directions)+'">'+ic('map',18)+' Cómo llegar</button>':'')+
+ '</section></div>';
+}
+
 function home(){
   const featured=products.slice(0,4);
   const f=featured.length?featured[st.carousel%featured.length]:null;
@@ -192,6 +256,7 @@ function home(){
       ${pp?(st.configReady?`<div class="promo-card published-promotion" role="status"><div class="promo-info"><span>PROMOCIÓN PUBLICADA</span><strong>${esc(pp.title)}</strong><small>Consulta los productos participantes en la carta.</small></div></div>`:`<div class="promo-card" data-product="${pp.id}" role="button" tabindex="0" aria-label="Ver ${esc(pp.name)}">${img(pp)}<div class="promo-info"><span>COMBO DE DEMOSTRACIÓN</span><strong>${esc(pp.name)}</strong><b>${cash(pp.price)}</b></div></div>`):'<div class="notice">No hay promociones publicadas.</div>'}
       <div class="dots" role="group" aria-label="Cambiar combo">${promos.map((_,i)=>`<button aria-label="Combo ${i+1}" aria-pressed="${st.promo%promos.length===i}" data-promo="${i}" class="${st.promo%promos.length===i?'on':''}"></button>`).join('')}</div>
     </section>
+    ${homeStores()}
     <p class="home-disclaimer">Prototipo de Pollos B3. Imágenes, nombres comerciales, precios, combos y ubicaciones sujetos a confirmación antes de la publicación.</p>
   </div>`;
 }
@@ -262,7 +327,11 @@ function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkReady(){if(!st.mode){screen('choice');return false} if((st.mode==='pickup'||st.mode==='dine_in')&&!st.store){screen('locations');return false}if(st.mode==='delivery'&&(!st.profile.address||st.configReady&&!st.quote)){screen('address');return false}return true}
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return toast('Producto no disponible para esta demo');let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido')}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+if(b.hasAttribute('data-home-store-close')){if(b.classList.contains('b3-store-detail-backdrop')&&e.target!==b)return;selectedHomeStore=null;render();return}
+if(b.dataset.homeStore){selectedHomeStore=b.dataset.homeStore;render();return}
+if(b.dataset.homeLocal!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('local',Number(b.dataset.homeLocal));return}
+if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){st.mode='pickup';void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;fulfillmentModal='delivery';render()}return}
 if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
 if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;fulfillmentModal=null;render();return}
 if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
@@ -316,12 +385,12 @@ root.addEventListener('input',e=>{if(e.target.id==='cash'){st.cash=e.target.valu
 const carouselMotion={active:null,touch:null,pauseUntil:0,suppressClickUntil:0};
 const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches===true;
 function carouselCount(kind){
- return kind==='hero'?Math.min(products.length,4):
+ return kind==='hero'?Math.min(products.length,4):kind==='local'?shops.filter(s=>s.active!==false).length:
   (st.configReady?publishedPromotions.length:products.filter(p=>p.cat==='Promociones').length);
 }
 function updateCarouselDots(kind){
- const section=root.querySelector(kind==='hero'?'.hero-carousel':'.promos');
- const key=kind==='hero'?'carousel':'promo',len=carouselCount(kind);
+ const section=root.querySelector(kind==='hero'?'.hero-carousel':kind==='local'?'.b3-home-stores':'.promos');
+ const key=kind==='hero'?'carousel':kind==='local'?'local':'promo',len=carouselCount(kind);
  if(!section||!len)return;
  section.querySelectorAll('.dots button').forEach((b,i)=>{
   const active=i===st[key]%len;b.classList.toggle('on',active);
@@ -329,12 +398,12 @@ function updateCarouselDots(kind){
  });
 }
 function prepareCarouselMotion(kind,target,direction){
- if(st.stage!=='app'||st.tab!=='inicio'||fulfillmentModal||carouselMotion.active)return null;
- const len=carouselCount(kind),key=kind==='hero'?'carousel':'promo';
+ if(st.stage!=='app'||st.tab!=='inicio'||fulfillmentModal||selectedHomeStore||carouselMotion.active)return null;
+ const len=carouselCount(kind),key=kind==='hero'?'carousel':kind==='local'?'local':'promo';
  if(len<2)return null;
  const from=((st[key]%len)+len)%len,to=((target%len)+len)%len;
  if(to===from)return null;
- const selector=kind==='hero'?'.hero-carousel .hero-card':'.promos .promo-card';
+ const selector=kind==='hero'?'.hero-carousel .hero-card':kind==='local'?'.b3-home-stores .b3-home-store-card':'.promos .promo-card';
  const current=root.querySelector(selector);
  if(!current)return null;
  const width=current.getBoundingClientRect().width,height=current.getBoundingClientRect().height;
@@ -345,7 +414,7 @@ function prepareCarouselMotion(kind,target,direction){
  finally{st[key]=from;}
  if(!next)return null;
  const stage=document.createElement('div');
- stage.className='b3-carousel-motion '+(kind==='hero'?'b3-motion-hero':'b3-motion-promo');
+ stage.className='b3-carousel-motion '+(kind==='hero'?'b3-motion-hero':kind==='local'?'b3-motion-local':'b3-motion-promo');
  stage.style.height=height+'px';
  current.replaceWith(stage);
  stage.append(current,next);
@@ -386,7 +455,7 @@ function completeCarouselMotion(m,accepted){
 }
 function animateCarousel(kind,index,direction,automatic=false){
  const len=carouselCount(kind);if(len<2||carouselMotion.active)return;
- const key=kind==='hero'?'carousel':'promo';
+ const key=kind==='hero'?'carousel':kind==='local'?'local':'promo';
  const from=((st[key]%len)+len)%len,to=((index%len)+len)%len;
  if(from===to)return;
  const dir=direction||((to-from+len)%len <=len/2?1:-1);
@@ -406,14 +475,14 @@ function animateCarousel(kind,index,direction,automatic=false){
  requestAnimationFrame(dragFrame);
 }
 root.addEventListener('click',e=>{
- if(Date.now()<carouselMotion.suppressClickUntil&&e.target.closest('.hero-carousel,.promos')){
+ if(Date.now()<carouselMotion.suppressClickUntil&&e.target.closest('.hero-carousel,.promos,.b3-home-stores')){
   e.preventDefault();e.stopImmediatePropagation();
  }
 },true);
 root.addEventListener('touchstart',e=>{
- const el=e.target.closest('.hero-carousel .hero-card,.promos .promo-card');
+ const el=e.target.closest('.hero-carousel .hero-card,.promos .promo-card,.b3-home-stores .b3-home-store-card');
  if(!el||e.touches.length!==1||e.target.closest('[data-quick]'))return;
- const kind=el.classList.contains('hero-card')?'hero':'promo';
+ const kind=el.classList.contains('hero-card')?'hero':el.classList.contains('b3-home-store-card')?'local':'promo';
  if(carouselCount(kind)<2||carouselMotion.active)return;
  carouselMotion.touch={kind,startX:e.touches[0].clientX,startY:e.touches[0].clientY,dx:0,motion:null};
 }, {passive:true});
@@ -424,7 +493,7 @@ root.addEventListener('touchmove',e=>{
  if(!t.motion&&Math.abs(dy)>Math.abs(dx)*.9){carouselMotion.touch=null;return}
  if(e.cancelable)e.preventDefault();
  if(!t.motion){
-  const len=carouselCount(t.kind),key=t.kind==='hero'?'carousel':'promo';
+  const len=carouselCount(t.kind),key=t.kind==='hero'?'carousel':kind==='local'?'local':'promo';
   const direction=dx<0?1:-1;
   t.motion=prepareCarouselMotion(t.kind,(st[key]+direction+len)%len,direction);
   if(!t.motion){carouselMotion.touch=null;return}
@@ -445,7 +514,7 @@ root.addEventListener('touchend',()=>finishCarouselTouch(false),{passive:true});
 root.addEventListener('touchcancel',()=>finishCarouselTouch(true),{passive:true});
 let autoplayTick=0;
 setInterval(()=>{
- if(st.stage!=='app'||st.tab!=='inicio'||document.hidden||fulfillmentModal||
+ if(st.stage!=='app'||st.tab!=='inicio'||document.hidden||fulfillmentModal||selectedHomeStore||
     carouselMotion.active||carouselMotion.touch||Date.now()<carouselMotion.pauseUntil)return;
  autoplayTick++;
  if(autoplayTick%5!==0)return;
@@ -453,11 +522,15 @@ setInterval(()=>{
  const heroCount=carouselCount('hero');
  if(heroCount>1)animateCarousel('hero',(st.carousel+1)%heroCount,1,true);
  setTimeout(()=>{
-  if(st.stage!=='app'||st.tab!=='inicio'||document.hidden||fulfillmentModal||
+  if(st.stage!=='app'||st.tab!=='inicio'||document.hidden||fulfillmentModal||selectedHomeStore||
      carouselMotion.active||carouselMotion.touch||Date.now()<carouselMotion.pauseUntil)return;
   const promoCount=carouselCount('promo');
   if(promoCount>1)animateCarousel('promo',(st.promo+1)%promoCount,1,true);
  },750);
+ setTimeout(()=>{
+  if(st.stage!=='app'||st.tab!=='inicio'||document.hidden||fulfillmentModal||selectedHomeStore||carouselMotion.active||carouselMotion.touch||Date.now()<carouselMotion.pauseUntil)return;
+  const count=carouselCount('local');if(count>1)animateCarousel('local',(st.local+1)%count,1,true);
+ },1550);
 },1000);
 window.handleB3Back=()=>{
   if(st.stage==='app'){
