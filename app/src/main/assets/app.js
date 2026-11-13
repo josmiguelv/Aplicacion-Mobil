@@ -12,7 +12,33 @@ const products=[
 {id:'p8',name:'Bebida',price:0,cat:'Bebidas',pic:4,desc:'Consultar presentaciones y precios. No disponible para compra de prueba.',disabled:true}
 ];
 // Los locales se reciben exclusivamente desde el catálogo publicado en la web administrativa.
-const shops=[];
+const defaultStoreSchedule=()=>Object.fromEntries(
+ ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
+ .map(day=>[day,{open:'11:00',close:'23:00'}])
+);
+// Datos de demostración solicitados: sin validación oficial de direcciones ni horarios.
+const demoStores=[
+ {id:'demo-nogales',name:'Los Nogales',address:'Av. Los Nogales 482, Santa Anita, Lima'},
+ {id:'demo-eucaliptos',name:'Eucaliptos',address:'Av. Los Eucaliptos 1163, Santa Anita, Lima'},
+ {id:'demo-ficus',name:'Los Ficus',address:'Av. Francisco Bolognesi 673, Santa Anita, Lima'},
+ {id:'demo-universal',name:'Universal',address:'Av. Túpac Amaru 650, Santa Anita, Lima'}
+].map(s=>({...s,isDemo:true,active:true,hoursConfigured:true,
+ weeklyHours:defaultStoreSchedule(),pickup_enabled:true,delivery_enabled:true,latitude:null,longitude:null}));
+const shops=[...demoStores];
+function resetDemoStores(){shops.splice(0,shops.length,...demoStores)}
+function demoStoreClock(s){
+ const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'America/Lima',weekday:'long',
+  hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
+ const field=k=>parts.find(x=>x.type===k)?.value;
+ const slot=s.weeklyHours?.[(field('weekday')||'').toLowerCase()];
+ if(!slot?.open||!slot?.close)return {isOpen:false,closesAt:'',opensAt:''};
+ const nowMinute=Number(field('hour'))*60+Number(field('minute'));
+ const minutes=t=>Number(t.slice(0,2))*60+Number(t.slice(3));
+ const opening=minutes(slot.open),closing=minutes(slot.close);
+ return {isOpen:closing>opening?nowMinute>=opening&&nowMinute<closing:nowMinute>=opening||nowMinute<closing,
+  closesAt:slot.close,opensAt:slot.open};
+}
+
 let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,mode:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
 try{const d=JSON.parse(localStorage.getItem(K)||'{}');st={...st,...d,stage:'splash',tab:'inicio',selected:'',notice:'',configReady:false,quote:null}}catch{}
 if(st.mode==='dine_in')st.mode=''; // Retirado de la navegación de Pollos B3 V11.
@@ -43,7 +69,7 @@ let publishedPromotions=[];
 function modeName(m){return ({delivery:'Pollo Delivery',pickup:'Pide y Retira'})[m]||'Elegir modalidad'}
 const storeAllowed=(s,m)=>!!s&&s.active!==false&&(m==='delivery'?s.delivery_enabled!==false:m==='pickup'?s.pickup_enabled!==false:s.dine_in_enabled===true);
 function availableStores(m){return shops.filter(s=>s.active!==false)}
-function localIsClosed(s){return s.hoursConfigured===true&&s.isOpen===false}
+function localIsClosed(s){return s.isDemo?!demoStoreClock(s).isOpen:s.hoursConfigured===true&&s.isOpen===false}
 function eligibleForPickup(s){return !!s&&s.active!==false&&s.pickup_enabled===true&&!localIsClosed(s)}
 function storeStatusHtml(s){
  if(s.hoursConfigured!==true)return '';
@@ -59,7 +85,7 @@ function straightDistanceKm(s){
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
 function paymentOptions(){const s=shops.find(x=>x.id===st.store);const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];if(!st.configReady||!s)return choices;return choices.filter(x=>(s.paymentMethods?.[st.mode]||[]).includes(x[0]))}
-async function fetchConfig(){if(!API_BASE)return;try{const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!r.ok)throw Error('API unavailable');const c=await r.json();if(!c.ready){shops.splice(0);st.configReady=false;st.quote=null;render();return}if(!Array.isArray(c.products)||!Array.isArray(c.stores))throw Error('Invalid schema');const revisionChanged=st.configReady&&publishedRevision!==c.revision;publishedRevision=c.revision;publishedPromotions=Array.isArray(c.promotions)?c.promotions:[];if(st.cart.length&&revisionChanged){st.cart=[];st.notice='La carta publicada cambió. Verifica y vuelve a agregar los productos.'}products.splice(0,products.length,...c.products.map(x=>({id:x.id,name:x.name,desc:x.description||'',cat:x.category||'Otros',price:Number(x.pricePen),imageUrl:x.image_url||x.imageUrl,pic:1})));shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm),deliveryFeePen:x.deliveryFeePen})));st.configReady=true;if(revisionChanged){st.quote=null;st.store=''}save();render()}catch(err){console.warn('Catalog unavailable; demo unchanged',err.message)}}
+async function fetchConfig(){if(!API_BASE)return;try{const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!r.ok)throw Error('API unavailable');const c=await r.json();if(!c.ready){resetDemoStores();st.configReady=false;st.quote=null;render();return}if(!Array.isArray(c.products)||!Array.isArray(c.stores))throw Error('Invalid schema');const revisionChanged=st.configReady&&publishedRevision!==c.revision;publishedRevision=c.revision;publishedPromotions=Array.isArray(c.promotions)?c.promotions:[];if(st.cart.length&&revisionChanged){st.cart=[];st.notice='La carta publicada cambió. Verifica y vuelve a agregar los productos.'}products.splice(0,products.length,...c.products.map(x=>({id:x.id,name:x.name,desc:x.description||'',cat:x.category||'Otros',price:Number(x.pricePen),imageUrl:x.image_url||x.imageUrl,pic:1})));shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm),deliveryFeePen:x.deliveryFeePen})));st.configReady=true;if(revisionChanged){st.quote=null;st.store=''}save();render()}catch(err){console.warn('Catalog unavailable; demo unchanged',err.message)}}
 async function resolveDelivery(){
  if(!st.configReady||!API_BASE||!st.coords){
   st.quote=null;st.store='';save();fulfillmentModal=null;nav('inicio');
@@ -183,10 +209,12 @@ function storeDailyHours(s){
  });
 }
 function storeBadge(s){
+ if(s.isDemo){const state=demoStoreClock(s);return '<span class="b3-store-badge '+(state.isOpen?'open':'closed')+'">'+(state.isOpen?'Abierto':'Cerrado')+'</span>'}
  if(s.hoursConfigured!==true||typeof s.isOpen!=='boolean')return '<span class="b3-store-badge unknown">Horario pendiente</span>';
  return '<span class="b3-store-badge '+(s.isOpen?'open':'closed')+'">'+(s.isOpen?'Abierto':'Cerrado')+'</span>';
 }
 function storeToday(s){
+ if(s.isDemo){const state=demoStoreClock(s);return (state.isOpen?'Cierra a las '+storeTime(state.closesAt):'Abre a las '+storeTime(state.opensAt))+' · horario de prueba'}
  if(s.hoursConfigured!==true||typeof s.isOpen!=='boolean')return 'Horario no confirmado';
  if(s.isOpen&&validStoreTime(s.closesAt))return 'Cierra a las '+storeTime(s.closesAt);
  if(!s.isOpen&&validStoreTime(s.opensAt))return 'Abre a las '+storeTime(s.opensAt);
@@ -203,7 +231,7 @@ function homeStores(){
  if(!rows.length)return '<section class="block b3-home-stores"><div class="section-head"><h2>Nuestras sedes</h2></div><p class="b3-stores-empty">Las sedes aparecerán cuando Pollos B3 publique sus datos oficiales.</p></section>';
  const index=((st.local%rows.length)+rows.length)%rows.length;
  return '<section class="block b3-home-stores" aria-label="Nuestras sedes"><div class="section-head"><h2>Nuestras sedes</h2><span class="minor">Desliza para explorar</span></div>'+
- storeHomeCard(rows[index])+'<div class="dots" role="group" aria-label="Cambiar sede">'+rows.map((_,i)=>'<button data-home-local="'+i+'" aria-label="Sede '+(i+1)+'" aria-pressed="'+(index===i)+'" class="'+(index===i?'on':'')+'"></button>').join('')+'</div></section>';
+ (rows[index].isDemo?'<p class="b3-stores-demo-note">SEDES DE DEMOSTRACIÓN · Direcciones y horarios por confirmar</p>':'')+storeHomeCard(rows[index])+'<div class="dots" role="group" aria-label="Cambiar sede">'+rows.map((_,i)=>'<button data-home-local="'+i+'" aria-label="Sede '+(i+1)+'" aria-pressed="'+(index===i)+'" class="'+(index===i?'on':'')+'"></button>').join('')+'</div></section>';
 }
 function homeStoreSheet(){
  const s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!s)return '';
@@ -215,7 +243,7 @@ function homeStoreSheet(){
  return '<div class="b3-modal-backdrop b3-store-detail-backdrop" data-home-store-close="1"><section class="b3-modal-sheet b3-store-detail" role="dialog" aria-modal="true" aria-label="Información de sede">'+
  '<div class="b3-modal-handle" aria-hidden="true"></div><button class="b3-store-detail-close" data-home-store-close="1" aria-label="Cerrar">'+ic('close',20)+'</button>'+
  (safeCover?'<img class="b3-store-detail-photo" src="'+esc(cover)+'" alt="Fotografía publicada de la sede">':'')+
- '<h2>'+esc(s.name||'Sede')+'</h2><p>'+ic('pin',16)+' '+esc(addr||'Dirección no publicada')+'</p>'+
+ (s.isDemo?'<p class="b3-stores-demo-note">DATOS DE DEMOSTRACIÓN · Pendientes de confirmación</p>':'')+'<h2>'+esc(s.name||'Sede')+'</h2><p>'+ic('pin',16)+' '+esc(addr||'Dirección no publicada')+'</p>'+
  '<div class="b3-store-detail-status">'+storeBadge(s)+'<span>'+esc(storeToday(s))+'</span></div>'+
  '<p class="b3-store-km">'+ic('map',16)+' '+esc(km||'Distancia pendiente de ubicación y coordenadas')+'</p>'+
  '<div class="b3-store-detail-week"><h3>'+ic('clock',18)+' Horario de atención</h3>'+
