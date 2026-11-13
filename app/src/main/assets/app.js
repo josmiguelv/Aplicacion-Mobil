@@ -105,15 +105,15 @@ function headerAddress(){
 }
 function fulfillmentHeader(){
  const value=headerAddress();
- return \`<header class="b3-compact-header">
+ return `<header class="b3-compact-header">
    <img class="b3-header-logo" src="images/pollosb3-header-logo.png" alt="Pollos B3">
    <button class="b3-header-target" type="button" data-open-fulfillment="1" aria-label="Cambiar modalidad o destino del pedido">
-    <span class="b3-destination-label">\${esc(value.label)}</span>
-    <span class="b3-destination-line">\${esc(value.line1)}</span>
-    \${value.line2?\`<span class="b3-destination-line">\${esc(value.line2)}</span>\`:''}
+    <span class="b3-destination-label">${esc(value.label)}</span>
+    <span class="b3-destination-line">${esc(value.line1)}</span>
+    ${value.line2?`<span class="b3-destination-line">${esc(value.line2)}</span>`:''}
    </button>
-   <button class="b3-header-edit" type="button" data-open-fulfillment="1" aria-label="Editar destino">\${ic('chev',19)}</button>
- </header>\`;
+   <button class="b3-header-edit" type="button" data-open-fulfillment="1" aria-label="Editar destino">${ic('chev',19)}</button>
+ </header>`;
 }
 function fulfillmentOverlay(){
  if(!fulfillmentModal)return '';
@@ -124,41 +124,41 @@ function fulfillmentOverlay(){
   const x=straightDistanceKm(a),y=straightDistanceKm(b);
   return x&&y?Number.parseFloat(x)-Number.parseFloat(y):x?-1:y?1:0;
  });
- const modeButtons=\`<div class="b3-modal-modes">
-   <button type="button" data-modal-mode="delivery" class="\${st.mode==='delivery'?'chosen':''}">\${ic('bike',25)}<strong>Pollo Delivery</strong><small>A donde estés</small></button>
-   <button type="button" data-modal-mode="pickup" class="\${st.mode==='pickup'?'chosen':''}">\${ic('store',25)}<strong>Pide y Retira</strong><small>Recoge en el local</small></button>
- </div>\`;
- const deliveryPanel=\`<div class="b3-modal-fields">
-   <button type="button" class="outline full" data-gps="1">\${ic('pin',18)} Usar mi ubicación actual</button>
-   <p class="smallprint">\${st.coords?'Ubicación GPS recibida. Verifica tu dirección.':'La ubicación es opcional. Puedes ingresar la dirección manualmente.'}</p>
-   <label>Dirección completa<input id="address" autocomplete="street-address" placeholder="Calle, avenida, número e interior" value="\${esc(st.profile.address)}"></label>
-   <label>Distrito<input id="district" placeholder="Distrito de entrega" value="\${esc(st.profile.district||'')}"></label>
-   <label>Referencia (opcional)<input id="reference" placeholder="Piso, puerta u otras indicaciones" value="\${esc(st.profile.reference||'')}"></label>
+ const modeButtons=`<div class="b3-modal-modes">
+   <button type="button" data-modal-mode="delivery" class="${st.mode==='delivery'?'chosen':''}">${ic('bike',25)}<strong>Pollo Delivery</strong><small>A donde estés</small></button>
+   <button type="button" data-modal-mode="pickup" class="${st.mode==='pickup'?'chosen':''}">${ic('store',25)}<strong>Pide y Retira</strong><small>Recoge en el local</small></button>
+ </div>`;
+ const deliveryPanel=`<div class="b3-modal-fields">
+   <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual</button>
+   <p class="smallprint">${st.coords?'Ubicación GPS recibida. Verifica tu dirección.':'La ubicación es opcional. Puedes ingresar la dirección manualmente.'}</p>
+   <label>Dirección completa<input id="address" autocomplete="street-address" placeholder="Calle, avenida, número e interior" value="${esc(st.profile.address)}"></label>
+   <label>Distrito<input id="district" placeholder="Distrito de entrega" value="${esc(st.profile.district||'')}"></label>
+   <label>Referencia (opcional)<input id="reference" placeholder="Piso, puerta u otras indicaciones" value="${esc(st.profile.reference||'')}"></label>
    <div class="b3-modal-info">La cobertura y el costo de reparto deben verificarse con la web administrativa. No se asignará una tienda sin validación.</div>
    <button type="button" class="primary full" data-modal-save-delivery="1">Confirmar dirección</button>
- </div>\`;
- const pickupPanel=\`<div class="b3-modal-fields">
-   <button type="button" class="outline full" data-gps="1">\${ic('pin',18)} Usar mi ubicación actual</button>
-   <label>O ingresa una dirección de referencia<input id="pickup-origin" placeholder="Calle, número y distrito" value="\${esc(st.pickupOrigin||'')}"></label>
+ </div>`;
+ const pickupPanel=`<div class="b3-modal-fields">
+   <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual</button>
+   <label>O ingresa una dirección de referencia<input id="pickup-origin" placeholder="Calle, número y distrito" value="${esc(st.pickupOrigin||'')}"></label>
    <button type="button" class="outline full" data-pickup-origin-save="1">Guardar dirección de referencia</button>
-   \${!st.coords?'<p class="smallprint">Los kilómetros se mostrarán cuando se conozcan las coordenadas de origen y destino.</p>':''}
-   <div class="b3-modal-store-list">\${rows.length?rows.map(s=>\`<div class="b3-modal-store">
-     <div class="b3-store-top"><strong>\${esc(s.name)}</strong>\${storeStatusHtml(s)}</div>
-     \${s.address?\`<span class="b3-store-line">\${ic('pin',15)}\${esc(s.address)}</span>\`:''}
-     \${straightDistanceKm(s)?\`<span class="b3-store-line">\${ic('map',15)}\${esc(straightDistanceKm(s))}</span>\`:''}
-     \${eligibleForPickup(s)?\`<button type="button" class="b3-store-select" data-modal-pickstore="\${esc(s.id)}">Elegir local \${ic('chev',16)}</button>\`:'<span class="b3-store-unavailable">No disponible para retiro inmediato</span>'}
-   </div>\`).join(''):'<div class="notice">No hay locales activos publicados por la web administrativa.</div>'}</div>
- </div>\`;
- return \`<div class="b3-modal-backdrop" data-modal-close="1">
+   ${!st.coords?'<p class="smallprint">Los kilómetros se mostrarán cuando se conozcan las coordenadas de origen y destino.</p>':''}
+   <div class="b3-modal-store-list">${rows.length?rows.map(s=>`<div class="b3-modal-store">
+     <div class="b3-store-top"><strong>${esc(s.name)}</strong>${storeStatusHtml(s)}</div>
+     ${s.address?`<span class="b3-store-line">${ic('pin',15)}${esc(s.address)}</span>`:''}
+     ${straightDistanceKm(s)?`<span class="b3-store-line">${ic('map',15)}${esc(straightDistanceKm(s))}</span>`:''}
+     ${eligibleForPickup(s)?`<button type="button" class="b3-store-select" data-modal-pickstore="${esc(s.id)}">Elegir local ${ic('chev',16)}</button>`:'<span class="b3-store-unavailable">No disponible para retiro inmediato</span>'}
+   </div>`).join(''):'<div class="notice">No hay locales activos publicados por la web administrativa.</div>'}</div>
+ </div>`;
+ return `<div class="b3-modal-backdrop" data-modal-close="1">
    <section class="b3-modal-sheet" role="dialog" aria-modal="true" aria-label="Configurar pedido">
     <div class="b3-modal-handle" aria-hidden="true"></div>
-    <div class="b3-modal-heading"><div><h2>\${choice?'¿Para dónde hoy?':delivery?'Pollo Delivery':'Pide y Retira'}</h2><p>\${choice?'Elige cómo quieres recibir tu pedido':delivery?'Indica dónde entregaremos tu pedido':'Elige dónde recogerás tu pedido'}</p></div>
-    <button type="button" data-modal-close="1" class="b3-modal-close" aria-label="Cerrar">\${ic('close',21)}</button></div>
-    \${!choice?\`<button type="button" class="b3-modal-back" data-modal-back="1">\${ic('back',17)} Cambiar modalidad</button>\`:''}
-    \${choice?modeButtons:delivery?deliveryPanel:pickupPanel}
-   </section></div>\`;
+    <div class="b3-modal-heading"><div><h2>${choice?'¿Para dónde hoy?':delivery?'Pollo Delivery':'Pide y Retira'}</h2><p>${choice?'Elige cómo quieres recibir tu pedido':delivery?'Indica dónde entregaremos tu pedido':'Elige dónde recogerás tu pedido'}</p></div>
+    <button type="button" data-modal-close="1" class="b3-modal-close" aria-label="Cerrar">${ic('close',21)}</button></div>
+    ${!choice?`<button type="button" class="b3-modal-back" data-modal-back="1">${ic('back',17)} Cambiar modalidad</button>`:''}
+    ${choice?modeButtons:delivery?deliveryPanel:pickupPanel}
+   </section></div>`;
 }
-function main(){return \`<div class="shell">\${demo}<main class="main">\${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>\${cartCount()?\`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">\${ic('cart',19)}<b>\${cash(subtotal())}</b><span>\${cartCount()}</span></button>\`:''}\${bar()}</div>\${fulfillmentOverlay()}\`}
+function main(){return `<div class="shell">${demo}<main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${cartCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(subtotal())}</b><span>${cartCount()}</span></button>`:''}${bar()}</div>${fulfillmentOverlay()}`}
 function home(){
   const featured=products.slice(0,4);
   const f=featured.length?featured[st.carousel%featured.length]:null;
