@@ -27,7 +27,10 @@ const cash=n=>'S/ '+Number(n).toFixed(2), photo=p=>p.imageUrl&&(/^https:\/\//.te
 // App ID is registered by the super administrator. An app ID maps to exactly one tenant on the server.
 const APP_ID='com.integrab2g.pollosb3';
 // Configure only an HTTPS address when the admin server is deployed; never place credentials in Android.
-const API_BASE='';
+const API_BASE=(()=>{
+ const raw=window.AndroidBridge?.getApiBase?.()||'';
+ return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):'';
+})();
 let publishedRevision=0;
 let publishedPromotions=[];
 function modeName(m){return ({delivery:'Pollo Delivery',pickup:'Pide y Retira'})[m]||'Elegir modalidad'}
