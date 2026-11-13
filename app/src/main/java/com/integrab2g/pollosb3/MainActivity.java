@@ -39,6 +39,11 @@ public class MainActivity extends Activity {
                 );
             });
         }
+        /** Public HTTPS base URL only, never secrets or API tokens in Android. */
+        @JavascriptInterface public String getApiBase() {
+            String configured = getString(R.string.b3_api_base).trim();
+            return configured.startsWith("https://") ? configured : "";
+        }
         @JavascriptInterface public void requestLocation() {
             runOnUiThread(() -> requestOptionalLocation());
         }
