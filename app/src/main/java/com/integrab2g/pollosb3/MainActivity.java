@@ -34,6 +34,35 @@ public class MainActivity extends Activity {
     private WebViewAssetLoader assetLoader;
     private LocationManager locationManager;
     private LocationListener currentListener;
+    private boolean appLinkPageReady = false;
+    private boolean pendingOpenHome = false;
+    private static final String LOCAL_APP_URL = "https://appassets.androidplatform.net/assets/index.html";
+
+    /** Accept only the exact Pollos B3 HTTPS entry point; never redirect arbitrary URLs. */
+    private static boolean isPollosB3OpenLink(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return false;
+        Uri uri = intent.getData();
+        return uri != null && "https".equalsIgnoreCase(uri.getScheme()) &&
+            "app.integra-b2g.com".equalsIgnoreCase(uri.getHost()) &&
+            "/abrir".equals(uri.getPath()) && uri.getPort() == -1 &&
+            uri.getUserInfo() == null;
+    }
+
+    /** Reuses the existing WebView SPA and navigates only after its handlers exist. */
+    private void dispatchPendingAppLink() {
+        if (!pendingOpenHome || !appLinkPageReady || web == null) return;
+        pendingOpenHome = false;
+        web.evaluateJavascript("window.b3OpenFromLink && window.b3OpenFromLink()", null);
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (isPollosB3OpenLink(intent)) {
+            pendingOpenHome = true;
+            dispatchPendingAppLink();
+        }
+    }
     private final class Bridge {
         @JavascriptInterface public void setSplash(final boolean splash) {
             runOnUiThread(() -> {
@@ -181,12 +210,20 @@ public class MainActivity extends Activity {
     }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        pendingOpenHome = isPollosB3OpenLink(getIntent());
         web = new WebView(this);
         web.setBackgroundColor(Color.rgb(9, 0, 1));
         assetLoader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
                 .build();
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (LOCAL_APP_URL.equals(url)) {
+                    appLinkPageReady = true;
+                    dispatchPendingAppLink();
+                }
+            }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 return assetLoader.shouldInterceptRequest(request.getUrl());
             }
@@ -207,7 +244,7 @@ public class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         web.addJavascriptInterface(new Bridge(), "AndroidBridge");
         setContentView(web);
-        web.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+        web.loadUrl(LOCAL_APP_URL);
     }
     @Override public void onBackPressed() {
         web.evaluateJavascript("window.handleB3Back ? window.handleB3Back() : false", result -> {
@@ -215,6 +252,8 @@ public class MainActivity extends Activity {
         });
     }
     @Override protected void onDestroy() {
+        appLinkPageReady = false;
+        pendingOpenHome = false;
         if (locationManager != null && currentListener != null) try {locationManager.removeUpdates(currentListener);}catch(Exception ignored){}
         if (web != null) { web.removeJavascriptInterface("AndroidBridge"); web.destroy(); web=null; }
         super.onDestroy();
