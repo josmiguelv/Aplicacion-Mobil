@@ -168,7 +168,7 @@ function pickSavedAddress(id,quote=false){
  if(quote){void resolveDelivery()}else{render();toast('Dirección seleccionada')}
 }
 function savedAddressesHtml(selectForDelivery=false){
- return savedAddresses().map(a=>`<article class="b3-address-card">
+ return [...savedAddresses()].sort((a,b)=>Number(b.id===st.defaultAddressId)-Number(a.id===st.defaultAddressId)).map(a=>`<article class="b3-address-card">
   <div class="b3-address-top"><span class="b3-address-symbol">${ic(a.kind==='Trabajo'?'store':'home',20)}</span><strong>${esc(a.label||a.kind||'Otra dirección')}</strong>${st.defaultAddressId===a.id?'<span class="b3-address-default">Predeterminada</span>':''}</div>
   <p>${esc(a.street)} · ${esc(a.district)}, Lima</p>${a.reference?`<small>Referencia: ${esc(a.reference)}</small>`:''}
   <div class="b3-address-actions">
@@ -490,7 +490,6 @@ function checkReady(){if(!st.mode){screen('choice');return false} if((st.mode===
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return toast('Producto no disponible para esta demo');let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido')}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
 root.addEventListener('click',e=>{let b=e.target.closest('[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
-if(b.dataset.addressCreate||b.dataset.addressEdit||b.dataset.addressDelete||b.dataset.addressDefault||b.dataset.addressChoose||b.hasAttribute('data-address-save')){} 
 if(b.dataset.vacancy){selectedVacancyId=b.dataset.vacancy;screen('vacancyDetail');return}
 if(b.dataset.applyVacancy){applyVacancy(b.dataset.applyVacancy);return}
 if(b.hasAttribute('data-home-store-close')){if(b.classList.contains('b3-store-detail-backdrop')&&e.target!==b)return;selectedHomeStore=null;render();return}
