@@ -23,6 +23,8 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
       - name: Verify JavaScript syntax
         run: node --check app/src/main/assets/app.js
+      - name: Verify favorite, tracking and review helpers
+        run: node scripts/order-experience-smoke.mjs
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
       - name: Attach APK for tests
