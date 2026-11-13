@@ -106,6 +106,20 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
             } catch (Exception ignored) { }
         }
+        /** Open an HTTPS complaints book or official consumer guidance outside the WebView. */
+        @JavascriptInterface public void openComplaintsBook(String url) {
+            try {
+                Uri uri = Uri.parse(url);
+                if (!"https".equals(uri.getScheme()) || uri.getHost() == null ||
+                    uri.getUserInfo() != null || uri.getPort() != -1) return;
+                String host = uri.getHost().toLowerCase(java.util.Locale.ROOT);
+                if (host.equals("localhost") || host.equals("0.0.0.0") ||
+                    host.endsWith(".local") || host.endsWith(".internal") ||
+                    host.matches("[0-9.]+") || host.contains("..") ||
+                    url.length() > 1024) return;
+                startActivity(new Intent(Intent.ACTION_VIEW, uri));
+            } catch (Exception ignored) { }
+        }
         @JavascriptInterface public void openMaps(String url) {
             try {
                 Uri uri = Uri.parse(url);
