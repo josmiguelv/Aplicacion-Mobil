@@ -187,11 +187,6 @@ function home(){
       ${pp?(st.configReady?`<div class="promo-card published-promotion" role="status"><div class="promo-info"><span>PROMOCIÓN PUBLICADA</span><strong>${esc(pp.title)}</strong><small>Consulta los productos participantes en la carta.</small></div></div>`:`<div class="promo-card" data-product="${pp.id}" role="button" tabindex="0" aria-label="Ver ${esc(pp.name)}">${img(pp)}<div class="promo-info"><span>COMBO DE DEMOSTRACIÓN</span><strong>${esc(pp.name)}</strong><b>${cash(pp.price)}</b></div></div>`):'<div class="notice">No hay promociones publicadas.</div>'}
       <div class="dots" role="group" aria-label="Cambiar combo">${promos.map((_,i)=>`<button aria-label="Combo ${i+1}" aria-pressed="${st.promo%promos.length===i}" data-promo="${i}" class="${st.promo%promos.length===i?'on':''}"></button>`).join('')}</div>
     </section>
-    <section class="block locality" aria-label="Locales de Pollos B3">
-      <div class="section-head"><h2>Nuestros locales</h2><span class="minor">${shops.length?"Locales publicados":""}</span></div>
-      ${shop?`<div class="store-carousel"><div class="store-pic">${ic('store',40)}</div><div class="store-content"><span class="store-eyebrow">PUNTO DE ATENCIÓN</span><strong>${esc(shop.name)}</strong>${shop.address?`<p>${esc(shop.address)}</p>`:''}${storeStatusHtml(shop)}<button data-store="${shop.id}">Ver detalles ${ic('chev',16)}</button></div></div>`:'<div class="notice">No hay locales activos publicados.</div>'}
-      <div class="dots" role="group" aria-label="Cambiar local">${shops.map((_,i)=>`<button aria-label="Local ${i+1}" aria-pressed="${st.local%shops.length===i}" data-local="${i}" class="${st.local%shops.length===i?'on':''}"></button>`).join('')}</div>
-    </section>
     <p class="home-disclaimer">Prototipo de Pollos B3. Imágenes, nombres comerciales, precios, combos y ubicaciones sujetos a confirmación antes de la publicación.</p>
   </div>`;
 }
