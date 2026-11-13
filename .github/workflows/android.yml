@@ -25,6 +25,8 @@ jobs:
         run: node --check app/src/main/assets/app.js
       - name: Verify favorite, tracking and review helpers
         run: node scripts/order-experience-smoke.mjs
+      - name: Verify Pollos B3 App Links integration
+        run: node scripts/app-links-smoke.mjs
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
       - name: Attach APK for tests
