@@ -90,8 +90,8 @@ const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configRea
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*products.find(p=>p.id===x.id).price,0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 function toast(t){st.notice=t;render();setTimeout(()=>{if(st.notice===t){st.notice='';render()}},2400)}
-function screen(n){if(n==='login' && st.stage==='app')loginFromAccount=true;st.stage=n;window.scrollTo({top:0});render()}
-function nav(tab){st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
+function screen(n){if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render()}
+function nav(tab){fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
 const img=(p,c='')=>`<img class="${c}" src="${photo(p)}" alt="Imagen referencial de ${esc(p.name||'combo')}">`;
