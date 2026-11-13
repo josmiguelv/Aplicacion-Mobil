@@ -9,7 +9,7 @@ const order={id:'B3-DEMO-TEST',ts:1000,demo:true,status:'RECEIVED',items:[{id:'p
 const state={orders:[order],favorite:null};
 const fakeDate={now:()=>0};
 const sandbox={st:state,Date:fakeDate,product:id=>id==='p1'?{id,name:'Producto de prueba',price:30}:null,
- cash:n=>'S/ '+n,esc:v=>String(v),ic:()=>'<svg></svg>',img:()=>'<img>',heading:()=>'',render:()=>{},
+ cash:n=>'S/ '+n,esc:v=>String(v),ic:()=>'<svg></svg>',img:()=>'<img class="b3-favorite-thumb">',heading:()=>'',render:()=>{},
  selectedOrderId:order.id,favoritePromptOrderId:null,reviewSheetOrderId:null,reviewScore:0,reviewTags:[]};
 const helpers=runInNewContext(app.slice(start,end)+'\n({ORDER_STAGES,isDemoOrder,orderDelivered,activeTracking,normalizedBasket,trackCard,orderDetail,favoriteCard,favoritePrompt,reviewSheet,afterOrderDelivered})',sandbox);
 assert.deepEqual(Array.from(helpers.ORDER_STAGES,x=>x[0]),['RECEIVED','ACCEPTED','PREPARING','DISPATCH','DELIVERED']);
