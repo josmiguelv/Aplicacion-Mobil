@@ -341,7 +341,7 @@ const ORDER_STAGES=[['RECEIVED','Pedido recibido','Registrado'],['ACCEPTED','Ace
 const TRACK_WINDOW=3600000;
 function isDemoOrder(o){return o?.demo===true||String(o?.id||'').startsWith('B3-DEMO-')}
 function orderDelivered(o){return o?.status==='DELIVERED'&&Number.isFinite(o.deliveredAt)&&o.deliveredAt>0}
-function activeTracking(o){return !orderDelivered(o)||Date.now()-o.deliveredAt<TRACK_WINDOW}
+function activeTracking(o){return o?.status==='DELIVERED'?orderDelivered(o)&&Date.now()-o.deliveredAt<TRACK_WINDOW:true}
 function findLocalOrder(id){return Array.isArray(st.orders)?st.orders.find(o=>o.id===id):null}
 function normalizedBasket(items){return JSON.stringify([...items].sort((a,b)=>String(a.id).localeCompare(String(b.id))).map(x=>[x.id,x.qty]))}
 function basketNames(items){return items.map(x=>{const p=product(x.id);return (p?p.name:'Producto anterior')+' ×'+x.qty}).join(' · ')}
