@@ -47,6 +47,8 @@ let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let selectedHomeStore=null;
+let homeLocationPrompted=false;
+let storeGeocoding=false;
 
 const enterApp=()=>{localStorage.setItem('b3-visitor-entered-v9','1');enteredBefore=true;nav('inicio')};
 const icons={home:'<path d="m3 10 9-7 9 7v10h-6v-6H9v6H3z"/>',menu:'<path d="M5 5h14M5 10h14M5 15h14M5 20h14"/>',orders:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 9h6M9 13h6"/>',account:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',chat:'<path d="M21 11a8 8 0 0 1-8 8 9 9 0 0 1-4-.9L3 21l2-5a8 8 0 1 1 16-5z"/>',back:'<path d="m15 5-7 7 7 7"/>',cart:'<path d="M3 4h2l2 12h11l3-9H6M10 21h.01M18 21h.01"/>',close:'<path d="m5 5 14 14M19 5 5 19"/>',pin:'<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l4 2"/>',chev:'<path d="m9 5 7 7-7 7"/>',bike:'<circle cx="5" cy="17" r="3"/><circle cx="19" cy="17" r="3"/><path d="M7 17l4-8 5 8M11 9H7M14 7h4l2 3"/>',store:'<path d="M3 10V5h18v5l-2 3H5zM5 13v8h14v-8M9 21v-6h6v6"/>',check:'<path d="m4 12 5 5 11-11"/>',card:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',help:'<circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 1 1 5 2l-2 2v2M12 18h.01"/>',minus:'<path d="M5 12h14"/>',plus:'<path d="M5 12h14M12 5v14"/>',user:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3-7 8-7s8 3 8 7"/>',trash:'<path d="M4 7h16M10 4h4M6 7l1 14h10l1-14M10 11v6M14 11v6"/>',map:'<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zM9 3v15M15 6v15"/>',mail:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="m2 7 10 7 10-7"/>',bell:'<path d="M5 17h14l-2-3V9a5 5 0 0 0-10 0v5zM10 21h4"/>',shield:'<path d="M12 2 4 6v6c0 5 4 8 8 10 4-2 8-5 8-10V6z"/>',book:'<path d="M3 4h8v16H3zM13 4h8v16h-8z"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',lock:'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',phone:'<path d="M7 3 4 6c0 8 6 14 14 14l3-3-5-4-3 3a12 12 0 0 1-5-5l3-3z"/>'};
@@ -85,7 +87,7 @@ function straightDistanceKm(s){
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
 function paymentOptions(){const s=shops.find(x=>x.id===st.store);const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];if(!st.configReady||!s)return choices;return choices.filter(x=>(s.paymentMethods?.[st.mode]||[]).includes(x[0]))}
-async function fetchConfig(){if(!API_BASE)return;try{const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!r.ok)throw Error('API unavailable');const c=await r.json();if(!c.ready){resetDemoStores();st.configReady=false;st.quote=null;render();return}if(!Array.isArray(c.products)||!Array.isArray(c.stores))throw Error('Invalid schema');const revisionChanged=st.configReady&&publishedRevision!==c.revision;publishedRevision=c.revision;publishedPromotions=Array.isArray(c.promotions)?c.promotions:[];if(st.cart.length&&revisionChanged){st.cart=[];st.notice='La carta publicada cambió. Verifica y vuelve a agregar los productos.'}products.splice(0,products.length,...c.products.map(x=>({id:x.id,name:x.name,desc:x.description||'',cat:x.category||'Otros',price:Number(x.pricePen),imageUrl:x.image_url||x.imageUrl,pic:1})));shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm),deliveryFeePen:x.deliveryFeePen})));st.configReady=true;if(revisionChanged){st.quote=null;st.store=''}save();render()}catch(err){console.warn('Catalog unavailable; demo unchanged',err.message)}}
+async function fetchConfig(){if(!API_BASE)return;try{const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!r.ok)throw Error('API unavailable');const c=await r.json();if(!c.ready){resetDemoStores();st.configReady=false;st.quote=null;render();return}if(!Array.isArray(c.products)||!Array.isArray(c.stores))throw Error('Invalid schema');const revisionChanged=st.configReady&&publishedRevision!==c.revision;publishedRevision=c.revision;publishedPromotions=Array.isArray(c.promotions)?c.promotions:[];if(st.cart.length&&revisionChanged){st.cart=[];st.notice='La carta publicada cambió. Verifica y vuelve a agregar los productos.'}products.splice(0,products.length,...c.products.map(x=>({id:x.id,name:x.name,desc:x.description||'',cat:x.category||'Otros',price:Number(x.pricePen),imageUrl:x.image_url||x.imageUrl,pic:1})));shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm),deliveryFeePen:x.deliveryFeePen})));storeGeocoding=false;if(st.coords)resolveStoreDistances();st.configReady=true;if(revisionChanged){st.quote=null;st.store=''}save();render()}catch(err){console.warn('Catalog unavailable; demo unchanged',err.message)}}
 async function resolveDelivery(){
  if(!st.configReady||!API_BASE||!st.coords){
   st.quote=null;st.store='';save();fulfillmentModal=null;nav('inicio');
@@ -99,7 +101,36 @@ async function resolveDelivery(){
   st.store=result.storeId;st.quote=result;save();fulfillmentModal=null;nav('inicio');
  }catch(err){toast(err.message)}
 }
-window.b3NativeLocation=(lat,lng,error)=>{if(error){toast(error);return}if(!Number.isFinite(lat)||!Number.isFinite(lng))return toast('No fue posible obtener coordenadas');st.coords={lat,lng};save();if(fulfillmentModal==='pickup'||st.stage==='locations'){render();return}toast('Ubicación recibida. Verifica la dirección escrita.')};
+function resolveStoreDistances(){
+ if(storeGeocoding||!st.coords||!window.AndroidBridge?.geocodeStores)return;
+ const needs=shops.filter(s=>s.active!==false&&(s.latitude==null||s.longitude==null)&&
+  typeof (s.address||s.addr)==='string'&&(s.address||s.addr).includes('Santa Anita'));
+ if(!needs.length)return;
+ storeGeocoding=true;
+ window.AndroidBridge.geocodeStores(JSON.stringify(needs.map(s=>({id:String(s.id),address:s.address||s.addr}))));
+}
+window.b3StoreCoordinates=json=>{
+ storeGeocoding=false;
+ let found=[];try{found=JSON.parse(json)}catch{return}
+ for(const c of found){
+  const store=shops.find(s=>String(s.id)===String(c.id));
+  if(store&&Number.isFinite(c.latitude)&&Number.isFinite(c.longitude)){
+   store.latitude=c.latitude;store.longitude=c.longitude;
+  }
+ }
+ if(st.stage==='app'&&st.tab==='inicio')render();
+};
+window.b3NativeLocation=(lat,lng,error)=>{
+ if(error){if(st.stage==='app'&&st.tab==='inicio')render();else toast(error);return}
+ if(!Number.isFinite(lat)||!Number.isFinite(lng)){
+  if(st.stage==='app'&&st.tab==='inicio')render();else toast('No fue posible obtener coordenadas');
+  return;
+ }
+ st.coords={lat,lng};save();
+ resolveStoreDistances();
+ if(fulfillmentModal==='pickup'||st.stage==='locations'||(st.stage==='app'&&st.tab==='inicio')){render();return}
+ toast('Ubicación recibida. Verifica la dirección escrita.');
+};
 async function confirmStore(mode,id){
  const s=shops.find(x=>x.id===id);
  if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return toast('Local cerrado o no disponible para retiro inmediato');
@@ -223,7 +254,7 @@ function storeToday(s){
 function storeHomeCard(s){
  return '<button class="b3-home-store-card" type="button" data-home-store="'+esc(String(s.id))+'">'+
  '<span class="b3-home-store-symbol">'+ic('store',24)+'</span>'+
- '<span class="b3-home-store-copy"><strong>'+esc(s.name||'Sede')+'</strong><small>'+esc(s.address||s.addr||'Dirección no publicada')+'</small><small>'+esc(storeToday(s))+'</small></span>'+
+ '<span class="b3-home-store-copy"><strong>'+esc(s.name||'Sede')+'</strong><small>'+esc(s.address||s.addr||'Dirección no publicada')+'</small><small>'+esc(storeToday(s))+'</small><small class="b3-home-store-distance">'+esc(straightDistanceKm(s)||'Distancia no disponible')+'</small></span>'+
  '<span class="b3-home-store-end">'+storeBadge(s)+ic('chev',17)+'</span></button>';
 }
 function homeStores(){
@@ -350,7 +381,7 @@ function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3',
 function about(){return `<div class="page about">${heading('Sobre la App','app')}<div class="about-copy"><p>Pollos B3 App para Android</p><p class="version">Versión 1.0.0</p><p>Todos los derechos reservados<br>Pollos B3</p></div><img class="integra-logo" src="images/integra.png" alt="Logotipo original INTEGRA B2G"><p class="smallprint">Piloto funcional sin servicios externos.</p></div>`}
 function infoScreen(){const content={profile:['Mi perfil','Tu nombre y celular se utilizan para facilitar pedidos.'],address:['Direcciones guardadas','Las direcciones se guardan únicamente en este teléfono de prueba.'],methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],notifications:['Notificaciones','Las notificaciones estarán disponibles cuando se configure el servicio.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.'],jobs:['Trabaja con nosotros','Canal oficial de postulaciones pendiente de confirmar.'],privacy:['Privacidad y protección de datos','Este piloto guarda datos solo en el dispositivo. No uses información personal real para probarlo.'],faq:['Preguntas frecuentes','¿Puedo pedir sin registrarme? Sí. ¿El piloto cobra? No. ¿Funciona el chat con agentes? Aún no.'],claims:['Libro de reclamaciones','Se enlazará al Libro de Reclamaciones oficial cuando el negocio proporcione su dirección.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p>${st.stage==='profile'?`<div class="profile-data">${esc((st.profile.first+' '+st.profile.last).trim()||'Sin nombre guardado')}<br>${esc(st.profile.phone||'Sin teléfono guardado')}</div>`:''}${st.stage==='privacy'?'<button class="outline full" data-clear="1">Eliminar datos locales de prueba</button>':''}</div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='address')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='about')html=about();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'');}
+function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='address')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='about')html=about();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'');}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkReady(){if(!st.mode){screen('choice');return false} if((st.mode==='pickup'||st.mode==='dine_in')&&!st.store){screen('locations');return false}if(st.mode==='delivery'&&(!st.profile.address||st.configReady&&!st.quote)){screen('address');return false}return true}
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return toast('Producto no disponible para esta demo');let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido')}
