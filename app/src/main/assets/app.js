@@ -364,7 +364,6 @@ function completeCarouselMotion(m,accepted){
  m.done=true;
  if(accepted){
   st[m.key]=m.to;updateCarouselDots(m.kind);
-  carouselMotion.pauseUntil=Date.now()+5000;
  }
  const finish=()=>{
   if(carouselMotion.active!==m)return;
@@ -428,6 +427,7 @@ function finishCarouselTouch(cancelled){
  const threshold=Math.max(42,Math.min(76,t.motion.width*.17));
  const accepted=!cancelled&&Math.abs(t.dx)>=threshold&&Math.sign(t.dx)===-t.motion.direction;
  carouselMotion.suppressClickUntil=Date.now()+450;
+ carouselMotion.pauseUntil=Date.now()+6500;
  completeCarouselMotion(t.motion,accepted);
 }
 root.addEventListener('touchend',()=>finishCarouselTouch(false),{passive:true});
@@ -438,10 +438,15 @@ setInterval(()=>{
     carouselMotion.active||carouselMotion.touch||Date.now()<carouselMotion.pauseUntil)return;
  autoplayTick++;
  if(autoplayTick%5!==0)return;
- for(const kind of ['hero','promo']){
-  const len=carouselCount(kind),key=kind==='hero'?'carousel':'promo';
-  if(len>1)animateCarousel(kind,(st[key]+1)%len,1);
- }
+ // Los dos carruseles se desplazan en secuencia corta y no reinician toda Inicio.
+ const heroCount=carouselCount('hero');
+ if(heroCount>1)animateCarousel('hero',(st.carousel+1)%heroCount,1);
+ setTimeout(()=>{
+  if(st.stage!=='app'||st.tab!=='inicio'||document.hidden||fulfillmentModal||
+     carouselMotion.active||carouselMotion.touch||Date.now()<carouselMotion.pauseUntil)return;
+  const promoCount=carouselCount('promo');
+  if(promoCount>1)animateCarousel('promo',(st.promo+1)%promoCount,1);
+ },520);
 },1000);
 window.handleB3Back=()=>{
   if(st.stage==='app'){
