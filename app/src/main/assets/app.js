@@ -349,7 +349,8 @@ function favoriteCard(){
  const f=st.favorite;if(!f||!Array.isArray(f.items)||!f.items.length)return '';
  const available=f.items.every(x=>{const p=product(x.id);return p&&!p.disabled});
  const total=f.items.reduce((n,x)=>n+(product(x.id)?.price||0)*x.qty,0);
- return '<section class="b3-favorite-home"><div class="b3-feature-title">'+ic('heart',20)+'<h2>Vuelve a pedir tu favorito</h2></div><p>'+esc(basketNames(f.items))+'</p><strong>'+cash(total)+'</strong><small>Precio actual estimado; no incluye Delivery</small><div class="b3-favorite-actions"><button data-fav-reorder="1" '+(!available?'disabled':'')+'>Pedir de nuevo</button><button data-fav-remove="1">Quitar favorito</button></div></section>';
+ const first=product(f.items[0].id);
+ return '<section class="b3-favorite-home"><div class="b3-feature-title">'+ic('heart',20)+'<h2>Vuelve a pedir tu favorito</h2></div><div class="b3-favorite-row">'+(first?img(first,'b3-favorite-thumb'):'')+'<p>'+esc(basketNames(f.items))+'</p></div><strong>'+cash(total)+'</strong><small>Precio actual estimado; no incluye Delivery</small><div class="b3-favorite-actions"><button data-fav-reorder="1" '+(!available?'disabled':'')+'>Pedir de nuevo</button><button data-fav-remove="1">Quitar favorito</button></div></section>';
 }
 function trackCard(o){
  const index=Math.max(0,ORDER_STAGES.findIndex(row=>row[0]===o.status));
@@ -688,7 +689,7 @@ if(b.hasAttribute('data-review-close')||b.hasAttribute('data-review-backdrop')){
  const o=findLocalOrder(reviewSheetOrderId);if(o){o.reviewDismissed=true;save()}
  reviewSheetOrderId=null;render();return;
 }
-if(b.dataset.reviewStar){reviewScore=Number(b.dataset.reviewStar);render();return}
+if(b.dataset.reviewStar){const comment=document.getElementById('review-comment')?.value||'';reviewScore=Number(b.dataset.reviewStar);render();const input=document.getElementById('review-comment');if(input)input.value=comment;return}
 if(b.dataset.reviewTag){
  const tag=b.dataset.reviewTag;
  reviewTags=reviewTags.includes(tag)?reviewTags.filter(x=>x!==tag):[...reviewTags,tag];
