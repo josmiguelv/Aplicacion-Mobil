@@ -55,11 +55,36 @@ function straightDistanceKm(s){
 }
 function paymentOptions(){const s=shops.find(x=>x.id===st.store);const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];if(!st.configReady||!s)return choices;return choices.filter(x=>(s.paymentMethods?.[st.mode]||[]).includes(x[0]))}
 async function fetchConfig(){if(!API_BASE)return;try{const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!r.ok)throw Error('API unavailable');const c=await r.json();if(!c.ready){shops.splice(0);st.configReady=false;st.quote=null;render();return}if(!Array.isArray(c.products)||!Array.isArray(c.stores))throw Error('Invalid schema');const revisionChanged=st.configReady&&publishedRevision!==c.revision;publishedRevision=c.revision;publishedPromotions=Array.isArray(c.promotions)?c.promotions:[];if(st.cart.length&&revisionChanged){st.cart=[];st.notice='La carta publicada cambió. Verifica y vuelve a agregar los productos.'}products.splice(0,products.length,...c.products.map(x=>({id:x.id,name:x.name,desc:x.description||'',cat:x.category||'Otros',price:Number(x.pricePen),imageUrl:x.image_url||x.imageUrl,pic:1})));shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm),deliveryFeePen:x.deliveryFeePen})));st.configReady=true;if(revisionChanged){st.quote=null;st.store=''}save();render()}catch(err){console.warn('Catalog unavailable; demo unchanged',err.message)}}
-async function resolveDelivery(){if(!st.configReady){toast('Ubicación guardada. La asignación automática requiere conectar la web.');if(st.selected)screen('detail');else nav('carta');return}
- if(!st.coords)return toast('Confirma el punto de entrega usando GPS. La dirección escrita aún no puede geocodificarse.');
- try{const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode:'delivery',latitude:st.coords.lat,longitude:st.coords.lng})});const result=await response.json();if(!response.ok)throw Error(result.error||'Sin cobertura disponible');st.store=result.storeId;st.quote=result;save();if(st.selected)screen('detail');else nav('carta')}catch(err){toast(err.message)}}
-window.b3NativeLocation=(lat,lng,error)=>{if(error){toast(error);return}if(!Number.isFinite(lat)||!Number.isFinite(lng))return toast('No fue posible obtener coordenadas');st.coords={lat,lng};save();if(st.stage==='locations'){render();return}toast('Ubicación recibida. Verifica la dirección escrita.')};
-async function confirmStore(mode,id){st.store=id;st.quote=null;const s=shops.find(x=>x.id===id);if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return toast('Este local no está disponible para retiro inmediato');if(st.configReady){try{const r=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode,storeId:id})});const result=await r.json();if(!r.ok)throw Error(result.error||'Local no disponible');st.quote=result}catch(err){return toast(err.message)}}save();if(st.selected)screen('detail');else nav('carta')}
+async function resolveDelivery(){
+ if(!st.configReady||!API_BASE||!st.coords){
+  st.quote=null;st.store='';save();fulfillmentModal=null;nav('inicio');
+  toast('Dirección guardada. Pendiente de validar cobertura y costo de delivery.');
+  return;
+ }
+ try{
+  const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode:'delivery',latitude:st.coords.lat,longitude:st.coords.lng})});
+  const result=await response.json();
+  if(!response.ok)throw Error(result.error||'Sin cobertura disponible');
+  st.store=result.storeId;st.quote=result;save();fulfillmentModal=null;nav('inicio');
+ }catch(err){toast(err.message)}
+}
+window.b3NativeLocation=(lat,lng,error)=>{if(error){toast(error);return}if(!Number.isFinite(lat)||!Number.isFinite(lng))return toast('No fue posible obtener coordenadas');st.coords={lat,lng};save();if(fulfillmentModal==='pickup'||st.stage==='locations'){render();return}toast('Ubicación recibida. Verifica la dirección escrita.')};
+async function confirmStore(mode,id){
+ const s=shops.find(x=>x.id===id);
+ if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return toast('Local cerrado o no disponible para retiro inmediato');
+ st.store=id;st.quote=null;
+ if(st.configReady&&API_BASE){
+  try{
+   const r=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode,storeId:id})});
+   const result=await r.json();
+   if(!r.ok)throw Error(result.error||'Local no disponible');
+   st.quote=result;
+  }catch(err){return toast(err.message)}
+ }
+ save();
+ if(fulfillmentModal){fulfillmentModal=null;nav('inicio');return}
+ if(st.selected)screen('detail');else nav('carta');
+}
 
 const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configReady,...d}=st;localStorage.setItem(K,JSON.stringify(d));};
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*products.find(p=>p.id===x.id).price,0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
@@ -237,7 +262,26 @@ function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkReady(){if(!st.mode){screen('choice');return false} if((st.mode==='pickup'||st.mode==='dine_in')&&!st.store){screen('locations');return false}if(st.mode==='delivery'&&(!st.profile.address||st.configReady&&!st.quote)){screen('address');return false}return true}
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return toast('Producto no disponible para esta demo');let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido')}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
+if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;fulfillmentModal=null;render();return}
+if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
+if(b.dataset.modalMode){
+ const next=b.dataset.modalMode;
+ if(next!=='delivery'&&next!=='pickup')return;
+ if(st.mode!==next){st.mode=next;st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)st.notice='Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.'}
+ fulfillmentModal=next;render();if(next==='pickup'&&API_BASE)void fetchConfig();return;
+}
+if(b.hasAttribute('data-modal-save-delivery')){
+ if(v('address').length<6||v('district').length<2)return toast('Completa la dirección y el distrito');
+ st.mode='delivery';st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');
+ save();void resolveDelivery();return;
+}
+if(b.dataset.modalPickstore){
+ const store=shops.find(s=>s.id===b.dataset.modalPickstore);
+ if(!eligibleForPickup(store))return toast('El local está cerrado o no acepta retiros');
+ st.mode='pickup';void confirmStore('pickup',store.id);return;
+}
 if(b.hasAttribute('data-gps')){if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else toast('GPS no disponible. Ingresa la dirección manualmente.');return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.dataset.screen){if(b.dataset.screen==='detail'&&!st.selected)return;screen(b.dataset.screen);return}
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
 if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('address');else {screen('locations');if(API_BASE)void fetchConfig()}return}
