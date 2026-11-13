@@ -75,6 +75,8 @@ public class MainActivity extends Activity {
                             if (matches == null || matches.isEmpty()) continue;
                             Address match = matches.get(0);
                             if (!match.hasLatitude() || !match.hasLongitude()) continue;
+                            // Reject city/region centroids: a street-level result is required.
+                            if (match.getThoroughfare() == null || match.getThoroughfare().trim().isEmpty()) continue;
                             // Accept only Lima-area geocodes; never turn wrong-city matches into distances.
                             double lat = match.getLatitude(), lng = match.getLongitude();
                             if (lat < -12.35 || lat > -11.70 || lng < -77.35 || lng > -76.60) continue;
