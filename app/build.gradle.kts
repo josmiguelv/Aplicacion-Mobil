@@ -26,7 +26,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { 
+        compose = true
+        buildConfig = true
+    }
+    defaultConfig {
+        buildConfigField("String", "B3_API_URL", "\\\"${providers.gradleProperty("B3_API_URL").orElse("").get()}\\\"")
+        buildConfigField("String", "B3_APP_ID", "\\\"${providers.gradleProperty("B3_APP_ID").orElse("").get()}\\\"")
+    }
     packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
 }
 
