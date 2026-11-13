@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.location.Location;
+import android.location.Address;
+import android.location.Geocoder;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.net.Uri;
@@ -21,6 +23,9 @@ import android.webkit.WebViewClient;
 import android.webkit.WebResourceResponse;
 import androidx.webkit.WebViewAssetLoader;
 import org.json.JSONObject;
+import org.json.JSONArray;
+import java.util.List;
+import java.util.Locale;
 
 /** Android V10: navigation and optional foreground GPS for delivery. No background tracking. */
 public class MainActivity extends Activity {
@@ -47,6 +52,46 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void requestLocation() {
             runOnUiThread(() -> requestOptionalLocation());
         }
+        /**
+         * Geocode only explicit store addresses supplied by the local app.
+         * Runs off the UI thread; unresolved or ambiguous addresses remain unavailable.
+         */
+        @JavascriptInterface public void geocodeStores(String json) {
+            new Thread(() -> {
+                JSONArray found = new JSONArray();
+                try {
+                    JSONArray requested = new JSONArray(json);
+                    Geocoder geocoder = new Geocoder(MainActivity.this, new Locale("es", "PE"));
+                    if (!Geocoder.isPresent()) throw new IllegalStateException("Geocodificador no disponible");
+                    for (int i = 0; i < Math.min(12, requested.length()); i++) {
+                        JSONObject item = requested.optJSONObject(i);
+                        if (item == null) continue;
+                        String id = item.optString("id", "");
+                        String address = item.optString("address", "");
+                        if (id.length() > 90 || address.length() > 240 ||
+                            id.isEmpty() || !address.contains("Santa Anita")) continue;
+                        try {
+                            List<Address> matches = geocoder.getFromLocationName(address, 1);
+                            if (matches == null || matches.isEmpty()) continue;
+                            Address match = matches.get(0);
+                            if (!match.hasLatitude() || !match.hasLongitude()) continue;
+                            // Accept only Lima-area geocodes; never turn wrong-city matches into distances.
+                            double lat = match.getLatitude(), lng = match.getLongitude();
+                            if (lat < -12.35 || lat > -11.70 || lng < -77.35 || lng > -76.60) continue;
+                            JSONObject result = new JSONObject();
+                            result.put("id", id);
+                            result.put("latitude", lat);
+                            result.put("longitude", lng);
+                            found.put(result);
+                        } catch (Exception ignored) { /* Keep the store distance unavailable. */ }
+                    }
+                } catch (Exception ignored) { /* An empty result is a valid fallback. */ }
+                final String data = found.toString();
+                runOnUiThread(() -> {
+                    if (web != null) web.evaluateJavascript("window.b3StoreCoordinates("+JSONObject.quote(data)+")", null);
+                });
+            }).start();
+        }
         @JavascriptInterface public void openMaps(String url) {
             try {
                 Uri uri = Uri.parse(url);
@@ -69,8 +114,12 @@ public class MainActivity extends Activity {
             return;
         }
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        if (locationManager == null || !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-            sendLocation(null,null,"Activa el GPS o ingresa la dirección manualmente.");
+        String provider = locationManager != null && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            ? LocationManager.GPS_PROVIDER
+            : locationManager != null && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                ? LocationManager.NETWORK_PROVIDER : null;
+        if (provider == null) {
+            sendLocation(null,null,"Activa la ubicación del teléfono y vuelve a intentarlo.");
             return;
         }
         try {
@@ -83,7 +132,7 @@ public class MainActivity extends Activity {
                 sendLocation(location.getLatitude(),location.getLongitude(),null);
             };
             // One foreground GPS fix only, no background collection.
-            locationManager.requestSingleUpdate(LocationManager.GPS_PROVIDER,currentListener,null);
+            locationManager.requestSingleUpdate(provider,currentListener,null);
             web.postDelayed(() -> {
                 if (currentListener != null) {
                     try {locationManager.removeUpdates(currentListener);}catch(Exception ignored){}
