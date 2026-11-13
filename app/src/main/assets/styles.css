@@ -323,3 +323,28 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-job-section p{font-size:13px;line-height:1.6;white-space:pre-line;margin:0}
 .b3-job-whatsapp{width:100%;min-height:54px;display:flex;align-items:center;justify-content:center;gap:10px;background:#078c31;color:#fff;border:0;border-radius:15px;font-size:15px;font-weight:800;margin:20px 0}
 @media(max-width:360px){.b3-job-thumb{width:94px;min-width:94px}.b3-job-card{gap:10px}.b3-job-copy strong{font-size:14px}}
+
+
+/* Direcciones guardadas: compactas, editables y sin consultas externas. */
+.b3-address-page{padding-bottom:100px}
+.b3-address-page .sub{margin-bottom:18px}
+.b3-address-card{background:#fff;border:1px solid #ededf0;border-radius:16px;padding:14px;margin:12px 0;box-shadow:0 3px 14px rgba(31,19,22,.045)}
+.b3-address-top{display:flex;align-items:center;gap:9px}
+.b3-address-symbol{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;flex:0 0 36px;background:#fff2f2;border-radius:11px;color:#c71925}
+.b3-address-top strong{font-size:15px;min-width:0;flex:1}
+.b3-address-default{background:#f9e8e8;color:#9d1320;font-size:10px;font-weight:700;padding:6px 8px;border-radius:20px;white-space:nowrap}
+.b3-address-card p{font-size:13px;line-height:1.45;margin:12px 0 5px;color:#20191b}
+.b3-address-card small{display:block;font-size:12px;color:#706970;margin:0 0 9px;line-height:1.4}
+.b3-address-actions{border-top:1px solid #f0edf0;margin-top:12px;padding-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.b3-address-actions button{border:0;background:transparent;color:#a81b2b;font-size:12px;padding:5px 2px;font-weight:700;cursor:pointer}
+.b3-address-actions button.danger{color:#ae4751}
+.b3-address-check{display:flex;align-items:center;gap:9px;margin:13px 0;font-size:13px;line-height:1.4}
+.b3-address-check input{width:17px;height:17px;accent-color:#c81924;flex-shrink:0}
+.b3-address-page label{font-size:13px}
+.b3-address-page select{width:100%;padding:13px;border:1px solid #ddd;border-radius:11px;background:#fff;color:#211a1a;margin-top:6px}
+.b3-modal-saved{margin:10px 0 16px}
+.b3-modal-saved h3{font-size:14px;margin:12px 0 7px}
+.b3-modal-saved .b3-address-card{margin:8px 0;padding:11px}
+.b3-modal-saved .b3-address-actions button{font-size:12px}
+.b3-modal-saved .b3-address-card p{font-size:12px;margin:6px 0}
+@media(max-width:355px){.b3-address-top{gap:6px}.b3-address-default{font-size:9px;padding:5px}.b3-address-actions{gap:5px}}
