@@ -488,3 +488,7 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-bottom-sheet textarea{margin-top:8px;display:block;border:1px solid #dcd6d9;border-radius:12px;padding:12px;min-height:82px;width:100%;resize:vertical;font-size:13px}
 .b3-bottom-sheet>small{font-size:11px;line-height:1.4;display:block;margin-top:12px;color:#8a7579}
 @media(prefers-reduced-motion:reduce){.b3-track-bar div{transition:none}}
+
+.b3-favorite-row{display:flex;gap:12px;align-items:center;margin:12px 0}
+.b3-favorite-row p{font-size:13px;line-height:1.5;flex:1;margin:0;color:#3c3338}
+.b3-favorite-thumb{width:94px;height:84px;flex:0 0 94px;border-radius:12px;object-fit:cover;background:#f8f4f4}
