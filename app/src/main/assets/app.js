@@ -70,6 +70,12 @@ const API_BASE=(()=>{
 let publishedRevision=0;
 let publishedPromotions=[];
 let publishedVacancies=[];
+// Demo-only artwork supplied by the user; never represented as a published vacancy.
+const demonstrationVacancies=[
+ {id:'demo-horneros',title:'Horneros con experiencia',summary:'Publicación de prueba basada en el afiche proporcionado.',description:'Se buscan horneros con experiencia.',requirements:'Experiencia como hornero.',schedule:'',employmentType:'',locationLabel:'',imageUrl:'images/demo-horneros.webp',whatsappPhone:'51937602607',isDemo:true},
+ {id:'demo-cajeras-meseras',title:'Cajeras y meseras con experiencia',summary:'Publicación de prueba basada en el afiche proporcionado.',description:'Se buscan cajeras y meseras con experiencia.',requirements:'Experiencia en el puesto.',schedule:'Full time: 10:30 a. m. a 6:30 p. m. · Part time: 6:30 p. m. a 10:30 p. m.',employmentType:'Full time / Part time',locationLabel:'',imageUrl:'images/demo-cajeras-meseras.webp',whatsappPhone:'51937602607',isDemo:true}
+];
+function visibleVacancies(){return st.configReady?publishedVacancies:demonstrationVacancies}
 let selectedVacancyId=null;
 function modeName(m){return ({delivery:'Pollo Delivery',pickup:'Pide y Retira'})[m]||'Elegir modalidad'}
 const storeAllowed=(s,m)=>!!s&&s.active!==false&&(m==='delivery'?s.delivery_enabled!==false:m==='pickup'?s.pickup_enabled!==false:s.dine_in_enabled===true);
@@ -423,43 +429,45 @@ function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3',
 function about(){return `<div class="page about">${heading('Sobre la App','app')}<div class="about-copy"><p>Pollos B3 App para Android</p><p class="version">Versión 1.0.0</p><p>Todos los derechos reservados<br>Pollos B3</p></div><img class="integra-logo" src="images/integra.png" alt="Logotipo original INTEGRA B2G"><p class="smallprint">Piloto funcional sin servicios externos.</p></div>`}
 function vacancyPhoto(v){
  const src=v.imageUrl;
- if(typeof src!=='string'||!/^\/api\/v1\/mobile\/images\/[0-9a-f-]{36}$/.test(src)||!API_BASE)return '';
+ if(typeof src!=='string')return '';
+ if(v.isDemo===true&&/^images\/demo-(?:horneros|cajeras-meseras)\.webp$/.test(src))return '<img src="'+esc(src)+'" alt="Afiche de demostración: '+esc(v.title)+'" loading="lazy">';
+ if(!/^\/api\/v1\/mobile\/images\/[0-9a-f-]{36}$/.test(src)||!API_BASE)return '';
  return '<img src="'+esc(API_BASE+src)+'" alt="Imagen publicada para '+esc(v.title)+'" loading="lazy">';
 }
 function jobsScreen(){
- const items=publishedVacancies.filter(v=>v&&typeof v.id==='string'&&typeof v.title==='string');
+ const items=visibleVacancies().filter(v=>v&&typeof v.id==='string'&&typeof v.title==='string');
  return '<div class="page b3-jobs">'+heading('Trabaja con nosotros','app')+
- '<p class="sub">Conoce las oportunidades de trabajo publicadas por Pollos B3.</p>'+
+ '<p class="sub">'+(st.configReady?'Conoce las oportunidades publicadas por Pollos B3.':'VACANTES DE DEMOSTRACIÓN · No representan ofertas laborales vigentes.')+'</p>'+
  (items.length?'<div class="b3-job-list">'+items.map(v=>
   '<button class="b3-job-card" data-vacancy="'+esc(v.id)+'">'+
   '<span class="b3-job-thumb">'+(vacancyPhoto(v)||ic('store',26))+'</span>'+
-  '<span class="b3-job-copy"><strong>'+esc(v.title)+'</strong>'+
+  '<span class="b3-job-copy">'+(v.isDemo?'<span class="b3-job-demo">PRUEBA</span>':'')+'<strong>'+esc(v.title)+'</strong>'+
   '<small>'+esc(v.summary||'Conoce los detalles de esta vacante.')+'</small>'+
   (v.locationLabel?'<span class="b3-job-location">'+ic('pin',13)+' '+esc(v.locationLabel)+'</span>':'')+
   '<span class="b3-job-more">Ver detalle '+ic('chev',14)+'</span></span></button>').join('')+'</div>':
  '<div class="empty-state">'+ic('store',34)+'<h2>No hay vacantes publicadas por ahora</h2><p>Las oportunidades aparecerán aquí cuando Pollos B3 las publique.</p></div>')+'</div>';
 }
 function vacancyDetail(){
- const v=publishedVacancies.find(x=>x.id===selectedVacancyId);
+ const v=visibleVacancies().find(x=>x.id===selectedVacancyId);
  if(!v)return jobsScreen();
  const rows=[['Puesto',v.title],['Horario',v.schedule],['Modalidad',v.employmentType],['Sede',v.locationLabel]].filter(x=>x[1]);
  const phone=String(v.whatsappPhone||'');
  const allowed=/^519\d{8}$/.test(phone);
  return '<div class="page b3-job-detail">'+heading('Detalle de vacante','jobs')+
  '<div class="b3-job-hero">'+(vacancyPhoto(v)||'<div class="b3-job-placeholder">'+ic('store',35)+'</div>')+'</div>'+
- '<h2>'+esc(v.title)+'</h2>'+
+ '<h2>'+esc(v.title)+'</h2>'+(v.isDemo?'<p class="b3-job-test-alert">VISTA DE PRUEBA · Esta publicación no confirma una vacante vigente.</p>':'')+
  (v.summary?'<p class="sub">'+esc(v.summary)+'</p>':'')+
  '<div class="b3-job-facts">'+rows.map(([name,value])=>'<div><strong>'+esc(name)+'</strong><span>'+esc(value)+'</span></div>').join('')+'</div>'+
  (v.description?'<section class="b3-job-section"><h3>Descripción</h3><p>'+esc(v.description)+'</p></section>':'')+
  (v.requirements?'<section class="b3-job-section"><h3>Requisitos</h3><p>'+esc(v.requirements)+'</p></section>':'')+
- (allowed?'<button type="button" class="b3-job-whatsapp" data-apply-vacancy="'+esc(v.id)+'">'+ic('chat',22)+' Postular por WhatsApp</button>':
+ (allowed?'<button type="button" class="b3-job-whatsapp" data-apply-vacancy="'+esc(v.id)+'">'+ic('chat',22)+' '+(v.isDemo?'Probar mensaje de WhatsApp':'Postular por WhatsApp')+'</button>':
  '<p class="smallprint">Contacto de postulación no disponible.</p>')+
  '</div>';
 }
 function applyVacancy(id){
- const v=publishedVacancies.find(x=>x.id===id);
+ const v=visibleVacancies().find(x=>x.id===id);
  if(!v||!/^519\d{8}$/.test(String(v.whatsappPhone||'')))return toast('WhatsApp de postulación no disponible');
- const message='Hola, estoy interesado(a) en trabajar en Pollos B3. Quisiera información sobre la vacante de '+v.title+'.';
+ const message='Hola, estoy interesado(a) en trabajar en Pollos B3. Quisiera información sobre la vacante de '+v.title+'.'+(v.isDemo?' [MENSAJE DE PRUEBA, NO POSTULACIÓN REAL]':'');
  const url='https://wa.me/'+v.whatsappPhone+'?text='+encodeURIComponent(message);
  if(window.AndroidBridge?.openApplicantWhatsApp)window.AndroidBridge.openApplicantWhatsApp(url);
  else window.open(url,'_blank','noopener,noreferrer');
