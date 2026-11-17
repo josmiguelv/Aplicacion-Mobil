@@ -492,3 +492,24 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-favorite-row{display:flex;gap:12px;align-items:center;margin:12px 0}
 .b3-favorite-row p{font-size:13px;line-height:1.5;flex:1;margin:0;color:#3c3338}
 .b3-favorite-thumb{width:94px;height:84px;flex:0 0 94px;border-radius:12px;object-fit:cover;background:#f8f4f4}
+
+
+/* Pollos B3 — exclusivamente splash y confirmación de agregar al carrito. */
+.b3-splash{position:relative;width:100%;height:100svh;min-height:100svh;overflow:hidden;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0;padding:calc(28px + env(safe-area-inset-top)) 22px calc(32px + env(safe-area-inset-bottom));background:radial-gradient(ellipse at 50% 42%,#79050a 0%,#430004 48%,#170002 100%);color:#fff;text-align:center}
+@supports(height:100dvh){.b3-splash{height:100dvh;min-height:100dvh}}
+.b3-splash-halo{position:absolute;top:17%;left:50%;width:min(82vw,390px);aspect-ratio:1;border:1px solid #ce223534;border-radius:50%;transform:translateX(-50%);box-shadow:0 0 0 25px #ee17200a,0 0 75px #c0001640;pointer-events:none}
+.b3-splash-logo{position:relative;z-index:1;display:block;width:min(82vw,370px);max-height:43dvh;object-fit:contain;filter:drop-shadow(0 8px 16px #0006)}
+.b3-splash-slogan{position:relative;z-index:1;margin:clamp(20px,4dvh,42px) 0 0;display:flex;flex-direction:column;align-items:center;gap:6px;font-family:system-ui,-apple-system,Roboto,Arial,sans-serif;font-style:italic;font-weight:950;line-height:1.12;letter-spacing:-.04em;text-shadow:0 3px 13px #210002;max-width:100%}
+.b3-splash-slogan span{font-size:clamp(18px,5.5vw,27px);font-weight:950}
+.b3-splash-slogan strong{font-size:clamp(29px,8vw,43px);font-weight:950;letter-spacing:-.035em;white-space:nowrap}
+.b3-splash-loading{position:relative;z-index:1;width:min(76vw,340px);margin-top:clamp(36px,8dvh,90px);display:flex;flex-direction:column;align-items:center;gap:16px}
+.b3-splash-loading>span{font-size:clamp(11px,3vw,14px);font-weight:800;letter-spacing:.16em;white-space:nowrap}
+.b3-splash-track{width:100%;height:6px;border-radius:99px;background:#ffffff30;overflow:hidden}
+.b3-splash-track i{display:block;height:100%;width:38%;border-radius:99px;background:#ffbabc;animation:b3-splash-progress 1.3s ease-in-out infinite alternate}
+@keyframes b3-splash-progress{from{transform:translateX(-85%)}to{transform:translateX(250%)}}
+@media(max-height:620px){.b3-splash-logo{max-height:36dvh}.b3-splash-slogan{margin-top:12px}.b3-splash-loading{margin-top:22px}}
+.float-cart.b3-cart-added{animation:b3-cart-pop .56s cubic-bezier(.2,.9,.2,1)}
+@keyframes b3-cart-pop{0%{transform:scale(1)}36%{transform:scale(1.13)}67%{transform:scale(.96)}100%{transform:scale(1)}}
+.b3-cart-added-chip{position:absolute;top:-13px;right:2px;display:grid;place-items:center;padding:4px 7px;min-width:25px;height:25px;border-radius:99px;background:#ffdc00;color:#151515;font-weight:900;font-size:12px;pointer-events:none;box-shadow:0 3px 10px #0004;animation:b3-cart-chip .75s ease-out forwards}
+@keyframes b3-cart-chip{0%{opacity:0;transform:translateY(12px) scale(.5)}30%{opacity:1;transform:translateY(-7px) scale(1.1)}100%{opacity:0;transform:translateY(-26px) scale(.9)}}
+@media(prefers-reduced-motion:reduce){.b3-splash-track i,.float-cart.b3-cart-added,.b3-cart-added-chip{animation:none!important}}
