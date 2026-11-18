@@ -505,11 +505,11 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-splash-loading{position:relative;z-index:1;width:min(76vw,340px);margin-top:clamp(28px,6dvh,70px);display:flex;flex-direction:column;align-items:center;gap:16px;animation:b3-splash-loading-in .45s .48s ease-out both}
 .b3-splash-loading>span{font-size:clamp(10px,2.8vw,14px);font-weight:800;letter-spacing:.13em;white-space:nowrap}
 .b3-splash-track{width:100%;height:6px;border-radius:99px;background:#ffffff30;overflow:hidden}
-.b3-splash-track i{display:block;height:100%;width:38%;border-radius:99px;background:#ffbabc;animation:b3-splash-progress 1.3s ease-in-out infinite alternate}
+.b3-splash-track i{display:block;height:100%;width:100%;transform-origin:left center;transform:scaleX(0);border-radius:99px;background:#ffbabc;animation:b3-splash-progress 3s linear forwards}
 @keyframes b3-splash-logo-in{from{opacity:0;transform:translateY(12px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes b3-splash-slogan-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes b3-splash-loading-in{from{opacity:0}to{opacity:1}}
-@keyframes b3-splash-progress{from{transform:translateX(-85%)}to{transform:translateX(250%)}}
+@keyframes b3-splash-progress{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 @media(max-width:355px){.b3-splash-slogan span{font-size:clamp(13px,4.45vw,16px)}.b3-splash-slogan strong{font-size:clamp(28px,8.7vw,33px)}}
 @media(max-height:620px){.b3-splash-logo{max-height:31dvh}.b3-splash-slogan{margin-top:10px;gap:3px}.b3-splash-loading{margin-top:17px;gap:9px}}
 @media(orientation:landscape) and (max-height:520px){.b3-splash-logo{max-height:25dvh}.b3-splash-slogan{margin-top:5px}.b3-splash-loading{margin-top:10px}}
@@ -518,4 +518,4 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 @keyframes b3-cart-pop{0%{transform:scale(1)}36%{transform:scale(1.1)}68%{transform:scale(.98)}100%{transform:scale(1)}}
 .b3-cart-added-chip{position:absolute;top:-13px;right:2px;display:grid;place-items:center;padding:4px 7px;min-width:25px;height:25px;border-radius:99px;background:#ffdc00;color:#151515;font-weight:900;font-size:12px;pointer-events:none;box-shadow:0 3px 10px #0004;animation:b3-cart-chip .68s ease-out forwards}
 @keyframes b3-cart-chip{0%{opacity:0;transform:translateY(12px) scale(.65)}30%{opacity:1;transform:translateY(-5px) scale(1.04)}100%{opacity:0;transform:translateY(-23px) scale(.95)}}
-@media(prefers-reduced-motion:reduce){.b3-splash-logo,.b3-splash-slogan,.b3-splash-loading,.b3-splash-track i,.float-cart.b3-cart-added,.b3-cart-added-chip{animation:none!important}}
+@media(prefers-reduced-motion:reduce){.b3-splash-logo,.b3-splash-slogan,.b3-splash-loading,.float-cart.b3-cart-added,.b3-cart-added-chip{animation:none!important}.b3-splash-track i{animation:b3-splash-progress 3s linear forwards!important}}
