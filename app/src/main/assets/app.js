@@ -1006,5 +1006,5 @@ window.handleB3Back=()=>{
 render();
 fetchConfig();
 // Present branded artwork only on cold launch, then clear it from the navigation stack.
-setTimeout(()=>{if(st.stage==='splash')screen(enteredBefore?'app':'login')},1600);
+setTimeout(()=>{if(st.stage==='splash')screen(enteredBefore?'app':'login')},3000);
 })();
