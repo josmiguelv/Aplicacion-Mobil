@@ -653,21 +653,47 @@ function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page
 function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkReady(){if(!st.mode){screen('choice');return false} if((st.mode==='pickup'||st.mode==='dine_in')&&!st.store){screen('locations');return false}if(st.mode==='delivery'&&(!st.profile.address||st.configReady&&!st.quote)){screen('deliveryAddress');return false}return true}
-function animateAddedProduct(){
+function animateAddedProduct(fromRect,imageSrc,quantity=1){
+  // Solo animación visual: el carrito ya fue actualizado por addToCart.
   if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;
   requestAnimationFrame(()=>{
     const target=root.querySelector('.float-cart');
     if(!target)return;
-    target.classList.remove('b3-cart-added');
-    void target.offsetWidth;
-    target.classList.add('b3-cart-added');
-    target.addEventListener('animationend',()=>target.classList.remove('b3-cart-added'),{once:true});
-    const chip=document.createElement('span');
-    chip.className='b3-cart-added-chip';
-    chip.textContent='+1';
-    chip.setAttribute('aria-hidden','true');
-    target.appendChild(chip);
-    chip.addEventListener('animationend',()=>chip.remove(),{once:true});
+    const finish=()=>{
+      target.classList.remove('b3-cart-added');
+      void target.offsetWidth;
+      target.classList.add('b3-cart-added');
+      const chip=document.createElement('span');
+      chip.className='b3-cart-added-chip';
+      chip.textContent='+'+quantity;
+      chip.setAttribute('aria-hidden','true');
+      target.appendChild(chip);
+      chip.addEventListener('animationend',()=>chip.remove(),{once:true});
+    };
+    if(!fromRect){finish();return}
+    const to=target.getBoundingClientRect();
+    const size=50;
+    const sourceX=fromRect.left+fromRect.width/2;
+    const sourceY=fromRect.top+fromRect.height/2;
+    const endX=to.left+to.width/2;
+    const endY=to.top+to.height/2;
+    const flyer=document.createElement(imageSrc?'img':'span');
+    flyer.className='b3-fly-to-cart';
+    flyer.setAttribute('aria-hidden','true');
+    if(imageSrc){flyer.src=imageSrc;flyer.alt='';flyer.onerror=()=>{flyer.remove();finish()}}
+    else flyer.textContent='+';
+    flyer.style.left=(sourceX-size/2)+'px';
+    flyer.style.top=(sourceY-size/2)+'px';
+    document.body.appendChild(flyer);
+    if(typeof flyer.animate!=='function'){flyer.remove();finish();return}
+    const dx=endX-sourceX,dy=endY-sourceY;
+    const flight=flyer.animate([
+      {transform:'translate(0px,0px) scale(.83)',opacity:0.92,offset:0},
+      {transform:'translate('+dx*.46+'px,'+(dy*.38-48)+'px) scale(1)',opacity:1,offset:.48},
+      {transform:'translate('+dx+'px,'+dy+'px) scale(.22)',opacity:.2,offset:1}
+    ],{duration:580,easing:'cubic-bezier(.2,.75,.3,1)',fill:'forwards'});
+    flight.onfinish=()=>{flyer.remove();finish()};
+    flight.oncancel=()=>flyer.remove();
   });
 }
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido');return true}
@@ -783,7 +809,7 @@ if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){if(!st.mode)return toast('Selecciona una modalidad');if(st.configReady&&!st.quote){confirmStore(st.mode,st.store);return}if(st.selected)screen('detail');else nav('carta');return}
 if(b.dataset.product||b.dataset.quick){st.selected=b.dataset.product||b.dataset.quick;st.qty=1;if(!st.mode)screen('choice');else if(!checkReady())return;else screen('detail');return}
 if(b.dataset.qty){st.qty=Math.max(1,Math.min(30,st.qty+Number(b.dataset.qty)));render();return}
-if(b.hasAttribute('data-add')){if(addToCart(st.selected,st.qty)){nav('carta');animateAddedProduct()}else toast('Producto no disponible para esta demo');return}
+if(b.hasAttribute('data-add')){const photo=root.querySelector('.detail-photo img');const source=photo||b;const r=source.getBoundingClientRect();const fromRect={left:r.left,top:r.top,width:r.width,height:r.height};const imageSrc=photo?.currentSrc||photo?.src||'';const qty=st.qty;if(addToCart(st.selected,qty)){nav('carta');animateAddedProduct(fromRect,imageSrc,qty)}else toast('Producto no disponible para esta demo');return}
 if(b.dataset.filter){st.category=b.dataset.filter;render();return}
 if(b.dataset.carousel!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('hero',Number(b.dataset.carousel));return}if(b.dataset.promo!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('promo',Number(b.dataset.promo));return}if(b.dataset.local!==undefined){st.local=Number(b.dataset.local);render();return}
 if(b.dataset.cartdelta){let [id,delta]=b.dataset.cartdelta.split('|');let c=st.cart.find(x=>x.id===id);if(c){c.qty+=Number(delta);st.cart=st.cart.filter(x=>x.qty>0);save();render()}return}
