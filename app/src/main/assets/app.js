@@ -1,7 +1,7 @@
 /* POLLOS B3 — V10 responsive. Prototipo offline: precios y productos referenciales, sin cobros reales. */
 (()=>{'use strict';
 const K='b3-v6-demo-20261110', root=document.getElementById('app');
-const products=[
+const demoProducts=[
 {id:'p1',name:'1 Pollo a la Brasa',price:47.99,cat:'Pollos',pic:1,desc:'Pollo a la brasa. Acompañamientos sujetos a confirmación de la carta.'},
 {id:'p2',name:'1/2 Pollo a la Brasa',price:26.99,cat:'Pollos',pic:2,desc:'Medio pollo a la brasa. Presentación referencial.'},
 {id:'p3',name:'1/4 Pollo con Papas',price:12.99,cat:'Pollos',pic:3,desc:'Cuarto de pollo a la brasa con papas. Referencial.'},
@@ -10,7 +10,8 @@ const products=[
 {id:'p6',name:'Combo 3',price:61,cat:'Promociones',pic:3,desc:'Combo mostrado en material de referencia. Precio sujeto a validación.'},
 {id:'p7',name:'Combo 4',price:71,cat:'Promociones',pic:4,desc:'Combo mostrado en material de referencia. Precio sujeto a validación.'},
 {id:'p8',name:'Bebida',price:0,cat:'Bebidas',pic:4,desc:'Consultar presentaciones y precios. No disponible para compra de prueba.',disabled:true}
-];
+].map(p=>({...p,isDemo:true}));
+const products=[...demoProducts]; // Demo visible + productos publicados por API.
 // Los locales se reciben exclusivamente desde el catálogo publicado en la web administrativa.
 const defaultStoreSchedule=()=>Object.fromEntries(
  ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
@@ -60,7 +61,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 // Un catálogo publicado siempre utiliza las fotos autorizadas por la web administrativa.
 const demoPhotoById={p1:5,p2:8,p3:1,p4:3,p5:2,p6:4,p7:7,p8:6};
 const previewPhoto=n=>`images/b3-photo-${String(n).padStart(2,'0')}.webp`;
-const cash=n=>'S/ '+Number(n).toFixed(2), photo=p=>p.imageUrl&&(/^https:\/\//.test(p.imageUrl)||p.imageUrl.startsWith('/api/v1/mobile/images/'))?(p.imageUrl.startsWith('/')?API_BASE+p.imageUrl:p.imageUrl):(catalogPublished?null:(p.previewPhoto||demoPhotoById[p.id]?previewPhoto(p.previewPhoto||demoPhotoById[p.id]):`images/combo${p.pic||p}.jpg`));
+const cash=n=>'S/ '+Number(n).toFixed(2), photo=p=>p.imageUrl&&(/^https:\/\//.test(p.imageUrl)||p.imageUrl.startsWith('/api/v1/mobile/images/'))?(p.imageUrl.startsWith('/')?API_BASE+p.imageUrl:p.imageUrl):(p.isPublished?null:(p.previewPhoto||demoPhotoById[p.id]?previewPhoto(p.previewPhoto||demoPhotoById[p.id]):`images/combo${p.pic||p}.jpg`));
 // App ID is registered by the super administrator. An app ID maps to exactly one tenant on the server.
 const APP_ID='com.integrab2g.pollosb3';
 // Configure only an HTTPS address when the admin server is deployed; never place credentials in Android.
@@ -101,6 +102,27 @@ function straightDistanceKm(s){
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
 function paymentOptions(){const s=shops.find(x=>x.id===st.store);const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];return choices; /* Medios de pago de demostración, sin sincronización en esta fase. */}
+function productsFromApi(rows){
+ if(!Array.isArray(rows))return [];
+ const seen=new Set();
+ return rows.flatMap(x=>{
+  if(!x||typeof x.id!=='string'||!x.id.trim()||typeof x.name!=='string'||!x.name.trim())return [];
+  // Namespaced to keep demo identifiers and API identifiers independent.
+  const id='api:'+x.id.trim();
+  if(seen.has(id))return [];
+  seen.add(id);
+  const price=x.pricePen==null?NaN:Number(x.pricePen);
+  const image=x.image_url||x.imageUrl||'';
+  const imageUrl=typeof image==='string'&&(/^https:\/\/[^\\s"'<>]+$/i.test(image)||/^\/api\/v1\/mobile\/images\/[a-zA-Z0-9/_-]+$/.test(image))?image:'';
+  return [{
+   id,name:x.name.trim(),desc:typeof x.description==='string'?x.description:'',
+   cat:typeof x.category==='string'&&x.category.trim()?x.category.trim():'Otros',
+   price:Number.isFinite(price)&&price>=0?price:0,
+   disabled:!Number.isFinite(price)||price<=0,
+   imageUrl,isPublished:true,pic:1
+  }];
+ });
+}
 async function fetchConfig(){
  if(!API_BASE)return;
  try{
@@ -108,21 +130,24 @@ async function fetchConfig(){
   if(!r.ok)throw Error('API unavailable');
   const c=await r.json();
   if(!c.ready||!Array.isArray(c.stores))throw Error('Stores not published');
-  // Única colección que sincronizamos en este piloto: locales publicados.
+  // Locales: solo los publicados por el administrador.
   const revisionChanged=st.configReady&&publishedRevision!==c.revision;
   publishedRevision=c.revision;
   shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen})));
+  // Productos: conservar siempre la carta de muestra y anexar los publicados.
+  // La lista se reconstruye, no se concatena incrementalmente, para evitar duplicados.
+  products.splice(0,products.length,...demoProducts,...productsFromApi(c.products));
   storeGeocoding=false;
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
   if(revisionChanged||st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store=''}
   save();render();
  }catch(err){
-  // No sustituir locales reales por locales ficticios si la API no responde.
   shops.splice(0,shops.length);
   st.configReady=false;
   st.quote=null;st.store='';
-  console.warn('Stores unavailable',err.message);
+  products.splice(0,products.length,...demoProducts);
+  console.warn('Mobile configuration unavailable',err.message);
   render();
  }
 }
@@ -187,14 +212,14 @@ async function confirmStore(mode,id){
 }
 
 const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configReady,...d}=st;localStorage.setItem(K,JSON.stringify(d));};
-const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*products.find(p=>p.id===x.id).price,0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
+const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?.price||0),0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 function toast(t){st.notice=t;render();setTimeout(()=>{if(st.notice===t){st.notice='';render()}},2400)}
 function screen(n){selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render()}
 function nav(tab){selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
-const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${catalogPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
+const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${p.isPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
 function savedAddresses(){return Array.isArray(st.addresses)?st.addresses.filter(x=>x&&typeof x.id==='string'&&typeof x.street==='string'&&typeof x.district==='string'):[]}
 function pickSavedAddress(id,quote=false){
  const item=savedAddresses().find(x=>x.id===id);if(!item)return toast('Dirección no disponible');
@@ -446,8 +471,8 @@ function home(){
     <p class="home-disclaimer">Prototipo de Pollos B3. Imágenes, nombres comerciales, precios, combos y ubicaciones sujetos a confirmación antes de la publicación.</p>
   </div>`;
 }
-function card(p){return `<article class="item" data-product="${p.id}"><div class="item-picture">${img(p)}<span>Referencial</span></div><div class="item-text"><strong>${esc(p.name)}</strong><div class="item-bottom"><b>${p.disabled?'Consultar':cash(p.price)}</b><button data-quick="${p.id}" ${p.disabled?'disabled':''} aria-label="Agregar ${esc(p.name)}">${ic('plus',20)}</button></div></div></article>`}
-function carta(){const term=(st.search||'').toLocaleLowerCase('es-PE');const list=products.filter(p=>(st.category==='Todos'||p.cat===st.category)&&(!term||(p.name+' '+p.desc+' '+p.cat).toLocaleLowerCase('es-PE').includes(term)));return `<div class="carta"><h1>La carta</h1><p>Elige lo que más te gusta.</p><div class="filters">${['Todos','Pollos','Promociones','Bebidas'].map(c=>`<button data-filter="${c}" class="${c===st.category?'selected':''}">${c}</button>`).join('')}</div><div class="search-feedback">${st.search?`Resultados para «${esc(st.search)}» · <button data-clearsearch="1">Limpiar búsqueda</button>`:''}</div><div class="cards">${list.map(card).join('')||'<p class="search-empty">No encontramos productos en esta demostración.</p>'}</div><p class="smallprint">Productos, fotografías, precios y promociones de demostración: verificar con Pollos B3 antes de publicar.</p></div>`}
+function card(p){return `<article class="item" data-product="${esc(p.id)}"><div class="item-picture">${img(p)}<span>${p.isPublished?'Publicado':'Referencial'}</span></div><div class="item-text"><strong>${esc(p.name)}</strong><div class="item-bottom"><b>${p.disabled?'Consultar':cash(p.price)}</b><button data-quick="${p.id}" ${p.disabled?'disabled':''} aria-label="Agregar ${esc(p.name)}">${ic('plus',20)}</button></div></div></article>`}
+function carta(){const term=(st.search||'').toLocaleLowerCase('es-PE');const list=products.filter(p=>(st.category==='Todos'||p.cat===st.category)&&(!term||(p.name+' '+p.desc+' '+p.cat).toLocaleLowerCase('es-PE').includes(term)));return `<div class="carta"><h1>La carta</h1><p>Elige lo que más te gusta.</p><div class="filters">${[...new Set(['Todos','Pollos','Promociones','Bebidas',...products.map(p=>p.cat)])].map(c=>`<button data-filter="${esc(c)}" class="${c===st.category?'selected':''}">${esc(c)}</button>`).join('')}</div><div class="search-feedback">${st.search?`Resultados para «${esc(st.search)}» · <button data-clearsearch="1">Limpiar búsqueda</button>`:''}</div><div class="cards">${list.map(card).join('')||'<p class="search-empty">No encontramos productos en esta demostración.</p>'}</div><p class="smallprint">Los productos de muestra son referenciales; los productos publicados se identifican en cada tarjeta. No hay pedidos ni cobros reales habilitados.</p></div>`}
 function orders(){
  const list=Array.isArray(st.orders)?st.orders.filter(o=>o&&typeof o.id==='string'&&Date.now()-o.ts<60*24*3600000):[];
  return '<div class="page b3-orders-page"><h1>Mis pedidos</h1><p class="sub">Consulta tus pedidos locales. El seguimiento no requiere iniciar sesión.</p>'+
@@ -506,7 +531,7 @@ function localDetail(){
    <button class="primary full" data-start="1">Continuar con Pide y Retira</button>
  </div>`;
 }
-function detail(){let p=product(st.selected)||products[0];if(!p)return `<div class="page"><div class="empty-state"><h2>No hay productos publicados</h2><p>La carta estará disponible cuando Pollos B3 publique sus productos.</p><button class="primary" data-tab="carta">Volver a la carta</button></div></div>`;return `<div class="detail">${heading('',st.mode?'app':'choice')}<div class="detail-photo">${img(p)}<small>Imagen referencial</small></div><div class="detail-content"><h1>${esc(p.name)}</h1><p>${esc(p.desc)}</p><div class="detail-price"><strong>${cash(p.price)}</strong><div class="counter"><button data-qty="-1">−</button><span>${st.qty}</span><button data-qty="1">+</button></div></div><button class="primary full" data-add="1">Agregar · ${cash(p.price*st.qty)}</button></div></div>`}
+function detail(){let p=product(st.selected)||products[0];if(!p)return `<div class="page"><div class="empty-state"><h2>No hay productos publicados</h2><p>La carta estará disponible cuando Pollos B3 publique sus productos.</p><button class="primary" data-tab="carta">Volver a la carta</button></div></div>`;return `<div class="detail">${heading('',st.mode?'app':'choice')}<div class="detail-photo">${img(p)}<small>${p.isPublished?'Imagen publicada':'Imagen referencial'}</small></div><div class="detail-content"><h1>${esc(p.name)}</h1><p>${esc(p.desc)}</p><div class="detail-price"><strong>${cash(p.price)}</strong><div class="counter"><button data-qty="-1">−</button><span>${st.qty}</span><button data-qty="1">+</button></div></div><button class="primary full" data-add="1">Agregar · ${cash(p.price*st.qty)}</button></div></div>`}
 function cart(){return `<div class="page">${heading('Tu carrito','app')}${!st.cart.length?`<div class="empty-state"><h2>Tu carrito está vacío</h2><button class="primary" data-tab="carta">Ver la carta</button></div>`:`<div>${st.cart.map(x=>{let p=product(x.id);return `<div class="cart-row">${img(p)}<div><strong>${esc(p.name)}</strong><span>${cash(p.price)}</span><div class="counter"><button data-cartdelta="${p.id}|-1">−</button><b>${x.qty}</b><button data-cartdelta="${p.id}|1">+</button></div></div><button class="remove" data-remove="${p.id}" aria-label="Quitar producto">${ic('trash',18)}</button></div>`}).join('')}</div><div class="totals"><p><span>Subtotal</span><b>${cash(subtotal())}</b></p><p><span>Delivery</span><span>${st.mode==='delivery'?(st.quote?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p><p class="grand"><b>Total estimado</b><strong>${cash(subtotal()+(st.quote?.deliveryFeePen||0))}</strong></p></div><p class="smallprint">Los cargos de delivery, si aplican, se mostrarán antes de realizar un pago real.</p><button class="outline full" data-tab="carta">Seguir pidiendo</button><button class="primary full" data-screen="identity">Pagar</button>`}</div>`}
 function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
 function phone(){return `<div class="page form">${heading('Tu teléfono','identity')}<p class="sub">Lo usaremos para identificar tu pedido. En esta demo no enviaremos mensajes ni códigos.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(st.profile.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`}
