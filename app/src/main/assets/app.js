@@ -165,13 +165,14 @@ function notificationDetailScreen(){
   const linkedProduct=notificationLinkedProduct(item);
   const linkedProductId=linkedProduct?.id||'';
   const canOrderProduct=!!linkedProduct;
+  const checkingLinkedProduct=!!item.productId&&!catalogRequestFinished;
   return `<div class="page b3-notification-detail">${heading('Detalle de novedad','notifications')}
    ${item.imageUrl?`<img class="b3-notification-detail-image" src="${esc(item.imageUrl)}" alt="Imagen de ${esc(item.title)}">`:''}
    <span class="b3-notification-kicker">NOVEDAD DE POLLOS B3</span>
    <h1>${esc(item.title)}</h1>
    <p class="b3-notification-copy">${esc(item.message).replace(/\n/g,'<br>')}</p>
    ${item.expiresAt&&Number.isFinite(Date.parse(item.expiresAt))?`<p class="b3-notification-validity">Disponible hasta ${esc(new Date(item.expiresAt).toLocaleString('es-PE',{timeZone:'America/Lima',dateStyle:'medium',timeStyle:'short'}))}</p>`:''}
-   ${canOrderProduct?`<button class="primary full" data-product="${esc(linkedProductId)}">Ver ${esc(linkedProduct.name)} y pedir</button>`:`<button class="primary full" data-notification-catalog="1">Explorar la carta</button>`}
+   ${checkingLinkedProduct?`<button class="primary full" type="button" disabled>Cargando producto...</button>`:canOrderProduct?`<button class="primary full" data-product="${esc(linkedProductId)}">Ver ${esc(linkedProduct.name)} y pedir</button>`:`<button class="primary full" data-notification-catalog="1">Explorar la carta</button>`}
    <button class="outline full" data-screen="notifications">Ver todas las notificaciones</button>
    <p class="smallprint">Los productos, precios y disponibilidad se confirman en la carta actual. La oferta no se aplica automáticamente al carrito.</p>
   </div>`;
@@ -187,6 +188,7 @@ function notificationDetailScreen(){
 
 // La lista de locales permanece vacía hasta que la API devuelva sus registros.
 let publishedRevision=0;
+let catalogRequestFinished=false;
 let publishedPromotions=[];
 let publishedVacancies=[];
 let complaintsBookUrl=null;
@@ -255,12 +257,14 @@ async function fetchConfig(){
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
   if(revisionChanged||st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store=''}
+  catalogRequestFinished=true;
   save();if(st.stage!=='splash')render();
  }catch(err){
   shops.splice(0,shops.length);
   st.configReady=false;
   st.quote=null;st.store='';
   products.splice(0,products.length,...demoProducts);
+  catalogRequestFinished=true;
   console.warn('Mobile configuration unavailable',err.message);
   if(st.stage!=='splash')render();
  }
