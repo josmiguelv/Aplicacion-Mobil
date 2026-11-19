@@ -276,8 +276,8 @@ function productsFromApi(rows){
   }];
  });
 }
-async function fetchConfig(){
- if(!API_BASE)return;
+async function fetchConfig({strict=false}={}){
+ if(!API_BASE){if(strict)throw Error('API de locales no configurada');return false}
  try{
   const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});
   if(!r.ok)throw Error('API unavailable');
@@ -295,15 +295,16 @@ async function fetchConfig(){
   st.configReady=true;
   if(revisionChanged||st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store=''}
   catalogRequestFinished=true;
-  save();if(st.stage!=='splash')render();
+  save();if(st.stage!=='splash')render();return true;
  }catch(err){
+  if(strict)throw Error('No se pudo actualizar la disponibilidad de locales. Intenta nuevamente.');
   shops.splice(0,shops.length);
   st.configReady=false;
   st.quote=null;st.store='';
   products.splice(0,products.length,...demoProducts);
   catalogRequestFinished=true;
   console.warn('Mobile configuration unavailable',err.message);
-  if(st.stage!=='splash')render();
+  if(st.stage!=='splash')render();return false;
  }
 }
 function deliveryQuoteValid(){
@@ -321,15 +322,15 @@ function checkoutCartIssue(){
  if(st.cart.some(item=>!product(item.id)||product(item.id).disabled))return 'Hay un producto que ya no está disponible. Revisa tu carrito.';
  return '';
 }
-async function resolveDelivery(){
- if(deliveryRequestPending)return;
+async function resolveDelivery({silent=false,skipConfig=false}={}){
+ if(deliveryRequestPending)return false;
  const address=String(st.profile.address||'').trim();
  const district=String(st.profile.district||'').trim();
- if(address.length<6||district.length<2){deliveryRequestError='Ingresa una dirección completa y un distrito para verificar la cobertura.';render();return}
+ if(address.length<6||district.length<2){deliveryRequestError='Ingresa una dirección completa y un distrito para verificar la cobertura.';render();return false}
  deliveryRequestPending=true;deliveryRequestError='';render();
  try{
   // A cold-start deep link can reach the checkout before the asynchronous catalog loads.
-  if(!st.configReady)await fetchConfig();
+  if(!skipConfig)await fetchConfig({strict:true});
   if(!st.configReady||!API_BASE)throw Error('No se pudo conectar con la configuración de locales. Comprueba el servidor e inténtalo nuevamente.');
   if(!hasDeliveryDestination(address,district)){
    const position=await geocodeDeliveryDestination(address,district);
@@ -362,15 +363,17 @@ async function resolveDelivery(){
   const selected=shops.find(store=>String(store.id)===String(result.storeId));
   if(!selected||selected.active===false||selected.delivery_enabled===false)
    throw Error('La sede asignada por el servidor no está disponible para delivery.');
-  if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district)return;
+  if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district)return false;
   st.store=selected.id;st.quote={...result,deliveryFeePen:Number(result.deliveryFeePen),quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};save();
-  if(checkoutPending){checkoutPending=false;screen('identity');return}
-  fulfillmentModal=null;nav('inicio');
+  if(silent)return true;
+  if(checkoutPending){checkoutPending=false;screen('identity');return true}
+  fulfillmentModal=null;nav('inicio');return true;
  }catch(err){
   st.quote=null;st.store='';save();
   deliveryRequestError=err?.name==='AbortError'?'La cotización demoró demasiado. Intenta nuevamente.':err instanceof TypeError?'No pudimos consultar el cálculo de reparto. El catálogo puede funcionar aunque el servicio de delivery presente un error.':(err.message||'No se pudo cotizar el delivery.');
   console.warn('Pollos B3 delivery quote error',err?.name||'Error');
   // Keep the exact screen and entered address, so the customer can retry.
+  return false;
  }finally{
   deliveryRequestPending=false;
   if(st.stage!=='splash')render();
