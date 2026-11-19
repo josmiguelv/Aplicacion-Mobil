@@ -52,3 +52,51 @@ test('la compra de prueba nunca se presenta como pedido enviado o cobrado',()=>{
  assert.match(source,/Continuar con pedido de prueba/)
  assert.doesNotMatch(source,/if\(st\.configReady\)return toast\('Integración de pedidos/)
 })
+
+test('tocar producto abre ficha sin exigir dirección o tarifa antes de agregar al carrito',()=>{
+ const start=source.indexOf("if(b.dataset.product||b.dataset.quick){")
+ const end=source.indexOf("if(b.dataset.qty)",start)
+ assert.ok(start>=0&&end>start)
+ const handler=source.slice(start,end)
+ assert.match(handler,/screen\('detail'\)/)
+ assert.doesNotMatch(handler,/checkReady\(|deliveryQuoteValid\(|screen\('choice'\)/)
+ assert.match(source,/function detail\(\)\{let p=product\(st\.selected\);/)
+})
+test('checkout solicita modalidad o dirección solo después de elegir continuar con el carrito',()=>{
+ const st={mode:'',store:'',quote:null,cart:[{id:'p',qty:1}]}
+ const ctx=functions(st,[store],[{id:'p',disabled:false}])
+ ctx.checkoutPending=false
+ ctx.eligibleForPickup=()=>true
+ ctx.screen=name=>{ctx.current=name}
+ ctx.toast=()=>{throw Error('Unexpected validation message')}
+ vm.runInNewContext(extract('startCheckout'),ctx)
+ ctx.startCheckout()
+ assert.equal(ctx.checkoutPending,true)
+ assert.equal(ctx.current,'choice')
+ st.mode='delivery'
+ ctx.startCheckout()
+ assert.equal(ctx.current,'deliveryAddress')
+ st.store=store.id;st.quote={deliveryFeePen:3}
+ ctx.startCheckout()
+ assert.equal(ctx.current,'identity')
+ assert.equal(ctx.checkoutPending,false)
+})
+test('recojo sin cotización avanza y seleccionar sede retoma el checkout',()=>{
+ const st={mode:'pickup',store:store.id,quote:null,cart:[{id:'p',qty:1}]}
+ const ctx=functions(st,[store],[{id:'p',disabled:false}])
+ ctx.checkoutPending=true
+ ctx.eligibleForPickup=()=>true
+ ctx.screen=name=>{ctx.current=name}
+ ctx.toast=()=>{throw Error('Unexpected validation')}
+ vm.runInNewContext(extract('startCheckout'),ctx)
+ ctx.startCheckout()
+ assert.equal(ctx.current,'identity')
+ assert.equal(ctx.checkoutPending,false)
+ assert.match(source,/if\(checkoutPending\)\{checkoutPending=false;screen\('identity'\);return\}/)
+})
+test('cotizar delivery conserva el avance al pago y permite reintentar si falla',()=>{
+ assert.match(source,/if\(checkoutPending\)\{checkoutPending=false;screen\('identity'\);return\}/)
+ assert.match(source,/if\(checkoutPending\)screen\('deliveryAddress'\)/)
+ assert.match(source,/No pudimos cotizar el delivery/)
+ assert.match(source,/if\(checkoutPending\)\{void confirmStore\('pickup',selected\.id\);return\}/)
+})
