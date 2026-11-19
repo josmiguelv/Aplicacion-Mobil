@@ -1351,6 +1351,7 @@ if(b.hasAttribute('data-clear')){if(!window.confirm('¿Eliminar los datos locale
 root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target.matches('.hero-card[role=button],.promo-card[role=button]'))){e.preventDefault();e.target.click()}});
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();const m=v('chat-message');if(m){st.chat.push(m.slice(0,500));save();render()}}});
 root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){
+ deliveryGpsPending=false; // Do not overwrite customer edits with a delayed GPS reverse-geocoding callback.
  deliveryLocation=null;
  deliveryGpsMessage='Dirección editada: se volverá a verificar su ubicación antes de calcular el reparto.';
  deliveryRequestError='';const warning=root.querySelector('[role="alert"]');if(warning)warning.remove()
