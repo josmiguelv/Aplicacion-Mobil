@@ -549,3 +549,26 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 @keyframes b3-marketing-rise{from{opacity:0;transform:translateY(24px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
 @media(min-width:500px){.b3-marketing-overlay{align-items:center}}
 @media(prefers-reduced-motion:reduce){.b3-marketing-dialog{animation:none}}
+
+/* Pollos B3 - centro de novedades comerciales: claridad, lectura y acción. */
+.b3-notification-inbox-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:17px 0 10px}
+.b3-notification-inbox-head strong{color:#35262b;font-size:15px}
+.b3-notification-inbox-head button{border:0;background:transparent;font-size:12px;color:#b51e30;font-weight:800;padding:9px 3px}
+.b3-notifications-page button.b3-commercial-notification{display:block;text-align:left;width:100%;border:1px solid #eee1e4;padding:0;color:inherit;cursor:pointer}
+.b3-commercial-notification.b3-notification-unread{border-color:#e6b6be;box-shadow:0 5px 22px rgba(182,32,47,.10)}
+.b3-commercial-notification .b3-notification-body{padding:15px 17px 17px}
+.b3-commercial-notification .b3-notification-body p{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
+.b3-notification-more{display:inline-block;color:#b71d2c;font-weight:800;font-size:12px;margin-top:12px}
+.b3-unread-dot{display:inline-block;width:7px;height:7px;background:#c31c2c;border-radius:50%;vertical-align:middle;margin-right:5px}
+.b3-account-notification-count{margin-left:auto;font-size:11px;min-width:21px;height:21px;padding:2px 6px;box-sizing:border-box;background:#c42032;color:#fff;display:inline-flex;align-items:center;justify-content:center;border-radius:99px;font-weight:800}
+.b3-notification-detail{padding-bottom:110px}
+.b3-notification-detail-image{width:100%;max-height:330px;display:block;object-fit:contain;background:#faf5f5;border-radius:18px;margin:18px 0 20px}
+.b3-notification-kicker{display:block;font-size:10px;color:#b71b2d;letter-spacing:.1em;font-weight:850;margin-top:22px}
+.b3-notification-detail h1{font-size:clamp(24px,6vw,30px);font-weight:850;letter-spacing:-.025em;color:#2b2024;line-height:1.16;margin:9px 0 17px}
+.b3-notification-copy{font-size:15px;color:#493c41;line-height:1.68;overflow-wrap:anywhere;margin:0 0 18px}
+.b3-notification-validity{font-size:12px;color:#6f5962;background:#fff4f4;border:1px solid #f0dcdc;padding:12px;border-radius:12px;margin:18px 0 22px}
+.b3-notification-detail button.full{margin-top:10px}
+.b3-notification-unavailable{padding:34px 14px 23px;text-align:center;background:#fff;border:1px solid #efe4e5;border-radius:20px;margin:20px 0}
+.b3-notification-unavailable svg{color:#b72133}
+.b3-notification-unavailable h2{font-size:18px;margin:13px 0 8px}
+.b3-notification-unavailable p{color:#76666e;font-size:13px;line-height:1.6}
