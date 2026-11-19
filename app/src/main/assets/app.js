@@ -134,7 +134,8 @@ function openPushNotification(id){
   pendingPushNotificationId=id;
   selectedNotificationId=id;
   st.stage='notificationDetail';
-  window.scrollTo({top:0});render();
+  window.scrollTo({top:0});
+  // Poner en estado de carga antes del primer render, evitando mostrar 'vencida' prematuramente.
   void fetchNotifications();
  }else screen('notifications');
 }
