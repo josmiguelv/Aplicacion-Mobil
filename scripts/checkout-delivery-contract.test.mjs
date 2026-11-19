@@ -171,3 +171,25 @@ test('métodos de pago salen de la sede y modalidad publicadas',()=>{
  assert.match(code,/selected\?\.paymentMethods\?\.\[st\.mode\]/)
  assert.match(code,/choices\.filter\(x=>published\.includes\(x\[0\]\)\)/)
 })
+
+test('preferencia de Universal se envía al servidor para respetar S/ 15 fijos dentro de cobertura',()=>{
+ assert.match(source,/let preferredDeliveryStoreId=''/)
+ assert.match(source,/preferredDeliveryStoreId=String\(s\.id\)/)
+ assert.match(source,/storeId:preferredDeliveryStoreId/)
+ assert.match(source,/id="delivery-store-preference"/)
+ assert.match(source,/Asignación automática según cobertura/)
+ assert.match(source,/e\.target\.id==='delivery-store-preference'/)
+})
+test('Universal sin pagos publicados no permite continuar de forma ficticia',()=>{
+ const match=source.match(/function paymentOptions\(\)\{[\s\S]*?\n\}/)
+ assert.ok(match)
+ const st={configReady:true,mode:'delivery',store:'7585340e-6d4d-4764-b127-b892dc50909d',
+  quote:{paymentMethods:[]}}
+ const ctx={st,shops:[{id:st.store,paymentMethods:{delivery:[]}}]}
+ vm.runInNewContext(match[0],ctx)
+ assert.equal(ctx.paymentOptions().length,0)
+ st.quote={paymentMethods:['yape','plin','card']}
+ assert.deepEqual(ctx.paymentOptions().map(x=>x[0]),['yape','plin','card'])
+ assert.match(source,/no tiene métodos de pago publicados/)
+ assert.match(source,/data-pay-next="1" \${missing\?'disabled':''}/)
+})
