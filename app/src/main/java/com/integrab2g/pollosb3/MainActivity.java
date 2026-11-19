@@ -78,6 +78,11 @@ public class MainActivity extends Activity {
             String configured = getString(R.string.b3_api_base).trim();
             return configured.startsWith("https://") ? configured : "";
         }
+        /** Separate HTTPS origin for Pollos B3 commercial notifications. */
+        @JavascriptInterface public String getNotificationsApiBase() {
+            String configured = getString(R.string.b3_notifications_api_base).trim();
+            return configured.startsWith("https://") ? configured : "";
+        }
         @JavascriptInterface public void requestLocation() {
             runOnUiThread(() -> requestOptionalLocation());
         }
