@@ -383,6 +383,8 @@ window.b3StoreCoordinates=json=>{
  if(st.stage==='app'&&st.tab==='inicio')render();
 };
 window.b3NativeLocation=(lat,lng,error)=>{
+ const forDelivery=deliveryGpsRequested;
+ deliveryGpsRequested=false;
  if(error){if(st.stage==='app'&&st.tab==='inicio')render();else toast(error);return}
  if(!Number.isFinite(lat)||!Number.isFinite(lng)){
   if(st.stage==='app'&&st.tab==='inicio')render();else toast('No fue posible obtener coordenadas');
@@ -390,6 +392,15 @@ window.b3NativeLocation=(lat,lng,error)=>{
  }
  st.coords={lat,lng};save();
  resolveStoreDistances();
+ if(forDelivery&&(fulfillmentModal==='delivery'||st.stage==='deliveryAddress')){
+  st.profile.address=v('address')||st.profile.address;
+  st.profile.district=v('district')||st.profile.district;
+  st.profile.reference=v('reference')||st.profile.reference;
+  deliveryLocation={latitude:lat,longitude:lng,key:deliveryAddressKey(st.profile.address,st.profile.district),source:'gps'};
+  deliveryRequestError='';save();render();
+  toast('Ubicación actual seleccionada para este delivery. Confirma la dirección.');
+  return;
+ }
  if(fulfillmentModal==='pickup'||st.stage==='locations'||(st.stage==='app'&&st.tab==='inicio')){render();return}
  toast('Ubicación recibida. Verifica la dirección escrita.');
 };
@@ -486,8 +497,8 @@ function fulfillmentOverlay(){
  </div>`;
  const deliveryPanel=`<div class="b3-modal-fields">
    ${savedAddresses().length?`<div class="b3-modal-saved"><h3>Mis direcciones guardadas</h3>${savedAddressesHtml(true)}</div>`:''}
-   <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual</button>
-   <p class="smallprint">${st.coords?'Ubicación GPS recibida. Verifica tu dirección.':'La ubicación es opcional. Puedes ingresar la dirección manualmente.'}</p>
+   <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual como destino</button>
+   <p class="smallprint">${hasDeliveryDestination(st.profile.address,st.profile.district)&&deliveryLocation.source==='gps'?'Ubicación GPS elegida para esta dirección.':'La dirección se localizará con el servicio de ubicación del dispositivo. Si no puede ubicarse, usa GPS en el destino.'}</p>
    <label>Dirección completa<input id="address" autocomplete="street-address" placeholder="Calle, avenida, número e interior" value="${esc(st.profile.address)}"></label>
    <label>Distrito<input id="district" placeholder="Distrito de entrega" value="${esc(st.profile.district||'')}"></label>
    <label>Referencia (opcional)<input id="reference" placeholder="Piso, puerta u otras indicaciones" value="${esc(st.profile.reference||'')}"></label>
@@ -818,6 +829,9 @@ function applyVacancy(id){
 function address(){return `<div class="page form b3-address-page">${heading('Dirección de Delivery','choice')}
  <p class="sub">Elige una dirección guardada o escribe una nueva. Puedes usarla solo para este pedido.</p>
  ${savedAddresses().length?'<div class="b3-modal-saved"><h3>Mis direcciones</h3>'+savedAddressesHtml(true)+'</div>':''}
+ <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual como destino</button>
+ <p class="smallprint">La distancia se estima en línea recta. Si no estás en la dirección de entrega, escribe la dirección completa.</p>
+ ${hasDeliveryDestination(st.profile.address,st.profile.district)&&deliveryLocation.source==='gps'?'<div class="notice">Ubicación GPS seleccionada para esta dirección.</div>':''}
  <label>Dirección completa<input id="address" maxlength="180" autocomplete="street-address" placeholder="Calle, avenida y número" value="${esc(st.profile.address||'')}"></label>
  <label>Distrito<input id="district" maxlength="80" value="${esc(st.profile.district||'')}"></label>
  <label>Referencia (opcional)<input id="reference" maxlength="180" value="${esc(st.profile.reference||'')}"></label>
@@ -1139,7 +1153,7 @@ if(b.dataset.modalPickstore){
  if(!eligibleForPickup(store))return toast('El local está cerrado o no acepta retiros');
  st.mode='pickup';void confirmStore('pickup',store.id);return;
 }
-if(b.hasAttribute('data-gps')){if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else toast('GPS no disponible. Ingresa la dirección manualmente.');return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-marketing-first-later')){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return}
+if(b.hasAttribute('data-gps')){deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-marketing-first-later')){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return}
 if(b.hasAttribute('data-marketing-first-accept')){localStorage.setItem(MARKETING_PROMPT_KEY,'accepted');marketingPromptVisible=false;render();window.AndroidBridge?.setMarketingNotificationsEnabled?.(true);return}
 if(b.hasAttribute('data-marketing-toggle')){if(window.AndroidBridge?.setMarketingNotificationsEnabled){window.AndroidBridge.setMarketingNotificationsEnabled(!window.AndroidBridge.marketingNotificationsEnabled());}else toast('Las notificaciones push solo están disponibles en Android.');return}
 if(b.dataset.notificationOpen){openNotificationDetail(b.dataset.notificationOpen);return}
@@ -1201,7 +1215,7 @@ if(b.hasAttribute('data-clear')){if(!window.confirm('¿Eliminar los datos locale
 });
 root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target.matches('.hero-card[role=button],.promo-card[role=button]'))){e.preventDefault();e.target.click()}});
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();const m=v('chat-message');if(m){st.chat.push(m.slice(0,500));save();render()}}});
-root.addEventListener('input',e=>{if(e.target.id==='cash'){st.cash=e.target.value;let change=document.getElementById('change');if(change)change.textContent=Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total';}});
+root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){deliveryLocation=null;deliveryRequestError='';const warning=root.querySelector('[role="alert"]');if(warning)warning.remove()}if(e.target.id==='cash'){st.cash=e.target.value;let change=document.getElementById('change');if(change)change.textContent=Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total';}});
 
 /* Carruseles B3: animación física horizontal, gestos táctiles y autoplay sin reconstruir Inicio.
    Solo se desplazan tarjetas visuales; selección de productos y checkout siguen intactos. */
