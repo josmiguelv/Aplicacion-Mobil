@@ -141,14 +141,14 @@ async function fetchConfig(){
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
   if(revisionChanged||st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store=''}
-  save();render();
+  save();if(st.stage!=='splash')render();
  }catch(err){
   shops.splice(0,shops.length);
   st.configReady=false;
   st.quote=null;st.store='';
   products.splice(0,products.length,...demoProducts);
   console.warn('Mobile configuration unavailable',err.message);
-  render();
+  if(st.stage!=='splash')render();
  }
 }
 async function resolveDelivery(){
