@@ -50,6 +50,7 @@ let addressEditId=null;
 let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
+let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
 let selectedHomeStore=null;
 let homeLocationPrompted=false;
 let storeGeocoding=false;
@@ -283,29 +284,44 @@ function checkoutCartIssue(){
  return '';
 }
 async function resolveDelivery(){
- if(!st.configReady||!API_BASE){
-  st.quote=null;st.store='';save();
-  // A checkout must stay actionable, rather than silently jumping to Home.
-  if(checkoutPending)screen('deliveryAddress');
-  toast('No pudimos validar cobertura ni tarifa. Comprueba la conexión e intenta otra vez.');
-  return;
- }
+ if(deliveryRequestPending)return;
+ const address=String(st.profile.address||'').trim();
+ const district=String(st.profile.district||'').trim();
+ if(address.length<6||district.length<2){deliveryRequestError='Ingresa una dirección completa y un distrito para verificar la cobertura.';render();return}
+ deliveryRequestPending=true;deliveryRequestError='';render();
  try{
-  const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode:'delivery',address:st.profile.address,district:st.profile.district})});
+  // A cold-start deep link can reach the checkout before the asynchronous catalog loads.
+  if(!st.configReady)await fetchConfig();
+  if(!st.configReady||!API_BASE)throw Error('No se pudo conectar con la configuración de locales. Comprueba el servidor e inténtalo nuevamente.');
+  const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district})
+  });
   const result=await response.json().catch(()=>null);
-  if(!response.ok)throw Error(typeof result?.error==='string'?result.error:'No se pudo verificar la cobertura de tu dirección');
-  if(!result||!result.storeId||result.deliveryFeePen==null||result.deliveryFeePen===''||!Number.isFinite(Number(result.deliveryFeePen))||Number(result.deliveryFeePen)<0)
-   throw Error('El servidor no devolvió una tarifa válida de delivery. Intenta nuevamente.');
+  if(!response.ok){
+   const apiMessage=typeof result?.message==='string'?result.message:typeof result?.error==='string'?result.error:'';
+   const reason=response.status===404?'El servicio de cotización todavía no está disponible (HTTP 404).':
+    response.status>=500?'El servidor no pudo calcular el delivery (HTTP '+response.status+').':
+    apiMessage&&apiMessage.length<=180?apiMessage:'No se pudo comprobar la cobertura (HTTP '+response.status+').';
+   throw Error(reason);
+  }
+  if(!result||!result.storeId||result.deliveryFeePen==null||result.deliveryFeePen===''||
+     !Number.isFinite(Number(result.deliveryFeePen))||Number(result.deliveryFeePen)<0)
+   throw Error('La API no devolvió una sede y una tarifa de reparto válidas.');
   const selected=shops.find(store=>String(store.id)===String(result.storeId));
   if(!selected||selected.active===false||selected.delivery_enabled===false)
-   throw Error('La sede asignada no está disponible para delivery. Elige otra dirección o intenta luego.');
+   throw Error('La sede asignada por el servidor no está disponible para delivery.');
+  if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district)return;
   st.store=selected.id;st.quote={...result,deliveryFeePen:Number(result.deliveryFeePen)};save();
   if(checkoutPending){checkoutPending=false;screen('identity');return}
   fulfillmentModal=null;nav('inicio');
  }catch(err){
   st.quote=null;st.store='';save();
-  if(checkoutPending&&st.stage!=='deliveryAddress'&&!fulfillmentModal)screen('deliveryAddress');
-  toast('No pudimos cotizar el delivery: '+(err.message||'Reintenta'));
+  deliveryRequestError=err instanceof TypeError?'No hay conexión con el servidor de delivery. Revisa Internet o el enlace de la API.':(err.message||'No se pudo cotizar el delivery.');
+  // Keep the exact screen and entered address, so the customer can retry.
+ }finally{
+  deliveryRequestPending=false;
+  if(st.stage!=='splash')render();
  }
 }
 function resolveStoreDistances(){
@@ -438,7 +454,8 @@ function fulfillmentOverlay(){
    <label>Referencia (opcional)<input id="reference" placeholder="Piso, puerta u otras indicaciones" value="${esc(st.profile.reference||'')}"></label>
    <label class="b3-address-check"><input type="checkbox" id="delivery-save-address"> Guardar esta dirección para próximos pedidos</label>
    <div class="b3-modal-info">La cobertura y el costo de reparto deben verificarse con la web administrativa. No se asignará una tienda sin validación.</div>
-   <button type="button" class="primary full" data-modal-save-delivery="1">Confirmar dirección</button>
+   ${deliveryRequestError?`<div class="notice" role="alert">${esc(deliveryRequestError)}</div>`:""}
+   <button type="button" class="primary full" data-modal-save-delivery="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Verificando cobertura...":"Confirmar dirección"}</button>
  </div>`;
  const pickupPanel=`<div class="b3-modal-fields">
    <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual</button>
@@ -766,7 +783,8 @@ function address(){return `<div class="page form b3-address-page">${heading('Dir
  <label>Distrito<input id="district" maxlength="80" value="${esc(st.profile.district||'')}"></label>
  <label>Referencia (opcional)<input id="reference" maxlength="180" value="${esc(st.profile.reference||'')}"></label>
  <label class="b3-address-check"><input type="checkbox" id="delivery-save-address"> Guardar para próximos pedidos</label>
- <button class="primary full" data-address-next="1">Confirmar dirección</button></div>`}
+ ${deliveryRequestError?`<div class="notice" role="alert">${esc(deliveryRequestError)}</div>`:""}
+ <button class="primary full" data-address-next="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Verificando cobertura...":"Confirmar dirección"}</button></div>`}
 function maybeSaveDeliveryAddress(){
  if(!document.getElementById('delivery-save-address')?.checked)return;
  const street=v('address'),district=v('district'),reference=v('reference');
@@ -1072,6 +1090,7 @@ if(b.hasAttribute('data-address-save')){
  addressEditId=null;save();screen('address');return;
 }
 if(b.hasAttribute('data-modal-save-delivery')){
+ if(deliveryRequestPending)return;
  if(v('address').length<6||v('district').length<2)return toast('Completa la dirección y el distrito');
  st.mode='delivery';st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.quote=null;st.store='';maybeSaveDeliveryAddress();
  save();void resolveDelivery();return;
@@ -1121,7 +1140,7 @@ if(b.dataset.filter){st.category=b.dataset.filter;render();return}
 if(b.dataset.carousel!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('hero',Number(b.dataset.carousel));return}if(b.dataset.promo!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('promo',Number(b.dataset.promo));return}if(b.dataset.local!==undefined){st.local=Number(b.dataset.local);render();return}
 if(b.dataset.cartdelta){let [id,delta]=b.dataset.cartdelta.split('|');let c=st.cart.find(x=>x.id===id);if(c){c.qty+=Number(delta);st.cart=st.cart.filter(x=>x.qty>0);save();render()}return}
 if(b.dataset.remove){st.cart=st.cart.filter(x=>x.id!==b.dataset.remove);save();render();return}
-if(b.hasAttribute('data-address-next')){if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.quote=null;st.store='';st.mode='delivery';maybeSaveDeliveryAddress();save();resolveDelivery();return}
+if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.quote=null;st.store='';st.mode='delivery';maybeSaveDeliveryAddress();save();void resolveDelivery();return}
 if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2)return toast('Ingresa tus nombres y apellidos');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
 if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();screen('payment');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;render();return}
