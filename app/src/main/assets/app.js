@@ -1041,7 +1041,7 @@ if(b.dataset.homeStore){selectedHomeStore=b.dataset.homeStore;render();return}
 if(b.dataset.homeLocal!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('local',Number(b.dataset.homeLocal));return}
 if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){st.mode='pickup';void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;fulfillmentModal='delivery';render()}return}
 if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
-if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;fulfillmentModal=null;render();return}
+if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;checkoutPending=false;fulfillmentModal=null;render();return}
 if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
 if(b.dataset.modalMode){
  const next=b.dataset.modalMode;
@@ -1094,7 +1094,13 @@ if(b.dataset.screen){
 }
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
 if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
-if(b.dataset.store){const s=shops.find(x=>x.id===b.dataset.store);if(!eligibleForPickup(s))return toast('Local no disponible para recojo');st.store=b.dataset.store;st.quote=null;st.mode='pickup';screen('localDetail');return}if(b.dataset.pickstore){const s=shops.find(x=>x.id===b.dataset.pickstore);if(!eligibleForPickup(s))return toast('Local cerrado o no habilitado para recojo');st.store=b.dataset.pickstore;st.fulfillment='pickup';st.quote=null;screen('localDetail');return}
+if(b.dataset.store){const s=shops.find(x=>x.id===b.dataset.store);if(!eligibleForPickup(s))return toast('Local no disponible para recojo');st.store=b.dataset.store;st.quote=null;st.mode='pickup';screen('localDetail');return}if(b.dataset.pickstore){
+ const selected=shops.find(x=>String(x.id)===String(b.dataset.pickstore));
+ if(!eligibleForPickup(selected))return toast('Local cerrado o no habilitado para recojo');
+ st.mode='pickup';
+ if(checkoutPending){void confirmStore('pickup',selected.id);return}
+ st.store=selected.id;st.fulfillment='pickup';st.quote=null;screen('localDetail');return;
+}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
  if(st.selected&&product(st.selected)){screen('detail');return}
@@ -1301,6 +1307,7 @@ window.b3OpenFromLink=()=>{
 };
 window.handleB3Back=()=>{
   if(marketingPromptVisible){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return true}
+  if(fulfillmentModal){checkoutPending=false;fulfillmentModal=null;render();return true}
   if(st.stage==='app'){
     if(st.tab!=='inicio'){nav('inicio');return true}
     return false; // Native Activity exits; never navigate to splash.
@@ -1311,6 +1318,7 @@ window.handleB3Back=()=>{
     return false; // First launch login: close app on Back, not splash.
   }
   if(st.stage.startsWith('signin-')){screen('login');return true}
+  if(checkoutPending)checkoutPending=false;
   const previous={notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
   screen(previous[st.stage]||'app');return true
 };
