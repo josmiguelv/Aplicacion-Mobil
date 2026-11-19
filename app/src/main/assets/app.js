@@ -49,6 +49,7 @@ let loginFromAccount=false;
 let addressEditId=null;
 let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
+let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
 let selectedHomeStore=null;
 let homeLocationPrompted=false;
 let storeGeocoding=false;
@@ -659,7 +660,7 @@ function localDetail(){
    <button class="primary full" data-start="1">Continuar con Pide y Retira</button>
  </div>`;
 }
-function detail(){let p=product(st.selected)||products[0];if(!p)return `<div class="page"><div class="empty-state"><h2>No hay productos publicados</h2><p>La carta estará disponible cuando Pollos B3 publique sus productos.</p><button class="primary" data-tab="carta">Volver a la carta</button></div></div>`;return `<div class="detail">${heading('',st.mode?'app':'choice')}<div class="detail-photo">${img(p)}<small>${p.isPublished?'Imagen publicada':'Imagen referencial'}</small></div><div class="detail-content"><h1>${esc(p.name)}</h1><p>${esc(p.desc)}</p><div class="detail-price"><strong>${cash(p.price)}</strong><div class="counter"><button data-qty="-1">−</button><span>${st.qty}</span><button data-qty="1">+</button></div></div><button class="primary full" data-add="1">Agregar · ${cash(p.price*st.qty)}</button></div></div>`}
+function detail(){let p=product(st.selected);if(!p)return `<div class="page"><div class="empty-state"><h2>No hay productos publicados</h2><p>La carta estará disponible cuando Pollos B3 publique sus productos.</p><button class="primary" data-tab="carta">Volver a la carta</button></div></div>`;return `<div class="detail">${heading('','app')}<div class="detail-photo">${img(p)}<small>${p.isPublished?'Imagen publicada':'Imagen referencial'}</small></div><div class="detail-content"><h1>${esc(p.name)}</h1><p>${esc(p.desc)}</p><div class="detail-price"><strong>${cash(p.price)}</strong><div class="counter"><button data-qty="-1">−</button><span>${st.qty}</span><button data-qty="1">+</button></div></div><button class="primary full" data-add="1">Agregar · ${cash(p.price*st.qty)}</button></div></div>`}
 function cart(){
  const rows=st.cart.map(x=>{
   const p=product(x.id);
@@ -911,18 +912,16 @@ function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
 function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
-function checkReady(){
- if(!st.mode){screen('choice');return false}
- if(st.mode==='pickup'){
-  const selected=shops.find(x=>String(x.id)===String(st.store));
-  if(!eligibleForPickup(selected)){screen('locations');toast('Selecciona un local habilitado para recojo');return false}
+function startCheckout(){
+ const issue=checkoutCartIssue();if(issue){toast(issue);return}
+ if(!st.mode){checkoutPending=true;screen('choice');return}
+ if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){
+  checkoutPending=true;screen('locations');return
  }
  if(st.mode==='delivery'&&!deliveryQuoteValid()){
-  if(!st.profile.address||!st.profile.district){screen('deliveryAddress');return false}
-  toast('Confirma la cobertura y el costo de delivery antes de continuar.');
-  fulfillmentModal='delivery';render();return false;
+  checkoutPending=true;screen('deliveryAddress');return
  }
- return true;
+ checkoutPending=false;screen('identity');
 }
 function animateAddedProduct(fromRect,imageSrc,quantity=1){
   // Solo animación visual: el carrito ya fue actualizado por addToCart.
@@ -1080,20 +1079,26 @@ if(b.hasAttribute('data-notification-catalog')){nav('carta');return}
 if(b.hasAttribute('data-notifications-refresh')){void fetchNotifications();return}
 if(b.dataset.screen){
  if(b.dataset.screen==='detail'&&!st.selected)return;
- if(b.dataset.screen==='identity'){
-  const issue=checkoutCartIssue();if(issue)return toast(issue);
-  if(!st.mode)return screen('choice');
-  if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){screen('locations');return toast('Confirma el local de retiro.')}
-  if(st.mode==='delivery'&&!deliveryQuoteValid()){fulfillmentModal='delivery';render();return toast('Confirma dirección y tarifa de delivery para continuar.')}
- }
- screen(b.dataset.screen);return
+ if(b.dataset.screen==='identity'){startCheckout();return}
+ if(checkoutPending&&!['choice','locations','deliveryAddress'].includes(b.dataset.screen))checkoutPending=false;
+ screen(b.dataset.screen);return;
 }
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
 if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
 if(b.dataset.store){const s=shops.find(x=>x.id===b.dataset.store);if(!eligibleForPickup(s))return toast('Local no disponible para recojo');st.store=b.dataset.store;st.quote=null;st.mode='pickup';screen('localDetail');return}if(b.dataset.pickstore){const s=shops.find(x=>x.id===b.dataset.pickstore);if(!eligibleForPickup(s))return toast('Local cerrado o no habilitado para recojo');st.store=b.dataset.pickstore;st.fulfillment='pickup';st.quote=null;screen('localDetail');return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
-if(b.hasAttribute('data-start')){if(!st.mode)return toast('Selecciona una modalidad');if(st.mode==='delivery'&&!deliveryQuoteValid()){fulfillmentModal='delivery';render();return toast('Confirma dirección y tarifa de delivery para continuar.')}if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){screen('locations');return}if(st.selected)screen('detail');else nav('carta');return}
-if(b.dataset.product||b.dataset.quick){st.selected=b.dataset.product||b.dataset.quick;st.qty=1;if(!st.mode)screen('choice');else if(!checkReady())return;else screen('detail');return}
+if(b.hasAttribute('data-start')){
+ if(st.selected&&product(st.selected)){screen('detail');return}
+ nav('carta');return;
+}
+if(b.dataset.product||b.dataset.quick){
+ const requested=b.dataset.product||b.dataset.quick;
+ const selectedProduct=product(requested);
+ if(!selectedProduct||selectedProduct.disabled)return toast('Este producto no está disponible en la carta actual.');
+ st.selected=requested;st.qty=1;
+ // Browsing a product must never require delivery coverage or a pickup location.
+ screen('detail');return;
+}
 if(b.dataset.qty){st.qty=Math.max(1,Math.min(30,st.qty+Number(b.dataset.qty)));render();return}
 if(b.hasAttribute('data-add')){const photo=root.querySelector('.detail-photo img');const source=photo||b;const r=source.getBoundingClientRect();const fromRect={left:r.left,top:r.top,width:r.width,height:r.height};const imageSrc=photo?.currentSrc||photo?.src||'';const qty=st.qty;if(addToCart(st.selected,qty)){nav('carta');animateAddedProduct(fromRect,imageSrc,qty)}else toast('Producto no disponible para esta demo');return}
 if(b.dataset.filter){st.category=b.dataset.filter;render();return}
