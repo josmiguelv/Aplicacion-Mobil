@@ -24,8 +24,8 @@ const demoStores=[
  {id:'demo-universal',name:'Universal',address:'Av. Túpac Amaru 650, Santa Anita, Lima'}
 ].map(s=>({...s,isDemo:true,active:true,hoursConfigured:true,
  weeklyHours:defaultStoreSchedule(),pickup_enabled:true,delivery_enabled:true,latitude:null,longitude:null}));
-const shops=[...demoStores];
-function resetDemoStores(){shops.splice(0,shops.length,...demoStores)}
+const shops=[]; // Solo locales publicados por API; sin sucursales de demostración.
+function resetDemoStores(){shops.splice(0,shops.length)}
 function demoStoreClock(s){
  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'America/Lima',weekday:'long',
   hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
@@ -70,7 +70,7 @@ const API_BASE=(()=>{
 })();
 // Fase locales: conservar catálogo, imágenes, promociones y vacantes de demostración.
 const catalogPublished=false;
-if(API_BASE)shops.splice(0,shops.length); // No utilizar locales ficticios cuando hay API configurada.
+// La lista de locales permanece vacía hasta que la API devuelva sus registros.
 let publishedRevision=0;
 let publishedPromotions=[];
 let publishedVacancies=[];
