@@ -106,6 +106,15 @@ public class MainActivity extends Activity {
         if(!enabled){
             getSharedPreferences(PREFS,MODE_PRIVATE).edit().putBoolean("marketing_opt_in",false).apply();
             FirebaseMessaging.getInstance().unsubscribeFromTopic(MARKETING_TOPIC);
+            // Al retirar el consentimiento se limpian únicamente avisos comerciales.
+            NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+            if(manager!=null && Build.VERSION.SDK_INT>=23){
+                for(android.service.notification.StatusBarNotification active:manager.getActiveNotifications()){
+                    if(Build.VERSION.SDK_INT<26 || NOTIFICATION_CHANNEL.equals(active.getNotification().getChannelId())){
+                        manager.cancel(active.getId());
+                    }
+                }
+            }
             sendMarketingStatus(false,"Avisos promocionales desactivados.");
             return;
         }
