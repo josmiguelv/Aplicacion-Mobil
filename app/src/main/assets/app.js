@@ -71,6 +71,8 @@ const API_BASE=(()=>{
 })();
 // Fase locales: conservar catálogo, imágenes, promociones y vacantes de demostración.
 const catalogPublished=false;
+const NOTIFICATIONS_API_BASE=(()=>{const raw=window.AndroidBridge?.getNotificationsApiBase?.()||'';return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):''})();
+let commercialNotifications=[],notificationsLoading=false,notificationsError='',notificationsRequestId=0;
 // La lista de locales permanece vacía hasta que la API devuelva sus registros.
 let publishedRevision=0;
 let publishedPromotions=[];
@@ -215,7 +217,7 @@ const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configRea
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?.price||0),0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 function toast(t){st.notice=t;render();setTimeout(()=>{if(st.notice===t){st.notice='';render()}},2400)}
-function screen(n){selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render()}
+function screen(n){selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications()}
 function nav(tab){selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
@@ -680,20 +682,54 @@ function privacyScreen(){
  <section class="b3-privacy-delete"><h3>Mis datos en este teléfono</h3><p>${saved===1?'1 dirección guardada':saved+' direcciones guardadas'} · Perfil y preferencias de esta instalación.</p><p>Si borras los datos locales, desaparecerán del dispositivo el perfil, las direcciones, el carrito, la actividad de prueba y las preferencias guardadas. No solicita eliminar información que pudiera existir en sistemas externos.</p><button class="outline full" data-privacy-clear="1">Borrar mis datos locales</button></section>
  <p class="smallprint">Información funcional del piloto, no una política corporativa final ni una garantía de tratamiento para servicios que todavía no están desplegados.</p></div>`;
 }
+function notificationImageUrl(raw){
+ if(typeof raw!=='string'||!NOTIFICATIONS_API_BASE)return '';
+ if(!/^\/api\/v1\/mobile\/notification-images\/[a-zA-Z0-9-]+(?:\?appId=com\.integrab2g\.pollosb3)?$/.test(raw))return '';
+ return NOTIFICATIONS_API_BASE+raw;
+}
+async function fetchNotifications(){
+ const requestId=++notificationsRequestId;
+ if(!NOTIFICATIONS_API_BASE){notificationsError='No está configurada la API de notificaciones.';if(st.stage==='notifications')render();return}
+ notificationsLoading=true;notificationsError='';
+ if(st.stage==='notifications')render();
+ try{
+  const response=await fetch(NOTIFICATIONS_API_BASE+'/api/v1/mobile/notifications?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  const data=await response.json();
+  if(data.ready!==true||!Array.isArray(data.notifications))throw Error('Invalid notification response');
+  const seen=new Set(),now=Date.now();
+  const next=data.notifications.filter(n=>{
+   if(!n||typeof n.id!=='string'||typeof n.title!=='string'||typeof n.message!=='string'||seen.has(n.id))return false;
+   seen.add(n.id);
+   const begin=n.scheduledAt?Date.parse(n.scheduledAt):NaN,expiry=n.expiresAt?Date.parse(n.expiresAt):NaN;
+   return (!Number.isFinite(begin)||begin<=now)&&(!Number.isFinite(expiry)||expiry>now);
+  }).map(n=>({id:n.id,title:n.title,message:n.message,imageUrl:notificationImageUrl(n.imageUrl),scheduledAt:n.scheduledAt}));
+  if(requestId!==notificationsRequestId)return;
+  commercialNotifications=next;notificationsError='';
+ }catch(error){
+  if(requestId!==notificationsRequestId)return;
+  notificationsError='No pudimos consultar los avisos. Comprueba tu conexión y vuelve a intentar.';
+  commercialNotifications=[];
+  console.warn('Pollos B3 notifications unavailable',error.message);
+ }finally{if(requestId===notificationsRequestId){notificationsLoading=false;if(st.stage==='notifications')render()}}
+}
 function notificationsScreen(){
- const rows=[
- ['Estado de mis pedidos','Confirmación, preparación, salida a Delivery y entrega. Solo cuando el sistema real de pedidos esté activo.'],
- ['Actualizaciones de recojo','Avisos de que el pedido está listo para retirar en el local seleccionado.'],
- ['Cambios importantes','Información sobre incidencias de entrega, cambios o cancelaciones de un pedido.'],
- ['Promociones de Pollos B3','Ofertas únicamente para quienes otorguen el consentimiento correspondiente.'],
- ['Seguridad de mi cuenta','Alertas sobre cambios importantes cuando exista un sistema de cuentas verificadas.']
- ];
+ const rows=commercialNotifications.map(n=>{
+  const date=n.scheduledAt?new Date(n.scheduledAt):null;
+  const stamp=date&&Number.isFinite(date.getTime())?date.toLocaleString('es-PE',{timeZone:'America/Lima',dateStyle:'medium',timeStyle:'short'}):'';
+  return `<article class="b3-commercial-notification">
+   ${n.imageUrl?`<img class="b3-notification-image" src="${esc(n.imageUrl)}" alt="Imagen de ${esc(n.title)}" loading="lazy">`:''}
+   <div class="b3-notification-body"><small>POLLOS B3 ${stamp?'· '+esc(stamp):''}</small><h2>${esc(n.title)}</h2><p>${esc(n.message).replace(/\\n/g,'<br>')}</p></div>
+  </article>`;
+ }).join('');
  return `<div class="page b3-notifications-page">${heading('Notificaciones','app')}
- <div class="b3-notifications-banner">${ic('bell',25)}<div><strong>Próximamente</strong><p>El servicio de notificaciones todavía no está conectado en este piloto.</p></div></div>
- <h2>¿Qué podrás recibir?</h2>
- ${rows.map(([title,description])=>`<div class="b3-notification-type"><strong>${esc(title)}</strong><p>${esc(description)}</p></div>`).join('')}
- <p class="smallprint">No se están enviando notificaciones automáticas desde esta pantalla. Cuando se habiliten, se solicitarán los permisos necesarios y se separarán los avisos operativos de los promocionales.</p>
- <button class="outline full" data-screen="profile">Ver consentimiento de promociones</button></div>`;
+  <div class="b3-notifications-banner">${ic('bell',25)}<div><strong>Novedades Pollos B3</strong><p>Ofertas y avisos comerciales publicados por el negocio.</p></div></div>
+  <button class="outline full" data-notifications-refresh="1" ${notificationsLoading?'disabled':''}>${notificationsLoading?'Actualizando...':'Actualizar notificaciones'}</button>
+  ${notificationsError?`<div class="notice" role="status">${esc(notificationsError)}</div>`:''}
+  ${notificationsLoading&&!rows?'<p class="smallprint" role="status">Consultando novedades...</p>':''}
+  ${rows||(!notificationsLoading&&!notificationsError?'<div class="empty-state"><h2>No hay novedades vigentes</h2><p>Las promociones aparecerán aquí cuando se publiquen.</p></div>':'')}
+  <p class="smallprint">Estos avisos se consultan al abrir esta sección. Las notificaciones push con la aplicación cerrada necesitan Firebase Cloud Messaging y envío desde el administrador.</p>
+ </div>`;
 }
 function openPrivacyLaw(){
  const url='https://www.gob.pe/institucion/anpd/normas-legales/6554453-16-2024-jus';
@@ -750,7 +786,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido');return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 if(b.dataset.orderOpen){
  const o=findLocalOrder(b.dataset.orderOpen);if(!o)return;
  selectedOrderId=o.id;screen('orderDetail');return;
@@ -853,7 +889,8 @@ if(b.dataset.modalPickstore){
  if(!eligibleForPickup(store))return toast('El local está cerrado o no acepta retiros');
  st.mode='pickup';void confirmStore('pickup',store.id);return;
 }
-if(b.hasAttribute('data-gps')){if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else toast('GPS no disponible. Ingresa la dirección manualmente.');return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.dataset.screen){if(b.dataset.screen==='detail'&&!st.selected)return;screen(b.dataset.screen);return}
+if(b.hasAttribute('data-gps')){if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else toast('GPS no disponible. Ingresa la dirección manualmente.');return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-notifications-refresh')){void fetchNotifications();return}
+if(b.dataset.screen){if(b.dataset.screen==='detail'&&!st.selected)return;screen(b.dataset.screen);return}
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
 if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
 if(b.dataset.store){const s=shops.find(x=>x.id===b.dataset.store);if(!eligibleForPickup(s))return toast('Local no disponible para recojo');st.store=b.dataset.store;st.quote=null;st.mode='pickup';screen('localDetail');return}if(b.dataset.pickstore){const s=shops.find(x=>x.id===b.dataset.pickstore);if(!eligibleForPickup(s))return toast('Local cerrado o no habilitado para recojo');st.store=b.dataset.pickstore;st.fulfillment='pickup';st.quote=null;screen('localDetail');return}
