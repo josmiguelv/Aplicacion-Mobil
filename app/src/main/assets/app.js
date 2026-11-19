@@ -107,9 +107,22 @@ let notificationsLoaded=false,selectedNotificationId='',pendingPushNotificationI
 const NOTIFICATIONS_READ_KEY='b3-commercial-read-v1';
 let readNotificationIds=[];
 try{const value=JSON.parse(localStorage.getItem(NOTIFICATIONS_READ_KEY)||'[]');if(Array.isArray(value))readNotificationIds=value.filter(v=>typeof v==='string').slice(-400)}catch{}
+const GENERAL_NOTICE_LIFETIME_MS=7*24*60*60*1000;
+const MAX_VISIBLE_NOTIFICATIONS=20;
+function notificationIsCurrent(n,now=Date.now()){
+ if(!n||typeof n.id!=='string')return false;
+ const scheduled=n.scheduledAt?Date.parse(n.scheduledAt):NaN;
+ const expiry=n.expiresAt?Date.parse(n.expiresAt):NaN;
+ if(Number.isFinite(scheduled)&&scheduled>now)return false;
+ if(n.expiresAt)return Number.isFinite(expiry)&&expiry>now;
+ // Without an explicit end, keep a general notice for 7 days from its publication.
+ // A record without a valid publication date cannot be safely timed.
+ return Number.isFinite(scheduled)&&scheduled+GENERAL_NOTICE_LIFETIME_MS>now;
+}
 function liveNotifications(){
- const now=Date.now();
- return commercialNotifications.filter(n=>(!n.scheduledAt||Date.parse(n.scheduledAt)<=now)&&(!n.expiresAt||Date.parse(n.expiresAt)>now));
+ return commercialNotifications.filter(n=>notificationIsCurrent(n))
+  .sort((a,b)=>Date.parse(b.scheduledAt||'')-Date.parse(a.scheduledAt||''))
+  .slice(0,MAX_VISIBLE_NOTIFICATIONS);
 }
 function notificationUnreadCount(){return liveNotifications().filter(n=>!readNotificationIds.includes(n.id)).length}
 function markNotificationRead(id){
@@ -822,13 +835,16 @@ function notificationsScreen(){
   </button>`;
  }).join('');
  return `<div class="page b3-notifications-page">${heading('Notificaciones','app')}
-  <div class="b3-notifications-banner">${ic('bell',25)}<div><strong>Novedades Pollos B3</strong><p>Promociones y avisos publicados por el negocio.</p></div></div>
-  <div class="b3-marketing-opt-in"><div><strong>Avisos de ofertas en mi celular</strong><p>Recibe promociones incluso con la aplicación cerrada. Puedes desactivarlos cuando quieras.</p></div><button class="outline" type="button" data-marketing-toggle="1">${window.AndroidBridge?.marketingNotificationsEnabled?.()?'Desactivar':'Activar avisos'}</button></div>
   <div class="b3-notification-inbox-head"><strong>${unread?unread+' sin leer':'Tus novedades'}</strong><button type="button" data-notifications-refresh="1" ${notificationsLoading?'disabled':''}>${notificationsLoading?'Actualizando...':'Actualizar'}</button></div>
   ${notificationsError?`<div class="notice" role="status">${esc(notificationsError)}</div>`:''}
   ${notificationsLoading&&!rows?'<p class="smallprint" role="status">Consultando novedades...</p>':''}
   ${rows||(!notificationsLoading&&!notificationsError?'<div class="empty-state"><h2>No hay novedades vigentes</h2><p>Las promociones aparecerán cuando se publiquen.</p></div>':'')}
-  <p class="smallprint">Los avisos leídos se guardan en este dispositivo. Las ofertas vencidas no se muestran como disponibles.</p>
+  <div class="b3-marketing-opt-in b3-marketing-compact">
+   <div class="b3-marketing-compact-icon" aria-hidden="true">${ic('bell',18)}</div>
+   <div class="b3-marketing-compact-content"><strong>Avisos en mi celular</strong><p>Ofertas y novedades</p></div>
+   <button class="outline" type="button" data-marketing-toggle="1" aria-label="${window.AndroidBridge?.marketingNotificationsEnabled?.()?'Desactivar':'Activar'} avisos comerciales">${window.AndroidBridge?.marketingNotificationsEnabled?.()?'Desactivar':'Activar'}</button>
+  </div>
+  <p class="smallprint">Se muestran hasta 20 avisos vigentes, del más reciente al más antiguo. Los avisos sin vencimiento permanecen 7 días. Lecturas guardadas en este dispositivo.</p>
  </div>`;
 }
 function openPrivacyLaw(){
