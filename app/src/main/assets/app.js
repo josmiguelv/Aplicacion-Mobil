@@ -803,9 +803,10 @@ function cart(){
    <p><span>Delivery</span><span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
    <p class="grand"><b>Total estimado</b><strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Por cotizar':cash(orderTotal())}</strong></p>
   </div>${st.mode==='delivery'&&deliveryQuoteValid()? `<p class="smallprint">Desde ${esc(st.quote.storeName||'sede disponible')} · ${Number(st.quote.straightDistanceKm).toFixed(2)} km aproximados en línea recta · ${st.quote.deliveryPricingMode==='FIXED'?'tarifa fija':'tarifa por km'}.</p>`:''}
+  ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
   <p class="smallprint">No se enviarán pedidos reales ni se harán cobros en esta versión de prueba.</p>
   <button class="outline full" data-tab="carta">Seguir pidiendo</button>
-  <button class="primary full" data-screen="identity">Continuar con pedido de prueba</button>`}
+  <button class="primary full" data-screen="identity" ${checkoutRefreshPending?"disabled":""}>${checkoutRefreshPending?"Actualizando disponibilidad...":"Continuar con pedido de prueba"}</button>`}
  </div>`;
 }
 function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
@@ -1105,7 +1106,7 @@ async function revalidateCheckout(next){
   }else{checkoutReviewNote='Selecciona Delivery o Pide y Retira.';screen('choice');return false}
   const after=checkoutSnapshot();
   const changed=before.store!==after.store||before.total!==after.total||before.items!==after.items;
-  if(next!=='identity'&&!paymentOptions().some(x=>x[0]===st.pay)){
+  if(['summary','confirm'].includes(next)&&!paymentOptions().some(x=>x[0]===st.pay)){
    st.pay='';checkoutReviewNote='La sede asignada actualizó los medios de pago disponibles. Selecciona uno para continuar.';
    save();screen('payment');return false
   }
@@ -1298,6 +1299,12 @@ if(b.hasAttribute('data-notifications-refresh')){void fetchNotifications();retur
 if(b.dataset.screen){
  if(b.dataset.screen==='detail'&&!st.selected)return;
  if(b.dataset.screen==='identity'){startCheckout();return}
+ if(b.dataset.screen==='cart'){
+  screen('cart');
+  if((st.mode==='delivery'&&hasDeliveryDestination(st.profile.address,st.profile.district))||
+     (st.mode==='pickup'&&st.store))void revalidateCheckout('cart');
+  return;
+ }
  if(checkoutPending&&!['choice','locations','deliveryAddress'].includes(b.dataset.screen))checkoutPending=false;
  screen(b.dataset.screen);return;
 }
