@@ -252,6 +252,66 @@ public class MainActivity extends Activity {
                 });
             }).start();
         }
+        /**
+         * Convert GPS coordinates into a human-readable address on explicit user request.
+         * Geocoder data may be approximate and must be reviewed before checkout.
+         */
+        @JavascriptInterface public void reverseGeocodeDeliveryLocation(String json) {
+            new Thread(() -> {
+                String token = "", street = "", district = "", error = "";
+                boolean hasNumber = false;
+                try {
+                    JSONObject request = new JSONObject(json);
+                    token = request.optString("token", "");
+                    double latitude = request.optDouble("latitude", Double.NaN);
+                    double longitude = request.optDouble("longitude", Double.NaN);
+                    if (!token.matches("[0-9]{1,12}") || !Double.isFinite(latitude) ||
+                        !Double.isFinite(longitude) || latitude < -19 || latitude > 1 ||
+                        longitude < -83 || longitude > -68) {
+                        throw new IllegalArgumentException("Coordenadas inválidas para buscar la dirección");
+                    }
+                    if (!Geocoder.isPresent()) {
+                        throw new IllegalStateException("Android no dispone de un servicio para identificar la dirección");
+                    }
+                    Geocoder geocoder = new Geocoder(MainActivity.this, new Locale("es", "PE"));
+                    List<Address> matches = geocoder.getFromLocation(latitude, longitude, 3);
+                    if (matches != null) {
+                        for (Address match : matches) {
+                            if (match.getCountryCode() != null &&
+                                !"PE".equalsIgnoreCase(match.getCountryCode())) continue;
+                            String road = match.getThoroughfare();
+                            if (road == null || road.trim().isEmpty()) continue;
+                            String number = match.getSubThoroughfare();
+                            hasNumber = number != null && !number.trim().isEmpty();
+                            street = road.trim() + (hasNumber ? " " + number.trim() : "");
+                            String neighborhood = match.getSubLocality();
+                            String locality = match.getLocality();
+                            district = neighborhood != null && !neighborhood.trim().isEmpty()
+                                ? neighborhood.trim()
+                                : locality != null ? locality.trim() : "";
+                            break;
+                        }
+                    }
+                    if (street.isEmpty()) {
+                        throw new IllegalStateException("No se encontró una calle para esta ubicación. Escribe la dirección manualmente.");
+                    }
+                } catch (Exception ex) {
+                    error = ex.getMessage() == null
+                        ? "No se pudo identificar una dirección postal"
+                        : ex.getMessage();
+                }
+                final String tokenArg = JSONObject.quote(token);
+                final String streetArg = JSONObject.quote(street);
+                final String districtArg = JSONObject.quote(district);
+                final String numberArg = hasNumber ? "true" : "false";
+                final String errorArg = JSONObject.quote(error);
+                runOnUiThread(() -> {
+                    if (web != null) web.evaluateJavascript(
+                        "window.b3DeliveryGpsAddress(" + tokenArg + "," + streetArg + "," +
+                        districtArg + "," + numberArg + "," + errorArg + ")", null);
+                });
+            }).start();
+        }
         /** Open only verified wa.me applicant links, without exposing arbitrary Intent URLs. */
         @JavascriptInterface public void openApplicantWhatsApp(String url) {
             try {
