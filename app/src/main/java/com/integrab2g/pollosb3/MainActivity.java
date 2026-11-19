@@ -204,6 +204,54 @@ public class MainActivity extends Activity {
                 });
             }).start();
         }
+        /**
+         * Geocode the explicit delivery address after the customer taps Confirmar.
+         * Uses Android's available geocoder (no paid Google Routes API). This is
+         * an approximate location; reject results without a street reference.
+         */
+        @JavascriptInterface public void geocodeDeliveryAddress(String json) {
+            new Thread(() -> {
+                String token = "";
+                Double latitude = null, longitude = null;
+                String error = null;
+                try {
+                    JSONObject request = new JSONObject(json);
+                    token = request.optString("token", "");
+                    String address = request.optString("address", "").trim();
+                    String district = request.optString("district", "").trim();
+                    if (!token.matches("[0-9]{1,12}") || address.length() < 6 ||
+                        address.length() > 180 || district.length() < 2 || district.length() > 80) {
+                        throw new IllegalArgumentException("Dirección incompleta");
+                    }
+                    if (!Geocoder.isPresent()) throw new IllegalStateException("El servicio de ubicación por dirección no está disponible");
+                    Geocoder geocoder = new Geocoder(MainActivity.this, new Locale("es", "PE"));
+                    List<Address> matches = geocoder.getFromLocationName(address + ", " + district + ", Perú", 3);
+                    if (matches != null) {
+                        for (Address item : matches) {
+                            if (!item.hasLatitude() || !item.hasLongitude()) continue;
+                            if (item.getCountryCode() != null && !"PE".equalsIgnoreCase(item.getCountryCode())) continue;
+                            if (item.getThoroughfare() == null || item.getThoroughfare().trim().isEmpty()) continue;
+                            double lat = item.getLatitude(), lng = item.getLongitude();
+                            // Geographic bounds of Peru. Coverage is always calculated by the server.
+                            if (lat < -19 || lat > 1 || lng < -83 || lng > -68) continue;
+                            latitude = lat; longitude = lng; break;
+                        }
+                    }
+                    if (latitude == null) throw new IllegalStateException("No se ubicó una calle exacta. Usa la ubicación actual cuando estés en el destino.");
+                } catch (Exception ex) {
+                    error = ex.getMessage() == null ? "No se pudo localizar la dirección" : ex.getMessage();
+                }
+                final String resultToken = token;
+                final String latArg = latitude == null ? "null" : String.valueOf(latitude);
+                final String lngArg = longitude == null ? "null" : String.valueOf(longitude);
+                final String errArg = error == null ? "null" : JSONObject.quote(error);
+                runOnUiThread(() -> {
+                    if (web != null) web.evaluateJavascript(
+                        "window.b3DeliveryAddressGeocoded(" + JSONObject.quote(resultToken) + "," +
+                        latArg + "," + lngArg + "," + errArg + ")", null);
+                });
+            }).start();
+        }
         /** Open only verified wa.me applicant links, without exposing arbitrary Intent URLs. */
         @JavascriptInterface public void openApplicantWhatsApp(String url) {
             try {
