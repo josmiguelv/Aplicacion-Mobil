@@ -104,3 +104,44 @@ test('cotizar delivery conserva el avance al pago y permite reintentar si falla'
  assert.match(source,/No pudimos cotizar el delivery/)
  assert.match(source,/if\(checkoutPending\)\{void confirmStore\('pickup',selected\.id\);return\}/)
 })
+
+test('la dirección no se cotiza antes de que la configuración de sedes termine de cargar',async()=>{
+ const match=source.match(/async function resolveDelivery\(\)\{[\s\S]*?\n\}(?=\nfunction resolveStoreDistances)/)
+ assert.ok(match)
+ const st={mode:'delivery',profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},configReady:false,store:'',quote:null,stage:'deliveryAddress'}
+ const calls=[]
+ const ctx={
+  st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
+  checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
+  render:()=>{},save:()=>{},screen:name=>calls.push(name),nav:name=>calls.push(name),
+  fetchConfig:async()=>{calls.push('config');st.configReady=true},
+  fetch:async()=>{calls.push('quote');return {ok:true,status:200,json:async()=>({storeId:store.id,deliveryFeePen:4})}
+  }
+ }
+ vm.runInNewContext(match[0],ctx)
+ await ctx.resolveDelivery()
+ assert.deepEqual(calls,['config','quote','identity'])
+ assert.equal(st.quote.deliveryFeePen,4)
+ assert.equal(ctx.checkoutPending,false)
+ assert.equal(ctx.deliveryRequestPending,false)
+})
+test('un error 404 se muestra de forma persistente y permite reintentar sin perder la dirección',async()=>{
+ const match=source.match(/async function resolveDelivery\(\)\{[\s\S]*?\n\}(?=\nfunction resolveStoreDistances)/)
+ assert.ok(match)
+ const st={mode:'delivery',profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},configReady:true,store:'',quote:null,stage:'deliveryAddress'}
+ let requests=0
+ const ctx={
+  st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
+  checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
+  render:()=>{},save:()=>{},screen:()=>{throw Error('Unexpected navigation')},nav:()=>{throw Error('Unexpected navigation')},
+  fetchConfig:async()=>{},
+  fetch:async()=>{requests++;return {ok:false,status:404,json:async()=>({error:'Not found'})}}
+ }
+ vm.runInNewContext(match[0],ctx)
+ await ctx.resolveDelivery()
+ assert.match(ctx.deliveryRequestError,/HTTP 404/)
+ assert.equal(ctx.deliveryRequestPending,false)
+ assert.equal(st.profile.address,'Av. Ejemplo 123')
+ await ctx.resolveDelivery()
+ assert.equal(requests,2)
+})
