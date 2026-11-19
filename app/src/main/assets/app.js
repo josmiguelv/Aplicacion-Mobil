@@ -329,18 +329,11 @@ window.b3NativeLocation=(lat,lng,error)=>{
  toast('Ubicación recibida. Verifica la dirección escrita.');
 };
 async function confirmStore(mode,id){
- const s=shops.find(x=>x.id===id);
- if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return toast('Local cerrado o no disponible para retiro inmediato');
- st.store=id;st.quote=null;
- if(st.configReady&&API_BASE){
-  try{
-   const r=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode,storeId:id})});
-   const result=await r.json().catch(()=>null);
-   if(!r.ok)throw Error(typeof result?.error==='string'?result.error:'No pudimos validar el local');
-   if(!result||typeof result!=='object')throw Error('Respuesta inválida al validar el local');
-   st.quote=result;
-  }catch(err){st.quote=null;return toast('No se pudo confirmar el local: '+(err.message||'Reintenta'))}
- }
+ const selected=shops.find(x=>String(x.id)===String(id));
+ if(!storeAllowed(selected,mode)||(mode==='pickup'&&!eligibleForPickup(selected)))return toast('Local cerrado o no disponible para retiro inmediato');
+ st.store=selected.id;st.quote=null;
+ // Pickup is confirmed from authoritative published store flags; no delivery quote is needed.
+ if(mode==='delivery')return toast('Para delivery, confirma la dirección y solicita una tarifa de reparto.');
  save();
  if(fulfillmentModal){fulfillmentModal=null;nav('inicio');return}
  if(st.selected)screen('detail');else nav('carta');
