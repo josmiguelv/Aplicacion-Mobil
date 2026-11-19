@@ -66,47 +66,43 @@ test('tocar producto abre ficha sin exigir dirección o tarifa antes de agregar 
  assert.doesNotMatch(handler,/checkReady\(|deliveryQuoteValid\(|screen\('choice'\)/)
  assert.match(source,/function detail\(\)\{let p=product\(st\.selected\);/)
 })
-test('checkout solicita modalidad o dirección solo después de elegir continuar con el carrito',()=>{
+test('el checkout solicita modalidad y destino solo al continuar',()=>{
  const st={mode:'',store:'',quote:null,cart:[{id:'p',qty:1}]}
  const ctx=functions(st,[store],[{id:'p',disabled:false}])
- ctx.checkoutPending=false
- ctx.eligibleForPickup=()=>true
+ ctx.checkoutPending=false;ctx.hasDeliveryDestination=()=>false
+ ctx.revalidateCheckout=step=>{ctx.current=step}
  ctx.screen=name=>{ctx.current=name}
- ctx.toast=()=>{throw Error('Unexpected validation message')}
+ ctx.toast=()=>{throw Error('Unexpected validation')}
  vm.runInNewContext(extract('startCheckout'),ctx)
  ctx.startCheckout()
  assert.equal(ctx.checkoutPending,true)
  assert.equal(ctx.current,'choice')
- st.mode='delivery'
- ctx.startCheckout()
+ st.mode='delivery';ctx.startCheckout()
  assert.equal(ctx.current,'deliveryAddress')
- st.store=store.id;st.quote={deliveryFeePen:3,quotedAt:Date.now(),destinationKey:'test-address',distanceSource:'STRAIGHT_LINE'}
- ctx.startCheckout()
+ ctx.hasDeliveryDestination=()=>true;ctx.startCheckout()
  assert.equal(ctx.current,'identity')
  assert.equal(ctx.checkoutPending,false)
 })
-test('recojo sin cotización avanza y seleccionar sede retoma el checkout',()=>{
+test('recojo entra al checkout mediante revalidación de disponibilidad',()=>{
  const st={mode:'pickup',store:store.id,quote:null,cart:[{id:'p',qty:1}]}
  const ctx=functions(st,[store],[{id:'p',disabled:false}])
- ctx.checkoutPending=true
- ctx.eligibleForPickup=()=>true
- ctx.screen=name=>{ctx.current=name}
+ ctx.checkoutPending=true;ctx.revalidateCheckout=next=>{ctx.current=next}
+ ctx.screen=()=>{throw Error('Must revalidate first')}
  ctx.toast=()=>{throw Error('Unexpected validation')}
  vm.runInNewContext(extract('startCheckout'),ctx)
  ctx.startCheckout()
  assert.equal(ctx.current,'identity')
  assert.equal(ctx.checkoutPending,false)
- assert.match(source,/if\(checkoutPending\)\{checkoutPending=false;screen\('identity'\);return\}/)
 })
 test('cotizar delivery conserva el avance al pago y permite reintentar si falla',()=>{
- assert.match(source,/if\(checkoutPending\)\{checkoutPending=false;screen\('identity'\);return\}/)
+ assert.match(source,/if\(checkoutPending\)\{checkoutPending=false;screen\('identity'\);return true\}/)
  assert.match(source,/deliveryRequestError=/)
  assert.match(source,/No pudimos cotizar el delivery/)
  assert.match(source,/if\(checkoutPending\)\{void confirmStore\('pickup',selected\.id\);return\}/)
 })
 
 test('la dirección no se cotiza antes de que la configuración de sedes termine de cargar',async()=>{
- const match=source.match(/async function resolveDelivery\(\)\{[\s\S]*?\n\}(?=\nfunction resolveStoreDistances)/)
+ const match=source.match(/async function resolveDelivery\([\s\S]*?\n\}(?=\nfunction resolveStoreDistances)/)
  assert.ok(match)
  const st={mode:'delivery',profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},configReady:false,store:'',quote:null,stage:'deliveryAddress'}
  const calls=[]
@@ -128,7 +124,7 @@ test('la dirección no se cotiza antes de que la configuración de sedes termine
  assert.equal(ctx.deliveryRequestPending,false)
 })
 test('un error 404 se muestra de forma persistente y permite reintentar sin perder la dirección',async()=>{
- const match=source.match(/async function resolveDelivery\(\)\{[\s\S]*?\n\}(?=\nfunction resolveStoreDistances)/)
+ const match=source.match(/async function resolveDelivery\([\s\S]*?\n\}(?=\nfunction resolveStoreDistances)/)
  assert.ok(match)
  const st={mode:'delivery',profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},configReady:true,store:'',quote:null,stage:'deliveryAddress'}
  let requests=0
@@ -172,13 +168,9 @@ test('métodos de pago salen de la sede y modalidad publicadas',()=>{
  assert.match(code,/choices\.filter\(x=>published\.includes\(x\[0\]\)\)/)
 })
 
-test('preferencia de Universal se envía al servidor para respetar S/ 15 fijos dentro de cobertura',()=>{
- assert.match(source,/let preferredDeliveryStoreId=''/)
- assert.match(source,/preferredDeliveryStoreId=String\(s\.id\)/)
- assert.match(source,/storeId:preferredDeliveryStoreId/)
- assert.match(source,/id="delivery-store-preference"/)
- assert.match(source,/Asignación automática según cobertura/)
- assert.match(source,/e\.target\.id==='delivery-store-preference'/)
+test('el local de delivery se asigna desde el servidor, sin preferencias manuales',()=>{
+ assert.doesNotMatch(source,/preferredDeliveryStoreId|deliveryStorePreferenceHtml|delivery-store-preference/)
+ assert.match(source,/mode:'delivery',address,district,latitude:destination.latitude,longitude:destination.longitude/)
 })
 test('Universal sin pagos publicados no permite continuar de forma ficticia',()=>{
  const match=source.match(/function paymentOptions\(\)\{[\s\S]*?\n\}/)
@@ -191,5 +183,48 @@ test('Universal sin pagos publicados no permite continuar de forma ficticia',()=
  st.quote={paymentMethods:['yape','plin','card']}
  assert.deepEqual(ctx.paymentOptions().map(x=>x[0]),['yape','plin','card'])
  assert.match(source,/no tiene métodos de pago publicados/)
- assert.match(source,/data-pay-next="1" \${missing\?'disabled':''}/)
+ assert.match(source,/data-pay-next="1" \${missing\|\|checkoutRefreshPending\?'disabled':''}/)
+})
+
+test('al entrar al pago, mostrar resumen y confirmar, consultar API nuevamente siempre',async()=>{
+ const match=source.match(/async function revalidateCheckout\(next\)\{[\s\S]*?\n\}(?=\nfunction startCheckout)/)
+ assert.ok(match)
+ const events=[]
+ const st={mode:'delivery',store:'s1',quote:{},pay:'yape',cart:[{id:'p',qty:1}],profile:{}}
+ const ctx={
+  st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
+  checkoutSnapshot:()=>({store:st.store,total:2200,items:'p:1:20'}),
+  fetchConfig:async ({strict})=>{assert.equal(strict,true);events.push('GET')},
+  checkoutCartIssue:()=>'',hasDeliveryDestination:()=>true,
+  resolveDelivery:async ({silent,skipConfig})=>{assert.equal(silent,true);assert.equal(skipConfig,true);events.push('POST');return true},
+  paymentOptions:()=>[['yape','Yape','']],screen:step=>events.push(step),save:()=>{},
+  finalizeDemoOrder:()=>events.push('confirmado')
+ }
+ vm.runInNewContext(match[0],ctx)
+ for(const step of ['payment','summary','confirm'])await ctx.revalidateCheckout(step)
+ assert.deepEqual(events,['GET','POST','payment','GET','POST','summary','GET','POST','confirmado'])
+})
+test('si el costo o sede cambia durante confirmación, exige revisar el resumen',async()=>{
+ const match=source.match(/async function revalidateCheckout\(next\)\{[\s\S]*?\n\}(?=\nfunction startCheckout)/)
+ assert.ok(match)
+ const events=[],st={mode:'delivery',store:'s1',quote:{},pay:'yape',cart:[{id:'p',qty:1}],profile:{}}
+ const ctx={
+  st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
+  checkoutSnapshot:()=>({store:st.store,total:2200,items:'p:1:20'}),
+  fetchConfig:async()=>{events.push('GET')},checkoutCartIssue:()=>'',hasDeliveryDestination:()=>true,
+  resolveDelivery:async()=>{st.store='s2';events.push('POST');return true},
+  paymentOptions:()=>[['yape','Yape','']],screen:step=>events.push(step),save:()=>{},
+  finalizeDemoOrder:()=>events.push('confirmado')
+ }
+ vm.runInNewContext(match[0],ctx)
+ await ctx.revalidateCheckout('confirm')
+ assert.deepEqual(events,['GET','POST','summary'])
+ assert.match(ctx.checkoutReviewNote,/Se actualizó la sede/)
+ assert.equal(ctx.checkoutRefreshPending,false)
+})
+test('GPS autocompleta calle y distrito con respuesta nativa',()=>{
+ assert.match(source,/window\.b3DeliveryGpsAddress=/)
+ assert.match(source,/reverseGeocodeDeliveryLocation\(JSON\.stringify/)
+ assert.match(source,/st\.profile\.address=String\(street\)\.trim\(\)/)
+ assert.match(source,/Revisa la calle, el número y el distrito/)
 })
