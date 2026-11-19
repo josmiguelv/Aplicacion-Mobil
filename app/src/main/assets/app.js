@@ -283,8 +283,10 @@ function checkoutCartIssue(){
 }
 async function resolveDelivery(){
  if(!st.configReady||!API_BASE){
-  st.quote=null;st.store='';save();fulfillmentModal=null;nav('inicio');
-  toast('Dirección guardada. Pendiente de validar cobertura y costo de delivery.');
+  st.quote=null;st.store='';save();
+  // A checkout must stay actionable, rather than silently jumping to Home.
+  if(checkoutPending)screen('deliveryAddress');
+  toast('No pudimos validar cobertura ni tarifa. Comprueba la conexión e intenta otra vez.');
   return;
  }
  try{
@@ -296,8 +298,14 @@ async function resolveDelivery(){
   const selected=shops.find(store=>String(store.id)===String(result.storeId));
   if(!selected||selected.active===false||selected.delivery_enabled===false)
    throw Error('La sede asignada no está disponible para delivery. Elige otra dirección o intenta luego.');
-  st.store=selected.id;st.quote={...result,deliveryFeePen:Number(result.deliveryFeePen)};save();fulfillmentModal=null;nav('inicio');
- }catch(err){st.quote=null;st.store='';save();toast('No pudimos cotizar el delivery: '+(err.message||'Reintenta'));}
+  st.store=selected.id;st.quote={...result,deliveryFeePen:Number(result.deliveryFeePen)};save();
+  if(checkoutPending){checkoutPending=false;screen('identity');return}
+  fulfillmentModal=null;nav('inicio');
+ }catch(err){
+  st.quote=null;st.store='';save();
+  if(checkoutPending&&st.stage!=='deliveryAddress'&&!fulfillmentModal)screen('deliveryAddress');
+  toast('No pudimos cotizar el delivery: '+(err.message||'Reintenta'));
+ }
 }
 function resolveStoreDistances(){
  if(storeGeocoding||!st.coords||!window.AndroidBridge?.geocodeStores)return;
@@ -336,6 +344,7 @@ async function confirmStore(mode,id){
  // Pickup is confirmed from authoritative published store flags; no delivery quote is needed.
  if(mode==='delivery')return toast('Para delivery, confirma la dirección y solicita una tarifa de reparto.');
  save();
+ if(checkoutPending){checkoutPending=false;screen('identity');return}
  if(fulfillmentModal){fulfillmentModal=null;nav('inicio');return}
  if(st.selected)screen('detail');else nav('carta');
 }
@@ -345,7 +354,7 @@ const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?
 const product=id=>products.find(x=>x.id===id);
 function toast(t){st.notice=t;render();setTimeout(()=>{if(st.notice===t){st.notice='';render()}},2400)}
 function screen(n){selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications()}
-function nav(tab){selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
+function nav(tab){checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
 const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${p.isPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
