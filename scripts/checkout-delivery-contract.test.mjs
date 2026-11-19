@@ -228,3 +228,17 @@ test('GPS autocompleta calle y distrito con respuesta nativa',()=>{
  assert.match(source,/st\.profile\.address=String\(street\)\.trim\(\)/)
  assert.match(source,/Revisa la calle, el número y el distrito/)
 })
+
+test('abrir carrito con destino conocido refresca disponibilidad; el render no hace consultas',()=>{
+ const handler=source.slice(source.indexOf("if(b.dataset.screen){"),source.indexOf("if(b.hasAttribute('data-guest'))"))
+ assert.match(handler,/b\.dataset\.screen==='cart'/)
+ assert.match(handler,/void revalidateCheckout\('cart'\)/)
+ assert.doesNotMatch(source.slice(source.indexOf('function cart(){'),source.indexOf('function identity(){')),/fetchConfig\(|resolveDelivery\(/)
+})
+test('pago, resumen y confirmación usan recotización y no cotizaciones antiguas',()=>{
+ assert.match(source,/if\(b\.hasAttribute\('data-phone-next'\)\)[\s\S]*?revalidateCheckout\('payment'\)/)
+ assert.match(source,/if\(b\.hasAttribute\('data-pay-next'\)\)[\s\S]*?revalidateCheckout\('summary'\)/)
+ assert.match(source,/if\(b\.hasAttribute\('data-confirm'\)\)[\s\S]*?revalidateCheckout\('confirm'\)/)
+ assert.match(source,/await fetchConfig\(\{strict:true\}\)/)
+ assert.match(source,/if\(next==='confirm'\)\{screen\('summary'\);return false\}/)
+})
