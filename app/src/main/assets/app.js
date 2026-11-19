@@ -272,6 +272,7 @@ async function fetchConfig(){
 }
 function deliveryQuoteValid(){
  if(st.mode!=='delivery'||!st.quote||!st.store)return false;
+ if(st.quote.deliveryFeePen==null||st.quote.deliveryFeePen==='')return false;
  const fee=Number(st.quote.deliveryFeePen);
  return Number.isFinite(fee)&&fee>=0&&shops.some(store=>String(store.id)===String(st.store)&&store.active!==false&&store.delivery_enabled!==false);
 }
@@ -293,7 +294,7 @@ async function resolveDelivery(){
   const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode:'delivery',address:st.profile.address,district:st.profile.district})});
   const result=await response.json().catch(()=>null);
   if(!response.ok)throw Error(typeof result?.error==='string'?result.error:'No se pudo verificar la cobertura de tu dirección');
-  if(!result||!result.storeId||!Number.isFinite(Number(result.deliveryFeePen))||Number(result.deliveryFeePen)<0)
+  if(!result||!result.storeId||result.deliveryFeePen==null||result.deliveryFeePen===''||!Number.isFinite(Number(result.deliveryFeePen))||Number(result.deliveryFeePen)<0)
    throw Error('El servidor no devolvió una tarifa válida de delivery. Intenta nuevamente.');
   const selected=shops.find(store=>String(store.id)===String(result.storeId));
   if(!selected||selected.active===false||selected.delivery_enabled===false)
