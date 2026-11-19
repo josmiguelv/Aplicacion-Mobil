@@ -35,3 +35,9 @@ test('notificación y catálogo preservan el contrato de IDs y navegación exist
  assert.match(js,/const id='api:'\+x\.id\.trim\(\)/)
  assert.match(js,/st\.selected=b\.dataset\.product\|\|b\.dataset\.quick/)
 })
+
+test('esperar catálogo antes de ofrecer un producto por notificación',()=>{
+ assert.match(js,/checkingLinkedProduct=!!item\.productId&&!catalogRequestFinished/)
+ assert.match(js,/Cargando producto\.\.\./)
+ assert.match(js,/catalogRequestFinished=true/)
+})
