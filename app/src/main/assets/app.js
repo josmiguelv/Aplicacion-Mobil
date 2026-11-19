@@ -278,7 +278,7 @@ async function fetchConfig(){
   // Locales: solo los publicados por el administrador.
   const revisionChanged=st.configReady&&publishedRevision!==c.revision;
   publishedRevision=c.revision;
-  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen})));
+  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen})));
   // Productos: conservar siempre la carta de muestra y anexar los publicados.
   // La lista se reconstruye, no se concatena incrementalmente, para evitar duplicados.
   products.splice(0,products.length,...demoProducts,...productsFromApi(c.products));
@@ -302,7 +302,10 @@ function deliveryQuoteValid(){
  if(st.mode!=='delivery'||!st.quote||!st.store)return false;
  if(st.quote.deliveryFeePen==null||st.quote.deliveryFeePen==='')return false;
  const fee=Number(st.quote.deliveryFeePen);
- return Number.isFinite(fee)&&fee>=0&&shops.some(store=>String(store.id)===String(st.store)&&store.active!==false&&store.delivery_enabled!==false);
+ return Number.isFinite(fee)&&fee>=0&&st.quote.distanceSource==='STRAIGHT_LINE'&&
+  st.quote.destinationKey===deliveryAddressKey(st.profile.address,st.profile.district)&&
+  Number.isFinite(st.quote.quotedAt)&&Date.now()-st.quote.quotedAt<15*60*1000&&
+  shops.some(store=>String(store.id)===String(st.store)&&store.active!==false&&store.delivery_enabled===true);
 }
 function orderTotal(){return subtotal()+(st.mode==='delivery'&&deliveryQuoteValid()?Number(st.quote.deliveryFeePen):0)}
 function checkoutCartIssue(){
@@ -750,7 +753,8 @@ function cart(){
    <p><span>Subtotal</span><b>${cash(subtotal())}</b></p>
    <p><span>Delivery</span><span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
    <p class="grand"><b>Total estimado</b><strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Por cotizar':cash(orderTotal())}</strong></p>
-  </div><p class="smallprint">No se enviarán pedidos reales ni se harán cobros en esta versión de prueba.</p>
+  </div>${st.mode==='delivery'&&deliveryQuoteValid()? `<p class="smallprint">Desde ${esc(st.quote.storeName||'sede disponible')} · ${Number(st.quote.straightDistanceKm).toFixed(2)} km aproximados en línea recta · ${st.quote.deliveryPricingMode==='FIXED'?'tarifa fija':'tarifa por km'}.</p>`:''}
+  <p class="smallprint">No se enviarán pedidos reales ni se harán cobros en esta versión de prueba.</p>
   <button class="outline full" data-tab="carta">Seguir pidiendo</button>
   <button class="primary full" data-screen="identity">Continuar con pedido de prueba</button>`}
  </div>`;
@@ -768,7 +772,7 @@ function summary(){
  <hr><p>Pago: <b>${esc(methods[st.pay]||'Por seleccionar')}</b></p>
  ${items}<hr><p>Subtotal <b>${cash(subtotal())}</b></p>
  <p>Delivery <span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
- ${st.mode==='delivery'&&deliveryQuoteValid()&&st.quote.distanceSource==='GOOGLE_ROUTES'? `<p>Desde ${esc(st.quote.storeName||'la sede asignada')} · ${Number(st.quote.routeDistanceKm).toFixed(2)} km por ruta</p>`:''}
+ ${st.mode==='delivery'&&deliveryQuoteValid()?`<p>Sede: ${esc(st.quote.storeName||selectedStore?.name||'Asignada por cobertura')} · ${Number(st.quote.straightDistanceKm).toFixed(2)} km aproximados en línea recta · ${st.quote.deliveryPricingMode==='FIXED'?'Tarifa fija':'Tarifa por kilómetro'}</p><p class="smallprint">Distancia estimada, no equivale a un recorrido por carretera.</p>`:''}
  <p class="grand">Total estimado <strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Pendiente de cotizar':cash(orderTotal())}</strong></p>
  </div><div class="notice">Recorrido de prueba: no se confirmarán pagos ni se enviarán pedidos a Pollos B3.</div>
  <button class="primary full" data-confirm="1">Registrar pedido de prueba</button></div>`;
