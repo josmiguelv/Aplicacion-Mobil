@@ -17,17 +17,17 @@ assert.ok(totalLogic)
 
 const store={id:'b3-local-1',active:true,delivery_enabled:true}
 function functions(st,shops=[store],catalog=[]){
- const context={st,shops,product:id=>catalog.find(p=>p.id===id),subtotal:()=>20}
+ const context={st,shops,product:id=>catalog.find(p=>p.id===id),subtotal:()=>20,deliveryAddressKey:()=> 'test-address'}
  vm.runInNewContext(quoteLogic,context)
  vm.runInNewContext(totalLogic,context)
  vm.runInNewContext(cartLogic,context)
  return context
 }
 test('delivery exige sede y tarifa verificable, no asume reparto gratuito',()=>{
- const st={mode:'delivery',store:'b3-local-1',quote:null,cart:[{id:'p',qty:1}]}
+ const st={mode:'delivery',store:'b3-local-1',quote:null,cart:[{id:'p',qty:1}],profile:{address:'Av. Test 123',district:'Callao'}}
  const ctx=functions(st)
  assert.equal(ctx.deliveryQuoteValid(),false)
- st.quote={deliveryFeePen:4}
+ st.quote={deliveryFeePen:4,quotedAt:Date.now(),destinationKey:'test-address',distanceSource:'STRAIGHT_LINE'}
  assert.equal(ctx.deliveryQuoteValid(),true)
  assert.equal(ctx.orderTotal(),24)
  st.quote={deliveryFeePen:'texto'}
@@ -80,7 +80,7 @@ test('checkout solicita modalidad o dirección solo después de elegir continuar
  st.mode='delivery'
  ctx.startCheckout()
  assert.equal(ctx.current,'deliveryAddress')
- st.store=store.id;st.quote={deliveryFeePen:3}
+ st.store=store.id;st.quote={deliveryFeePen:3,quotedAt:Date.now(),destinationKey:'test-address',distanceSource:'STRAIGHT_LINE'}
  ctx.startCheckout()
  assert.equal(ctx.current,'identity')
  assert.equal(ctx.checkoutPending,false)
@@ -100,7 +100,7 @@ test('recojo sin cotización avanza y seleccionar sede retoma el checkout',()=>{
 })
 test('cotizar delivery conserva el avance al pago y permite reintentar si falla',()=>{
  assert.match(source,/if\(checkoutPending\)\{checkoutPending=false;screen\('identity'\);return\}/)
- assert.match(source,/if\(checkoutPending\)screen\('deliveryAddress'\)/)
+ assert.match(source,/deliveryRequestError=/)
  assert.match(source,/No pudimos cotizar el delivery/)
  assert.match(source,/if\(checkoutPending\)\{void confirmStore\('pickup',selected\.id\);return\}/)
 })
@@ -113,10 +113,11 @@ test('la dirección no se cotiza antes de que la configuración de sedes termine
  const ctx={
   st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
   checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
+  deliveryLocation:{latitude:-12.05,longitude:-77.12,source:'address'},hasDeliveryDestination:()=>true,deliveryAddressKey:()=> 'test-address',
   AbortController,setTimeout,clearTimeout,
   render:()=>{},save:()=>{},screen:name=>calls.push(name),nav:name=>calls.push(name),
   fetchConfig:async()=>{calls.push('config');st.configReady=true},
-  fetch:async()=>{calls.push('quote');return {ok:true,status:200,json:async()=>({storeId:store.id,deliveryFeePen:4})}
+  fetch:async()=>{calls.push('quote');return {ok:true,status:200,json:async()=>({storeId:store.id,deliveryFeePen:4,distanceSource:'STRAIGHT_LINE',straightDistanceKm:1.2,deliveryPricingMode:'PER_KM'})}
   }
  }
  vm.runInNewContext(match[0],ctx)
@@ -134,6 +135,7 @@ test('un error 404 se muestra de forma persistente y permite reintentar sin perd
  const ctx={
   st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
   checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
+  deliveryLocation:{latitude:-12.05,longitude:-77.12,source:'address'},hasDeliveryDestination:()=>true,deliveryAddressKey:()=> 'test-address',
   AbortController,setTimeout,clearTimeout,
   render:()=>{},save:()=>{},screen:()=>{throw Error('Unexpected navigation')},nav:()=>{throw Error('Unexpected navigation')},
   fetchConfig:async()=>{},
@@ -146,4 +148,16 @@ test('un error 404 se muestra de forma persistente y permite reintentar sin perd
  assert.equal(st.profile.address,'Av. Ejemplo 123')
  await ctx.resolveDelivery()
  assert.equal(requests,2)
+})
+
+test('cotización por línea recta exige coordenadas explícitas y no reutiliza GPS de navegación',()=>{
+ assert.match(source,/latitude:destination\.latitude,longitude:destination\.longitude/)
+ assert.match(source,/deliveryLocation=\{\.\.\.position,key:deliveryAddressKey\(address,district\)\}/)
+ assert.match(source,/distanceSource!=='STRAIGHT_LINE'/)
+ assert.match(source,/deliveryGpsRequested=fulfillmentModal==='delivery'\|\|st\.stage==='deliveryAddress'/)
+ assert.match(source,/function geocodeDeliveryDestination\(address,district\)/)
+})
+test('costo por kilómetro temporal se identifica como aproximado y no carretera',()=>{
+ assert.match(source,/km aproximados en línea recta/)
+ assert.match(source,/st\.quote\.deliveryPricingMode==='FIXED'/)
 })
