@@ -3,6 +3,11 @@ package com.integrab2g.pollosb3;
 import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationManager;
+import android.service.notification.StatusBarNotification;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+import java.util.TimeZone;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -23,6 +28,24 @@ public final class B3FirebaseMessagingService extends FirebaseMessagingService {
         // Backend can address opted-in clients through the FCM topic.
     }
 
+    private static boolean isOutOfWindow(Map<String,String> data) {
+        long now=System.currentTimeMillis();
+        String begin=data.get("scheduledAt"),end=data.get("expiresAt");
+        try{
+            SimpleDateFormat parser=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",Locale.US);
+            parser.setTimeZone(TimeZone.getTimeZone("UTC"));
+            parser.setLenient(false);
+            if(begin!=null&&!begin.isEmpty()){
+                Date date=parser.parse(begin);
+                if(date==null||now<date.getTime())return true;
+            }
+            if(end!=null&&!end.isEmpty()){
+                Date date=parser.parse(end);
+                if(date==null||now>=date.getTime())return true;
+            }
+        }catch(Exception ignored){return true;}
+        return false;
+    }
     @Override public void onMessageReceived(RemoteMessage message) {
         super.onMessageReceived(message);
         if (!getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).getBoolean("marketing_opt_in", false)) return;
@@ -31,6 +54,9 @@ public final class B3FirebaseMessagingService extends FirebaseMessagingService {
 
         Map<String,String> data = message.getData();
         if (!"marketing".equals(data.get("type"))) return;
+        String id = data.get("notificationId");
+        if(id==null||id.length()>128||!id.matches("[a-zA-Z0-9_-]+"))return;
+        if(isOutOfWindow(data))return;
         String title = data.get("title");
         String body = data.get("body");
         if (title == null || title.trim().isEmpty()) {
@@ -46,18 +72,27 @@ public final class B3FirebaseMessagingService extends FirebaseMessagingService {
         intent.addCategory(Intent.CATEGORY_LAUNCHER);
         intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         intent.putExtra("b3_open_notifications", true);
+        intent.putExtra("notificationId",id);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
-        String id = data.get("notificationId");
-        int requestId = id != null ? id.hashCode() : (int)(System.currentTimeMillis() & 0x7fffffff);
+        int requestId = id.hashCode();
         PendingIntent pending = PendingIntent.getActivity(this,requestId,intent,flags);
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26
             ? new Notification.Builder(this, MainActivity.NOTIFICATION_CHANNEL)
             : new Notification.Builder(this);
-        builder.setSmallIcon(android.R.drawable.ic_dialog_info)
+        builder.setSmallIcon(R.drawable.ic_b3_notification)
             .setContentTitle(title).setContentText(body).setStyle(new Notification.BigTextStyle().bigText(body))
             .setContentIntent(pending).setAutoCancel(true);
         NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-        if (manager != null) manager.notify(requestId,builder.build());
+        if (manager != null) {
+            int currentCount=0;
+            if (Build.VERSION.SDK_INT>=23) {
+                for(StatusBarNotification active:manager.getActiveNotifications()){
+                    if (active.getId()!=requestId) currentCount++;
+                }
+            }
+            builder.setNumber(Math.min(99,currentCount+1));
+            manager.notify(requestId,builder.build());
+        }
     }
 }
