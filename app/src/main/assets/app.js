@@ -719,7 +719,7 @@ function notificationsScreen(){
   const stamp=date&&Number.isFinite(date.getTime())?date.toLocaleString('es-PE',{timeZone:'America/Lima',dateStyle:'medium',timeStyle:'short'}):'';
   return `<article class="b3-commercial-notification">
    ${n.imageUrl?`<img class="b3-notification-image" src="${esc(n.imageUrl)}" alt="Imagen de ${esc(n.title)}" loading="lazy">`:''}
-   <div class="b3-notification-body"><small>POLLOS B3 ${stamp?'· '+esc(stamp):''}</small><h2>${esc(n.title)}</h2><p>${esc(n.message).replace(/\\n/g,'<br>')}</p></div>
+   <div class="b3-notification-body"><small>POLLOS B3 ${stamp?'· '+esc(stamp):''}</small><h2>${esc(n.title)}</h2><p>${esc(n.message).replace(/\n/g,'<br>')}</p></div>
   </article>`;
  }).join('');
  return `<div class="page b3-notifications-page">${heading('Notificaciones','app')}
