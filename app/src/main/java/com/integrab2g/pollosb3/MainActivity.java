@@ -38,6 +38,7 @@ public class MainActivity extends Activity {
     static final String NOTIFICATION_CHANNEL = "pollosb3_promotions";
     static final String PREFS = "b3_push_settings";
     private boolean pendingNotificationsScreen = false;
+    private String pendingNotificationId = "";
     private WebView web;
     private WebViewAssetLoader assetLoader;
     private LocationManager locationManager;
@@ -60,7 +61,9 @@ public class MainActivity extends Activity {
     private void dispatchPendingNotificationsScreen() {
         if (!pendingNotificationsScreen || !appLinkPageReady || web == null) return;
         pendingNotificationsScreen = false;
-        web.evaluateJavascript("window.b3OpenNotifications && window.b3OpenNotifications()", null);
+        String id = pendingNotificationId;
+        pendingNotificationId = "";
+        web.evaluateJavascript("window.b3OpenNotifications && window.b3OpenNotifications("+JSONObject.quote(id)+")", null);
     }
     private void dispatchPendingAppLink() {
         if (!pendingOpenHome || !appLinkPageReady || web == null) return;
@@ -72,6 +75,7 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         if (isMarketingNotificationIntent(intent)) {
+            pendingNotificationId = getNotificationId(intent);
             pendingNotificationsScreen = true;
             dispatchPendingNotificationsScreen();
         }
@@ -83,6 +87,12 @@ public class MainActivity extends Activity {
     private static boolean isMarketingNotificationIntent(Intent intent) {
         return intent != null && (intent.getBooleanExtra("b3_open_notifications",false) ||
             ("marketing".equals(intent.getStringExtra("type")) && "notifications".equals(intent.getStringExtra("screen"))));
+    }
+    private static String getNotificationId(Intent intent) {
+        if(intent==null)return "";
+        String id=intent.getStringExtra("notificationId");
+        if(id==null || id.length()>128 || !id.matches("[a-zA-Z0-9_-]+"))return "";
+        return id;
     }
     private boolean marketingEnabled() {
         return getSharedPreferences(PREFS,MODE_PRIVATE).getBoolean("marketing_opt_in",false);
@@ -130,6 +140,13 @@ public class MainActivity extends Activity {
             return configured.startsWith("https://") ? configured : "";
         }
         @JavascriptInterface public boolean marketingNotificationsEnabled() {return marketingEnabled();}
+        @JavascriptInterface public void markMarketingNotificationRead(String id) {
+            if(id==null||id.length()>128||!id.matches("[a-zA-Z0-9_-]+"))return;
+            runOnUiThread(()->{
+                NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+                if(manager!=null)manager.cancel(id.hashCode());
+            });
+        }
         @JavascriptInterface public void setMarketingNotificationsEnabled(boolean enabled) {
             runOnUiThread(()->setMarketingOptIn(enabled));
         }
@@ -272,6 +289,7 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         pendingOpenHome = isPollosB3OpenLink(getIntent());
         pendingNotificationsScreen = isMarketingNotificationIntent(getIntent());
+        pendingNotificationId = pendingNotificationsScreen ? getNotificationId(getIntent()) : "";
         if(Build.VERSION.SDK_INT>=26){
             NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
             if(manager!=null)manager.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL,"Ofertas Pollos B3",NotificationManager.IMPORTANCE_DEFAULT));
@@ -322,6 +340,7 @@ public class MainActivity extends Activity {
         appLinkPageReady = false;
         pendingOpenHome = false;
         pendingNotificationsScreen = false;
+        pendingNotificationId = "";
         if (locationManager != null && currentListener != null) try {locationManager.removeUpdates(currentListener);}catch(Exception ignored){}
         if (web != null) { web.removeJavascriptInterface("AndroidBridge"); web.destroy(); web=null; }
         super.onDestroy();
