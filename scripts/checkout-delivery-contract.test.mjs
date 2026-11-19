@@ -113,6 +113,7 @@ test('la dirección no se cotiza antes de que la configuración de sedes termine
  const ctx={
   st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
   checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
+  AbortController,setTimeout,clearTimeout,
   render:()=>{},save:()=>{},screen:name=>calls.push(name),nav:name=>calls.push(name),
   fetchConfig:async()=>{calls.push('config');st.configReady=true},
   fetch:async()=>{calls.push('quote');return {ok:true,status:200,json:async()=>({storeId:store.id,deliveryFeePen:4})}
@@ -133,6 +134,7 @@ test('un error 404 se muestra de forma persistente y permite reintentar sin perd
  const ctx={
   st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
   checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
+  AbortController,setTimeout,clearTimeout,
   render:()=>{},save:()=>{},screen:()=>{throw Error('Unexpected navigation')},nav:()=>{throw Error('Unexpected navigation')},
   fetchConfig:async()=>{},
   fetch:async()=>{requests++;return {ok:false,status:404,json:async()=>({error:'Not found'})}}
