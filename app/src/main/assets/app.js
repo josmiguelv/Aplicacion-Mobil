@@ -52,6 +52,7 @@ let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI st
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
 let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
 let deliveryGpsRequested=false,deliveryLocation=null,deliveryGeocodeTask=null,deliveryGeocodeSequence=0;
+let preferredDeliveryStoreId=''; // optional customer choice; backend must still validate hours and radius
 // Geocoded coordinates are transient; never reuse GPS collected for store distances.
 function deliveryAddressKey(address,district){return String(address||'').trim().toLowerCase()+'|'+String(district||'').trim().toLowerCase()}
 function hasDeliveryDestination(address,district){
@@ -246,6 +247,25 @@ function straightDistanceKm(s){
  const a=Math.sin(dLat/2)**2+Math.cos(rad(st.coords.lat))*Math.cos(rad(Number(s.latitude)))*Math.sin(dLon/2)**2;
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
+function deliveryStorePreferenceHtml(){
+ const available=shops.filter(x=>x.active!==false&&x.delivery_enabled===true&&!localIsClosed(x));
+ if(!available.length)return '';
+ const fmt=store=>{
+  const radius=store.radiusKm??store.radius_km;
+  const coverage=radius==null?'sin límite publicado':Number(radius)+' km de cobertura';
+  const pricing=store.deliveryPricingMode==='FIXED'
+   ?(store.deliveryFeePen==null?'tarifa fija pendiente':cash(Number(store.deliveryFeePen))+' fijo')
+   :(store.deliveryRatePerKmPen==null?'tarifa por km pendiente':cash(Number(store.deliveryRatePerKmPen))+'/km');
+  return esc(store.name+' · '+coverage+' · '+pricing);
+ };
+ return `<label>Local de preferencia (opcional)
+  <select id="delivery-store-preference">
+   <option value="">Asignación automática según cobertura</option>
+   ${available.map(x=>`<option value="${esc(x.id)}" ${preferredDeliveryStoreId===String(x.id)?'selected':''}>${fmt(x)}</option>`).join('')}
+  </select>
+ </label>
+ <p class="smallprint">Se respeta tu local elegido si está abierto y cubre el destino. De lo contrario se utiliza el local disponible más cercano.</p>`;
+}
 function paymentOptions(){
  const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];
  if(!st.configReady)return choices; // Demo without a published configuration; never charges.
@@ -343,7 +363,7 @@ async function resolveDelivery(){
   try{
    response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
     method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,
-    body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district,latitude:destination.latitude,longitude:destination.longitude,useGps:destination.source==='gps'})
+    body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district,latitude:destination.latitude,longitude:destination.longitude,useGps:destination.source==='gps',...(preferredDeliveryStoreId?{storeId:preferredDeliveryStoreId}:{})})
    });
   }finally{clearTimeout(timeout)}
   const result=await response.json().catch(()=>null);
@@ -513,6 +533,7 @@ function fulfillmentOverlay(){
    <p class="smallprint">${hasDeliveryDestination(st.profile.address,st.profile.district)&&deliveryLocation.source==='gps'?'Ubicación GPS elegida para esta dirección.':'La dirección se localizará con el servicio de ubicación del dispositivo. Si no puede ubicarse, usa GPS en el destino.'}</p>
    <label>Dirección completa<input id="address" autocomplete="street-address" placeholder="Calle, avenida, número e interior" value="${esc(st.profile.address)}"></label>
    <label>Distrito<input id="district" placeholder="Distrito de entrega" value="${esc(st.profile.district||'')}"></label>
+   ${deliveryStorePreferenceHtml()}
    <label>Referencia (opcional)<input id="reference" placeholder="Piso, puerta u otras indicaciones" value="${esc(st.profile.reference||'')}"></label>
    <label class="b3-address-check"><input type="checkbox" id="delivery-save-address"> Guardar esta dirección para próximos pedidos</label>
    <div class="b3-modal-info">La cobertura y el costo de reparto deben verificarse con la web administrativa. No se asignará una tienda sin validación.</div>
@@ -847,6 +868,7 @@ function address(){return `<div class="page form b3-address-page">${heading('Dir
  ${hasDeliveryDestination(st.profile.address,st.profile.district)&&deliveryLocation.source==='gps'?'<div class="notice">Ubicación GPS seleccionada para esta dirección.</div>':''}
  <label>Dirección completa<input id="address" maxlength="180" autocomplete="street-address" placeholder="Calle, avenida y número" value="${esc(st.profile.address||'')}"></label>
  <label>Distrito<input id="district" maxlength="80" value="${esc(st.profile.district||'')}"></label>
+ ${deliveryStorePreferenceHtml()}
  <label>Referencia (opcional)<input id="reference" maxlength="180" value="${esc(st.profile.reference||'')}"></label>
  <label class="b3-address-check"><input type="checkbox" id="delivery-save-address"> Guardar para próximos pedidos</label>
  ${deliveryRequestError?`<div class="notice" role="alert">${esc(deliveryRequestError)}</div>`:""}
@@ -1124,14 +1146,14 @@ if(b.dataset.applyVacancy){applyVacancy(b.dataset.applyVacancy);return}
 if(b.hasAttribute('data-home-store-close')){if(b.classList.contains('b3-store-detail-backdrop')&&e.target!==b)return;selectedHomeStore=null;render();return}
 if(b.dataset.homeStore){selectedHomeStore=b.dataset.homeStore;render();return}
 if(b.dataset.homeLocal!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('local',Number(b.dataset.homeLocal));return}
-if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){st.mode='pickup';void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;fulfillmentModal='delivery';render()}return}
-if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
+if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){preferredDeliveryStoreId='';st.mode='pickup';void confirmStore('pickup',s.id)}else{preferredDeliveryStoreId=String(s.id);st.mode='delivery';st.store='';st.quote=null;fulfillmentModal='delivery';render()}return}
+if(b.hasAttribute('data-open-fulfillment')){preferredDeliveryStoreId='';fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
 if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;checkoutPending=false;fulfillmentModal=null;render();return}
 if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
 if(b.dataset.modalMode){
  const next=b.dataset.modalMode;
  if(next!=='delivery'&&next!=='pickup')return;
- if(st.mode!==next){st.mode=next;st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)st.notice='Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.'}
+ if(st.mode!==next){preferredDeliveryStoreId='';st.mode=next;st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)st.notice='Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.'}
  fulfillmentModal=next;render();if(next==='pickup'&&API_BASE)void fetchConfig();return;
 }
 if(b.hasAttribute('data-profile-save')){saveProfile();return}
@@ -1228,6 +1250,7 @@ if(b.hasAttribute('data-clear')){if(!window.confirm('¿Eliminar los datos locale
 });
 root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target.matches('.hero-card[role=button],.promo-card[role=button]'))){e.preventDefault();e.target.click()}});
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();const m=v('chat-message');if(m){st.chat.push(m.slice(0,500));save();render()}}});
+root.addEventListener('change',e=>{if(e.target.id==='delivery-store-preference'){preferredDeliveryStoreId=e.target.value||'';st.store='';st.quote=null;save()}});
 root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){deliveryLocation=null;deliveryRequestError='';const warning=root.querySelector('[role="alert"]');if(warning)warning.remove()}if(e.target.id==='cash'){st.cash=e.target.value;let change=document.getElementById('change');if(change)change.textContent=Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total';}});
 
 /* Carruseles B3: animación física horizontal, gestos táctiles y autoplay sin reconstruir Inicio.
