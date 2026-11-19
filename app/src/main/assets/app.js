@@ -269,6 +269,17 @@ async function fetchConfig(){
   if(st.stage!=='splash')render();
  }
 }
+function deliveryQuoteValid(){
+ if(st.mode!=='delivery'||!st.quote||!st.store)return false;
+ const fee=Number(st.quote.deliveryFeePen);
+ return Number.isFinite(fee)&&fee>=0&&shops.some(store=>String(store.id)===String(st.store)&&store.active!==false);
+}
+function orderTotal(){return subtotal()+(st.mode==='delivery'&&deliveryQuoteValid()?Number(st.quote.deliveryFeePen):0)}
+function checkoutCartIssue(){
+ if(!st.cart.length)return 'Agrega un producto a tu carrito para continuar.';
+ if(st.cart.some(item=>!product(item.id)||product(item.id).disabled))return 'Hay un producto que ya no está disponible. Revisa tu carrito.';
+ return '';
+}
 async function resolveDelivery(){
  if(!st.configReady||!API_BASE){
   st.quote=null;st.store='';save();fulfillmentModal=null;nav('inicio');
@@ -277,10 +288,15 @@ async function resolveDelivery(){
  }
  try{
   const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode:'delivery',address:st.profile.address,district:st.profile.district})});
-  const result=await response.json();
-  if(!response.ok)throw Error(result.error||'Sin cobertura disponible');
-  st.store=result.storeId;st.quote=result;save();fulfillmentModal=null;nav('inicio');
- }catch(err){toast(err.message)}
+  const result=await response.json().catch(()=>null);
+  if(!response.ok)throw Error(typeof result?.error==='string'?result.error:'No se pudo verificar la cobertura de tu dirección');
+  if(!result||!result.storeId||!Number.isFinite(Number(result.deliveryFeePen))||Number(result.deliveryFeePen)<0)
+   throw Error('El servidor no devolvió una tarifa válida de delivery. Intenta nuevamente.');
+  const selected=shops.find(store=>String(store.id)===String(result.storeId));
+  if(!selected||selected.active===false||selected.delivery_enabled===false)
+   throw Error('La sede asignada no está disponible para delivery. Elige otra dirección o intenta luego.');
+  st.store=selected.id;st.quote={...result,deliveryFeePen:Number(result.deliveryFeePen)};save();fulfillmentModal=null;nav('inicio');
+ }catch(err){st.quote=null;st.store='';save();toast('No pudimos cotizar el delivery: '+(err.message||'Reintenta'));}
 }
 function resolveStoreDistances(){
  if(storeGeocoding||!st.coords||!window.AndroidBridge?.geocodeStores)return;
@@ -319,10 +335,11 @@ async function confirmStore(mode,id){
  if(st.configReady&&API_BASE){
   try{
    const r=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId:APP_ID,mode,storeId:id})});
-   const result=await r.json();
-   if(!r.ok)throw Error(result.error||'Local no disponible');
+   const result=await r.json().catch(()=>null);
+   if(!r.ok)throw Error(typeof result?.error==='string'?result.error:'No pudimos validar el local');
+   if(!result||typeof result!=='object')throw Error('Respuesta inválida al validar el local');
    st.quote=result;
-  }catch(err){return toast(err.message)}
+  }catch(err){st.quote=null;return toast('No se pudo confirmar el local: '+(err.message||'Reintenta'))}
  }
  save();
  if(fulfillmentModal){fulfillmentModal=null;nav('inicio');return}
@@ -871,7 +888,19 @@ function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
 function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
-function checkReady(){if(!st.mode){screen('choice');return false} if((st.mode==='pickup'||st.mode==='dine_in')&&!st.store){screen('locations');return false}if(st.mode==='delivery'&&(!st.profile.address||st.configReady&&!st.quote)){screen('deliveryAddress');return false}return true}
+function checkReady(){
+ if(!st.mode){screen('choice');return false}
+ if(st.mode==='pickup'){
+  const selected=shops.find(x=>String(x.id)===String(st.store));
+  if(!eligibleForPickup(selected)){screen('locations');toast('Selecciona un local habilitado para recojo');return false}
+ }
+ if(st.mode==='delivery'&&!deliveryQuoteValid()){
+  if(!st.profile.address||!st.profile.district){screen('deliveryAddress');return false}
+  toast('Confirma la cobertura y el costo de delivery antes de continuar.');
+  fulfillmentModal='delivery';render();return false;
+ }
+ return true;
+}
 function animateAddedProduct(fromRect,imageSrc,quantity=1){
   // Solo animación visual: el carrito ya fue actualizado por addToCart.
   if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;
