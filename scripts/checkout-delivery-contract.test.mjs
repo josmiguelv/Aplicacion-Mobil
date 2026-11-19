@@ -161,3 +161,13 @@ test('costo por kilómetro temporal se identifica como aproximado y no carretera
  assert.match(source,/km aproximados en línea recta/)
  assert.match(source,/st\.quote\.deliveryPricingMode==='FIXED'/)
 })
+
+test('métodos de pago salen de la sede y modalidad publicadas',()=>{
+ const start=source.indexOf('function paymentOptions(){')
+ const end=source.indexOf('function productsFromApi(',start)
+ assert.ok(start>=0&&end>start)
+ const code=source.slice(start,end)
+ assert.match(code,/st\.quote\?\.paymentMethods/)
+ assert.match(code,/selected\?\.paymentMethods\?\.\[st\.mode\]/)
+ assert.match(code,/choices\.filter\(x=>published\.includes\(x\[0\]\)\)/)
+})
