@@ -1211,7 +1211,7 @@ if(b.dataset.screen){
  screen(b.dataset.screen);return;
 }
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
-if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
+if(b.dataset.mode){if(st.mode!==b.dataset.mode){preferredDeliveryStoreId='';st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
 if(b.dataset.store){const s=shops.find(x=>x.id===b.dataset.store);if(!eligibleForPickup(s))return toast('Local no disponible para recojo');st.store=b.dataset.store;st.quote=null;st.mode='pickup';screen('localDetail');return}if(b.dataset.pickstore){
  const selected=shops.find(x=>String(x.id)===String(b.dataset.pickstore));
  if(!eligibleForPickup(selected))return toast('Local cerrado o no habilitado para recojo');
