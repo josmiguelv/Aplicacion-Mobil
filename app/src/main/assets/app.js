@@ -152,12 +152,19 @@ function openPushNotification(id){
   void fetchNotifications();
  }else screen('notifications');
 }
+// The API exposes raw product UUIDs; the Android catalog namespaces them as 'api:<uuid>'.
+function notificationLinkedProduct(item){
+ const id=typeof item?.productId==='string'?item.productId.trim():'';
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))return null;
+ const candidate=product('api:'+id);
+ return candidate&&candidate.isPublished===true&&!candidate.disabled?candidate:null;
+}
 function notificationDetailScreen(){
  const item=liveNotifications().find(n=>n.id===selectedNotificationId);
  if(item){
-  const linkedProductId=typeof item.productId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.productId)?item.productId:'';
-  const linkedProduct=linkedProductId?product(linkedProductId):null;
-  const canOrderProduct=!!(linkedProduct&&linkedProduct.isPublished&&!linkedProduct.disabled);
+  const linkedProduct=notificationLinkedProduct(item);
+  const linkedProductId=linkedProduct?.id||'';
+  const canOrderProduct=!!linkedProduct;
   return `<div class="page b3-notification-detail">${heading('Detalle de novedad','notifications')}
    ${item.imageUrl?`<img class="b3-notification-detail-image" src="${esc(item.imageUrl)}" alt="Imagen de ${esc(item.title)}">`:''}
    <span class="b3-notification-kicker">NOVEDAD DE POLLOS B3</span>
