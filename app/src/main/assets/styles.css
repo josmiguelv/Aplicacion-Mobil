@@ -572,3 +572,13 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-notification-unavailable svg{color:#b72133}
 .b3-notification-unavailable h2{font-size:18px;margin:13px 0 8px}
 .b3-notification-unavailable p{color:#76666e;font-size:13px;line-height:1.6}
+
+/* CX Pollos B3: preferencias discretas al final de la bandeja. */
+.b3-notifications-page .b3-notification-inbox-head{margin-top:8px}
+.b3-notifications-page .b3-marketing-compact{margin:22px 0 10px;padding:12px 13px;gap:10px;border-radius:15px;background:#faf9f9;box-shadow:none}
+.b3-marketing-compact-icon{display:flex;align-items:center;justify-content:center;width:34px;height:34px;flex-shrink:0;color:#a52835;background:#fff0f1;border-radius:11px}
+.b3-marketing-compact-content{flex:1;min-width:0}
+.b3-marketing-compact-content strong{display:block;font-size:13px;line-height:1.25}
+.b3-marketing-compact-content p{font-size:11px;margin:3px 0 0;line-height:1.35}
+.b3-notifications-page .b3-marketing-compact .outline{font-size:11px;padding:8px 10px;min-height:34px;flex-shrink:0;border-radius:10px;margin:0}
+@media(max-width:380px){.b3-notifications-page .b3-marketing-compact{flex-direction:row;align-items:center}.b3-notifications-page .b3-marketing-compact .outline{width:auto}}
