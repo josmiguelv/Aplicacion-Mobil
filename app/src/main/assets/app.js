@@ -50,6 +50,7 @@ let addressEditId=null;
 let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
+let checkoutRefreshPending=false,checkoutReviewNote=''; // fresh availability at each checkout gate
 let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
 let deliveryGpsRequested=false,deliveryLocation=null,deliveryGeocodeTask=null,deliveryGeocodeSequence=0;
 let deliveryGpsPending=false,deliveryGpsMessage='',deliveryGpsToken='';
@@ -293,7 +294,8 @@ async function fetchConfig({strict=false}={}){
   storeGeocoding=false;
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
-  if(revisionChanged||st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store=''}
+  if(revisionChanged)st.quote=null;
+  if(st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store=''}
   catalogRequestFinished=true;
   save();if(st.stage!=='splash')render();return true;
  }catch(err){
@@ -812,7 +814,8 @@ function payment(){
  <div class="method-list">${available.map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>
  ${missing?`<div class="notice" role="alert">${esc(selected?.name||'La sede asignada')} no tiene métodos de pago publicados para ${st.mode==='delivery'?'delivery':'recojo'}. Deben habilitarse desde el administrador web antes de continuar.</div><button type="button" class="outline full" data-screen="${st.mode==='delivery'?'deliveryAddress':'locations'}">Cambiar sede o modalidad</button>`:''}
  ${!missing&&st.pay==='cash'?`<label>¿Con cuánto vas a pagar?<input id="cash" inputmode="decimal" placeholder="Ej. 100" value="${esc(st.cash)}"></label><div class="notice" id="change">${Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total'}</div>`:''}
- <button class="primary full" data-pay-next="1" ${missing?'disabled':''}>Continuar</button></div>`;
+ ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
+ <button class="primary full" data-pay-next="1" ${missing||checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando locales y costo...':'Continuar'}</button></div>`;
 }
 function summary(){
  const selectedStore=shops.find(x=>String(x.id)===String(st.store));
@@ -826,8 +829,9 @@ function summary(){
  <p>Delivery <span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
  ${st.mode==='delivery'&&deliveryQuoteValid()?`<p>Sede: ${esc(st.quote.storeName||selectedStore?.name||'Asignada por cobertura')} · ${Number(st.quote.straightDistanceKm).toFixed(2)} km aproximados en línea recta · ${st.quote.deliveryPricingMode==='FIXED'?'Tarifa fija':'Tarifa por kilómetro'}</p><p class="smallprint">Distancia estimada, no equivale a un recorrido por carretera.</p>`:''}
  <p class="grand">Total estimado <strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Pendiente de cotizar':cash(orderTotal())}</strong></p>
- </div><div class="notice">Recorrido de prueba: no se confirmarán pagos ni se enviarán pedidos a Pollos B3.</div>
- <button class="primary full" data-confirm="1">Registrar pedido de prueba</button></div>`;
+ </div>${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
+ <div class="notice">Recorrido de prueba: no se confirmarán pagos ni se enviarán pedidos a Pollos B3.</div>
+ <button class="primary full" data-confirm="1" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando disponibilidad...':'Registrar pedido de prueba'}</button></div>`;
 }
 function success(){let o=st.orders[0];return `<div class="success"><div class="success-mark">${ic('check',54)}</div><h1>¡Pedido de prueba registrado!</h1><p>Este pedido se guardó en tu teléfono. <b>No fue enviado a Pollos B3 ni cobrado.</b></p><div class="success-box"><b>${esc(o?.id||'')}</b><span>${cash(o?.total||0)}</span><small>Simulación local</small></div><button class="primary full" data-tab="pedidos">Ver mis pedidos</button><button class="outline full" data-tab="inicio">Volver al inicio</button></div>`}
 function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3','app')}<div class="chat-info">${ic('chat')}<span>Chat de demostración · TU VERSO aún no conectado</span></div><div class="chat-messages"><div class="message agent">¡Hola! Esta es una vista previa del chat. Cuando se integre TU VERSO, aquí podrás conversar con un agente de Pollos B3.</div>${st.chat.map(m=>`<div class="message customer">${esc(m)}</div>`).join('')}</div><form id="chat-form" class="chat-compose"><input id="chat-message" placeholder="Escribe un mensaje de prueba..." aria-label="Mensaje de prueba"><button type="submit">${ic('chev')}</button></form></div>`}
@@ -1051,16 +1055,80 @@ function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
 function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
+function checkoutSnapshot(){
+ return {store:String(st.store||''),total:Math.round(orderTotal()*100),
+  items:st.cart.map(x=>{const p=product(x.id);return [x.id,x.qty,p?.price??'missing'].join(':')}).join('|')};
+}
+function finalizeDemoOrder(){
+ const issue=checkoutCartIssue();if(issue){checkoutReviewNote=issue;screen('cart');return}
+ if(st.mode==='delivery'&&!deliveryQuoteValid()){checkoutReviewNote='La cotización de delivery no es válida. Confirma nuevamente la dirección.';screen('deliveryAddress');return}
+ if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){checkoutReviewNote='El local de recojo ya no está disponible.';screen('locations');return}
+ if(!paymentOptions().some(x=>x[0]===st.pay)){checkoutReviewNote='El método de pago ya no está disponible.';screen('payment');return}
+ const order={id:'B3-DEMO-'+String(Date.now()),ts:Date.now(),total:orderTotal(),items:st.cart.map(x=>({id:x.id,qty:x.qty})),mode:st.mode,pay:st.pay,status:'RECEIVED',demo:true,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false};
+ st.orders.unshift(order);st.cart=[];save();screen('success');
+}
+async function revalidateCheckout(next){
+ if(checkoutRefreshPending)return false;
+ checkoutRefreshPending=true;checkoutReviewNote='';render();
+ const before=checkoutSnapshot();
+ try{
+  // Never rely on the cached isOpen flag; request live published hours/availability.
+  await fetchConfig({strict:true});
+  const issue=checkoutCartIssue();
+  if(issue){checkoutReviewNote=issue;screen('cart');return false}
+  if(st.mode==='delivery'){
+   if(!hasDeliveryDestination(st.profile.address,st.profile.district)){
+    deliveryRequestError='Confirma la dirección de entrega antes de calcular el costo.';
+    screen('deliveryAddress');return false
+   }
+   if(!await resolveDelivery({silent:true,skipConfig:true})){
+    checkoutReviewNote=deliveryRequestError||'No fue posible actualizar el costo de delivery.';
+    screen('deliveryAddress');return false
+   }
+  }else if(st.mode==='pickup'){
+   if(!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){
+    checkoutReviewNote='El local de recojo ya no está abierto o no acepta pedidos.';
+    screen('locations');return false
+   }
+   const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({appId:APP_ID,mode:'pickup',storeId:st.store})
+   });
+   if(!response.ok)throw Error('El local de recojo ya no está disponible. Revisa los locales.');
+   const result=await response.json();
+   if(String(result.storeId)!==String(st.store))throw Error('El servidor no confirmó el local de recojo.');
+  }else{checkoutReviewNote='Selecciona Delivery o Pide y Retira.';screen('choice');return false}
+  const after=checkoutSnapshot();
+  const changed=before.store!==after.store||before.total!==after.total||before.items!==after.items;
+  if(next!=='identity'&&!paymentOptions().some(x=>x[0]===st.pay)){
+   st.pay='';checkoutReviewNote='La sede asignada actualizó los medios de pago disponibles. Selecciona uno para continuar.';
+   save();screen('payment');return false
+  }
+  if(changed){
+   checkoutReviewNote='Se actualizó la sede, el costo o el catálogo. Revisa el nuevo total y vuelve a continuar.';
+   if(next==='summary'){screen('payment');return false}
+   if(next==='confirm'){screen('summary');return false}
+  }
+  save();
+  if(next==='confirm')finalizeDemoOrder();
+  else screen(next);
+  return true;
+ }catch(err){
+  checkoutReviewNote=err.message||'No se pudo comprobar la disponibilidad.';
+  // A failed fresh check must never be treated as a completed confirmation.
+  if(st.mode==='delivery'&&!deliveryQuoteValid())screen('deliveryAddress');
+  else if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store))))screen('locations');
+  else render();
+  return false;
+ }finally{checkoutRefreshPending=false;render()}
+}
 function startCheckout(){
  const issue=checkoutCartIssue();if(issue){toast(issue);return}
  if(!st.mode){checkoutPending=true;screen('choice');return}
- if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){
-  checkoutPending=true;screen('locations');return
- }
- if(st.mode==='delivery'&&!deliveryQuoteValid()){
+ if(st.mode==='delivery'&&!hasDeliveryDestination(st.profile.address,st.profile.district)){
   checkoutPending=true;screen('deliveryAddress');return
  }
- checkoutPending=false;screen('identity');
+ checkoutPending=false;void revalidateCheckout('identity');
 }
 function animateAddedProduct(fromRect,imageSrc,quantity=1){
   // Solo animación visual: el carrito ya fue actualizado por addToCart.
@@ -1253,18 +1321,10 @@ if(b.dataset.cartdelta){let [id,delta]=b.dataset.cartdelta.split('|');let c=st.c
 if(b.dataset.remove){st.cart=st.cart.filter(x=>x.id!==b.dataset.remove);save();render();return}
 if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.quote=null;st.store='';st.mode='delivery';maybeSaveDeliveryAddress();save();void resolveDelivery();return}
 if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2)return toast('Ingresa tus nombres y apellidos');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
-if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();screen('payment');return}
+if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();void revalidateCheckout('payment');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;render();return}
-if(b.hasAttribute('data-pay-next')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.mode==='delivery'&&!deliveryQuoteValid())return toast('Primero confirma la cobertura y el costo de Delivery');if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store))))return toast('Selecciona un local disponible para recojo');if(st.pay==='cash'){st.cash=v('cash');if(!st.cash||!Number.isFinite(Number(st.cash))||Number(st.cash)<orderTotal())return toast('Ingresa un monto suficiente para pagar')}save();screen('summary');return}
-if(b.hasAttribute('data-confirm')){
- const issue=checkoutCartIssue();if(issue)return toast(issue);
- if(st.mode==='delivery'&&!deliveryQuoteValid())return toast('No se puede continuar sin una tarifa de delivery válida');
- if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store))))return toast('El local de recojo no está disponible');
- if(!['pickup','delivery'].includes(st.mode))return toast('Selecciona la modalidad de pedido');
- if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Método de pago no habilitado');
- const order={id:'B3-DEMO-'+String(Date.now()),ts:Date.now(),total:orderTotal(),items:st.cart.map(x=>({id:x.id,qty:x.qty})),mode:st.mode,pay:st.pay,status:'RECEIVED',demo:true,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false};
- st.orders.unshift(order);st.cart=[];save();screen('success');return
-}
+if(b.hasAttribute('data-pay-next')){if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
+if(b.hasAttribute('data-confirm')){if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
 if(b.dataset.social){toast('Facebook requiere una integración real. Usa invitado para probar.');return}
 if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin==='phone'?!/^9\d{8}$/.test(x):!/^\S+@\S+\.\S+$/.test(x))return toast('Completa el dato con un formato válido');st.registered=true;if(b.dataset.demoSignin==='phone')st.profile.phone=x;else st.profile.email=x;save();enterApp();return}
 if(b.hasAttribute('data-logout')){st.registered=false;save();render();return}
