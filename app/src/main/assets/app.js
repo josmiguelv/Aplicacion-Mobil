@@ -1109,6 +1109,11 @@ async function revalidateCheckout(next){
    if(next==='summary'){screen('payment');return false}
    if(next==='confirm'){screen('summary');return false}
   }
+  if((next==='summary'||next==='confirm')&&st.pay==='cash'&&
+    (!Number.isFinite(Number(st.cash))||Number(st.cash)<orderTotal())){
+   checkoutReviewNote='El monto en efectivo es menor al total actualizado. Ajusta con cuánto pagarás.';
+   screen('payment');return false
+  }
   save();
   if(next==='confirm')finalizeDemoOrder();
   else screen(next);
@@ -1322,7 +1327,7 @@ if(b.dataset.remove){st.cart=st.cart.filter(x=>x.id!==b.dataset.remove);save();r
 if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.quote=null;st.store='';st.mode='delivery';maybeSaveDeliveryAddress();save();void resolveDelivery();return}
 if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2)return toast('Ingresa tus nombres y apellidos');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
 if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();void revalidateCheckout('payment');return}
-if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;render();return}
+if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
 if(b.hasAttribute('data-pay-next')){if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
 if(b.hasAttribute('data-confirm')){if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
 if(b.dataset.social){toast('Facebook requiere una integración real. Usa invitado para probar.');return}
