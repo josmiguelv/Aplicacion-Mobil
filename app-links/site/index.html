@@ -5,8 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#B91D28">
   <meta name="robots" content="index,follow">
-  <meta name="description" content="Accede a la aplicación móvil oficial de Pollos B3.">
-  <title>Abre Pollos B3 | Aplicación móvil</title>
+  <meta name="description" content="Abre la aplicación Pollos B3 o continúa directamente en nuestra carta web.">
+  <title>Pollos B3 | Abriendo carta</title>
+  <meta http-equiv="refresh" content="0;url=https://earthquake-represents-hiv-valentine.trycloudflare.com/carta">
   <style>
     :root{color-scheme:light;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
     *,*::before,*::after{box-sizing:border-box}
@@ -32,38 +33,16 @@
     <div class="brand" aria-hidden="true">
       <span>B3</span>
     </div>
-    <p class="label">Aplicación móvil</p>
-    <h1>Bienvenido a Pollos B3</h1>
-    <p>Descubre nuestra carta desde la aplicación de Pollos B3.</p>
-    <div class="panel">
-      <h2>¿Ya tienes instalada la aplicación?</h2>
-      <p>Si el enlace no abrió la app automáticamente, abre esta misma dirección desde Chrome u otro navegador externo. Algunos navegadores integrados de WhatsApp no permiten abrir aplicaciones directamente.</p>
-    </div>
-    <div class="panel">
-      <h2>¿Todavía no tienes la app?</h2>
-      <p>La descarga desde Google Play aparecerá aquí cuando Pollos B3 confirme su publicación oficial.</p>
-      <a id="playLink" class="action" href="#" hidden rel="noopener noreferrer">Descargar desde Google Play</a>
-      <div id="playPending" class="status">Descarga oficial próximamente</div>
-    </div>
-    <footer>Pollos B3 · Enlace oficial de acceso a la app</footer>
+    <p class="label">Pollos B3</p>
+    <h1>Abriendo nuestra carta...</h1>
+    <p>Si tienes la app instalada, Android puede abrirla directamente desde el enlace de WhatsApp. De lo contrario, continuarás en nuestra carta web.</p>
+    <a class="action" href="https://earthquake-represents-hiv-valentine.trycloudflare.com/carta" rel="noopener noreferrer">Ver carta y hacer pedido</a>
+    <footer>Pollos B3 · Carta digital</footer>
   </main>
   <script>
-    // Configurar solo DESPUÉS de verificar la publicación de Pollos B3 en Google Play.
-    // No forzamos redirecciones: podrían generar bucles en navegadores de WhatsApp.
-    const OFFICIAL_GOOGLE_PLAY_URL = '';
-    const play = document.getElementById('playLink');
-    try {
-      if (OFFICIAL_GOOGLE_PLAY_URL) {
-        const url = new URL(OFFICIAL_GOOGLE_PLAY_URL);
-        if (url.protocol === 'https:' && url.hostname === 'play.google.com' &&
-            url.pathname === '/store/apps/details' &&
-            url.searchParams.get('id') === 'com.integrab2g.pollosb3') {
-          play.href = url.href;
-          play.hidden = false;
-          document.getElementById('playPending').hidden = true;
-        }
-      }
-    } catch (_) { /* Keep download disabled until a verified URL exists. */ }
+    // Solo se ejecuta cuando el enlace HTTPS llega a la web; Android App Links
+    // puede abrir la app antes de solicitar esta página.
+    window.location.replace('https://earthquake-represents-hiv-valentine.trycloudflare.com/carta');
   </script>
 </body>
 </html>
