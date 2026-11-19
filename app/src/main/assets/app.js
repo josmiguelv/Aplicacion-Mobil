@@ -103,6 +103,64 @@ const API_BASE=(()=>{
 const catalogPublished=false;
 const NOTIFICATIONS_API_BASE=(()=>{const raw=window.AndroidBridge?.getNotificationsApiBase?.()||'';return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):''})();
 let commercialNotifications=[],notificationsLoading=false,notificationsError='',notificationsRequestId=0;
+let notificationsLoaded=false,selectedNotificationId='',pendingPushNotificationId='';
+const NOTIFICATIONS_READ_KEY='b3-commercial-read-v1';
+let readNotificationIds=[];
+try{const value=JSON.parse(localStorage.getItem(NOTIFICATIONS_READ_KEY)||'[]');if(Array.isArray(value))readNotificationIds=value.filter(v=>typeof v==='string').slice(-400)}catch{}
+function liveNotifications(){
+ const now=Date.now();
+ return commercialNotifications.filter(n=>(!n.scheduledAt||Date.parse(n.scheduledAt)<=now)&&(!n.expiresAt||Date.parse(n.expiresAt)>now));
+}
+function notificationUnreadCount(){return liveNotifications().filter(n=>!readNotificationIds.includes(n.id)).length}
+function markNotificationRead(id){
+ if(typeof id!=='string'||!id)return;
+ if(!readNotificationIds.includes(id)){
+  readNotificationIds=[...readNotificationIds,id].slice(-400);
+  localStorage.setItem(NOTIFICATIONS_READ_KEY,JSON.stringify(readNotificationIds));
+ }
+ window.AndroidBridge?.markMarketingNotificationRead?.(id);
+}
+function openNotificationDetail(id){
+ if(!id||typeof id!=='string')return;
+ selectedNotificationId=id;
+ const item=liveNotifications().find(n=>n.id===id);
+ if(item)markNotificationRead(item.id);
+ st.stage='notificationDetail';window.scrollTo({top:0});render();
+ if(!notificationsLoaded||notificationsError)void fetchNotifications();
+}
+function openPushNotification(id){
+ marketingPromptVisible=false;
+ if(typeof id==='string'&&/^[a-zA-Z0-9_-]{1,128}$/.test(id)){
+  pendingPushNotificationId=id;
+  selectedNotificationId=id;
+  st.stage='notificationDetail';
+  window.scrollTo({top:0});render();
+  void fetchNotifications();
+ }else screen('notifications');
+}
+function notificationDetailScreen(){
+ const item=liveNotifications().find(n=>n.id===selectedNotificationId);
+ if(item){
+  return `<div class="page b3-notification-detail">${heading('Detalle de novedad','notifications')}
+   ${item.imageUrl?`<img class="b3-notification-detail-image" src="${esc(item.imageUrl)}" alt="Imagen de ${esc(item.title)}">`:''}
+   <span class="b3-notification-kicker">NOVEDAD DE POLLOS B3</span>
+   <h1>${esc(item.title)}</h1>
+   <p class="b3-notification-copy">${esc(item.message).replace(/\n/g,'<br>')}</p>
+   ${item.expiresAt&&Number.isFinite(Date.parse(item.expiresAt))?`<p class="b3-notification-validity">Disponible hasta ${esc(new Date(item.expiresAt).toLocaleString('es-PE',{timeZone:'America/Lima',dateStyle:'medium',timeStyle:'short'}))}</p>`:''}
+   <button class="primary full" data-notification-catalog="1">Explorar la carta</button>
+   <button class="outline full" data-screen="notifications">Ver todas las notificaciones</button>
+   <p class="smallprint">Los productos, precios y disponibilidad se confirman en la carta actual. La oferta no se aplica automáticamente al carrito.</p>
+  </div>`;
+ }
+ return `<div class="page b3-notification-detail">${heading('Detalle de novedad','notifications')}
+  <div class="b3-notification-unavailable">${ic('bell',30)}<h2>${notificationsLoading?'Buscando la promoción...':notificationsError?'No pudimos consultar esta promoción':'Esta promoción ya no está disponible'}</h2>
+  <p>${notificationsLoading?'Estamos comprobando su vigencia.':notificationsError?'Comprueba tu conexión y vuelve a intentar.':'Puede haber finalizado o haber sido retirada por Pollos B3.'}</p></div>
+  ${notificationsError?'<button class="outline full" data-notifications-refresh="1">Reintentar</button>':''}
+  <button class="primary full" data-notification-catalog="1">Ver la carta actual</button>
+  <button class="outline full" data-screen="notifications">Ver otras novedades</button>
+ </div>`;
+}
+
 // La lista de locales permanece vacía hasta que la API devuelva sus registros.
 let publishedRevision=0;
 let publishedPromotions=[];
@@ -510,7 +568,7 @@ function orders(){
  return '<div class="page b3-orders-page"><h1>Mis pedidos</h1><p class="sub">Consulta tus pedidos locales. El seguimiento no requiere iniciar sesión.</p>'+
  (list.length?list.map(o=>'<button class="b3-order-entry" data-order-open="'+esc(o.id)+'"><span><b>'+esc(o.id)+'</b><small>'+new Date(o.ts).toLocaleDateString('es-PE')+' · '+(isDemoOrder(o)?'PEDIDO DE PRUEBA':'Pedido')+'</small></span><span><strong>'+cash(o.total||0)+'</strong><small>'+(ORDER_STAGES.find(r=>r[0]===o.status)?.[1]||'Sin procesar')+'</small></span></button>').join(''):'<div class="empty-state"><h2>Aún no tienes pedidos</h2><p>Cuando confirmes un pedido podrás consultar aquí su información.</p><button class="primary" data-tab="carta">Ver la carta</button></div>')+'</div>';
 }
-function account(){let rows=[['Mi perfil','user','profile'],['Direcciones guardadas','pin','address'],['Métodos de pago','card','methods'],['Notificaciones','bell','notifications'],['Nuestra Historia','book','history'],['Trabaja con nosotros','store','jobs'],['Privacidad y protección de datos','shield','privacy'],['Sobre la App','info','about']];return `<div class="page acc"><h1>Mi Cuenta</h1><button class="profile-line" data-screen="login">${ic('user',31)}<div><b>${st.registered?esc(st.profile.first||'Cuenta de prueba'):'Inicia sesión'}</b><small>${st.registered?'Cuenta local de demostración':'Para acceder a tu historial y datos guardados'}</small></div>${ic('chev')}</button><div class="rows">${rows.map(([label,icon,screen])=>`<button data-screen="${screen}">${ic(icon,20)}<span>${label}</span>${ic('chev',17)}</button>`).join('')}</div><h2 class="group-label">Ayuda</h2><div class="rows"><button data-screen="faq">${ic('help',20)}<span>Preguntas frecuentes</span>${ic('chev',17)}</button><button data-screen="claims">${ic('book',20)}<span>Libro de reclamaciones</span>${ic('chev',17)}</button></div>${st.registered?'<button class="logout" data-logout="1">Cerrar sesión de prueba</button>':''}</div>`}
+function account(){let rows=[['Mi perfil','user','profile'],['Direcciones guardadas','pin','address'],['Métodos de pago','card','methods'],['Notificaciones','bell','notifications'],['Nuestra Historia','book','history'],['Trabaja con nosotros','store','jobs'],['Privacidad y protección de datos','shield','privacy'],['Sobre la App','info','about']];return `<div class="page acc"><h1>Mi Cuenta</h1><button class="profile-line" data-screen="login">${ic('user',31)}<div><b>${st.registered?esc(st.profile.first||'Cuenta de prueba'):'Inicia sesión'}</b><small>${st.registered?'Cuenta local de demostración':'Para acceder a tu historial y datos guardados'}</small></div>${ic('chev')}</button><div class="rows">${rows.map(([label,icon,screen])=>`<button data-screen="${screen}">${ic(icon,20)}<span>${label}</span>${screen==='notifications'&&notificationUnreadCount()?`<b class="b3-account-notification-count">${notificationUnreadCount()}</b>`:''}${ic('chev',17)}</button>`).join('')}</div><h2 class="group-label">Ayuda</h2><div class="rows"><button data-screen="faq">${ic('help',20)}<span>Preguntas frecuentes</span>${ic('chev',17)}</button><button data-screen="claims">${ic('book',20)}<span>Libro de reclamaciones</span>${ic('chev',17)}</button></div>${st.registered?'<button class="logout" data-logout="1">Cerrar sesión de prueba</button>':''}</div>`}
 function splash(){return `<div class="splash b3-splash" aria-label="Pollos B3, la pollería más viral de Santa Anita">
   <div class="b3-splash-halo" aria-hidden="true"></div>
   <img class="b3-splash-logo" src="images/pollosb3-header-logo.png" alt="Pollos B3">
@@ -719,47 +777,57 @@ function notificationImageUrl(raw){
 }
 async function fetchNotifications(){
  const requestId=++notificationsRequestId;
- if(!NOTIFICATIONS_API_BASE){notificationsError='No está configurada la API de notificaciones.';if(st.stage==='notifications')render();return}
+ if(!NOTIFICATIONS_API_BASE){notificationsError='No está configurada la API de notificaciones.';notificationsLoaded=false;if(['notifications','notificationDetail'].includes(st.stage))render();return}
  notificationsLoading=true;notificationsError='';
- if(st.stage==='notifications')render();
+ if(['notifications','notificationDetail'].includes(st.stage))render();
  try{
   const response=await fetch(NOTIFICATIONS_API_BASE+'/api/v1/mobile/notifications?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});
   if(!response.ok)throw Error('HTTP '+response.status);
   const data=await response.json();
-  if(data.ready!==true||!Array.isArray(data.notifications))throw Error('Invalid notification response');
+  if(data.ready!==true||!Array.isArray(data.notifications))throw Error('Respuesta inválida');
   const seen=new Set(),now=Date.now();
   const next=data.notifications.filter(n=>{
    if(!n||typeof n.id!=='string'||typeof n.title!=='string'||typeof n.message!=='string'||seen.has(n.id))return false;
    seen.add(n.id);
    const begin=n.scheduledAt?Date.parse(n.scheduledAt):NaN,expiry=n.expiresAt?Date.parse(n.expiresAt):NaN;
    return (!Number.isFinite(begin)||begin<=now)&&(!Number.isFinite(expiry)||expiry>now);
-  }).map(n=>({id:n.id,title:n.title,message:n.message,imageUrl:notificationImageUrl(n.imageUrl),scheduledAt:n.scheduledAt}));
+  }).map(n=>({id:n.id,title:n.title,message:n.message,imageUrl:notificationImageUrl(n.imageUrl),scheduledAt:n.scheduledAt,expiresAt:n.expiresAt}));
   if(requestId!==notificationsRequestId)return;
-  commercialNotifications=next;notificationsError='';
+  commercialNotifications=next;notificationsLoaded=true;notificationsError='';
+  if(pendingPushNotificationId){
+   const id=pendingPushNotificationId;
+   if(next.some(n=>n.id===id)){markNotificationRead(id);pendingPushNotificationId=''}
+   else pendingPushNotificationId=''; // Never display outdated or withdrawn offers.
+  }
+  if(st.stage==='notificationDetail'&&next.some(n=>n.id===selectedNotificationId))markNotificationRead(selectedNotificationId);
  }catch(error){
   if(requestId!==notificationsRequestId)return;
   notificationsError='No pudimos consultar los avisos. Comprueba tu conexión y vuelve a intentar.';
-  commercialNotifications=[];
   console.warn('Pollos B3 notifications unavailable',error.message);
- }finally{if(requestId===notificationsRequestId){notificationsLoading=false;if(st.stage==='notifications')render()}}
+ }finally{
+  if(requestId===notificationsRequestId){notificationsLoading=false;if(['notifications','notificationDetail','app'].includes(st.stage))render()}
+ }
 }
 function notificationsScreen(){
- const rows=commercialNotifications.map(n=>{
+ const items=liveNotifications();
+ const unread=notificationUnreadCount();
+ const rows=items.map(n=>{
   const date=n.scheduledAt?new Date(n.scheduledAt):null;
   const stamp=date&&Number.isFinite(date.getTime())?date.toLocaleString('es-PE',{timeZone:'America/Lima',dateStyle:'medium',timeStyle:'short'}):'';
-  return `<article class="b3-commercial-notification">
-   ${n.imageUrl?`<img class="b3-notification-image" src="${esc(n.imageUrl)}" alt="Imagen de ${esc(n.title)}" loading="lazy">`:''}
-   <div class="b3-notification-body"><small>POLLOS B3 ${stamp?'· '+esc(stamp):''}</small><h2>${esc(n.title)}</h2><p>${esc(n.message).replace(/\n/g,'<br>')}</p></div>
-  </article>`;
+  const isUnread=!readNotificationIds.includes(n.id);
+  return `<button class="b3-commercial-notification ${isUnread?'b3-notification-unread':''}" data-notification-open="${esc(n.id)}" aria-label="Abrir aviso: ${esc(n.title)}">
+   ${n.imageUrl?`<img class="b3-notification-image" src="${esc(n.imageUrl)}" alt="" loading="lazy">`:''}
+   <div class="b3-notification-body"><small>${isUnread?'<span class="b3-unread-dot" aria-hidden="true"></span>NUEVO · ':''}POLLOS B3 ${stamp?'· '+esc(stamp):''}</small><h2>${esc(n.title)}</h2><p>${esc(n.message)}</p><span class="b3-notification-more">Ver detalle →</span></div>
+  </button>`;
  }).join('');
  return `<div class="page b3-notifications-page">${heading('Notificaciones','app')}
-  <div class="b3-notifications-banner">${ic('bell',25)}<div><strong>Novedades Pollos B3</strong><p>Ofertas y avisos comerciales publicados por el negocio.</p></div></div>
-  <div class="b3-marketing-opt-in"><div><strong>Avisos de ofertas en mi celular</strong><p>Recibe promociones de Pollos B3 aunque no tengas abierta la aplicación. Puedes desactivarlos cuando quieras.</p></div><button class="outline" type="button" data-marketing-toggle="1">${window.AndroidBridge?.marketingNotificationsEnabled?.()?'Desactivar':'Activar avisos'}</button></div>
- <button class="outline full" data-notifications-refresh="1" ${notificationsLoading?'disabled':''}>${notificationsLoading?'Actualizando...':'Actualizar notificaciones'}</button>
+  <div class="b3-notifications-banner">${ic('bell',25)}<div><strong>Novedades Pollos B3</strong><p>Promociones y avisos publicados por el negocio.</p></div></div>
+  <div class="b3-marketing-opt-in"><div><strong>Avisos de ofertas en mi celular</strong><p>Recibe promociones incluso con la aplicación cerrada. Puedes desactivarlos cuando quieras.</p></div><button class="outline" type="button" data-marketing-toggle="1">${window.AndroidBridge?.marketingNotificationsEnabled?.()?'Desactivar':'Activar avisos'}</button></div>
+  <div class="b3-notification-inbox-head"><strong>${unread?unread+' sin leer':'Tus novedades'}</strong><button type="button" data-notifications-refresh="1" ${notificationsLoading?'disabled':''}>${notificationsLoading?'Actualizando...':'Actualizar'}</button></div>
   ${notificationsError?`<div class="notice" role="status">${esc(notificationsError)}</div>`:''}
   ${notificationsLoading&&!rows?'<p class="smallprint" role="status">Consultando novedades...</p>':''}
-  ${rows||(!notificationsLoading&&!notificationsError?'<div class="empty-state"><h2>No hay novedades vigentes</h2><p>Las promociones aparecerán aquí cuando se publiquen.</p></div>':'')}
-  <p class="smallprint">Estos avisos se consultan al abrir esta sección. Las notificaciones push con la aplicación cerrada necesitan Firebase Cloud Messaging y envío desde el administrador.</p>
+  ${rows||(!notificationsLoading&&!notificationsError?'<div class="empty-state"><h2>No hay novedades vigentes</h2><p>Las promociones aparecerán cuando se publiquen.</p></div>':'')}
+  <p class="smallprint">Los avisos leídos se guardan en este dispositivo. Las ofertas vencidas no se muestran como disponibles.</p>
  </div>`;
 }
 function openPrivacyLaw(){
@@ -769,7 +837,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
+function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkReady(){if(!st.mode){screen('choice');return false} if((st.mode==='pickup'||st.mode==='dine_in')&&!st.store){screen('locations');return false}if(st.mode==='delivery'&&(!st.profile.address||st.configReady&&!st.quote)){screen('deliveryAddress');return false}return true}
 function animateAddedProduct(fromRect,imageSrc,quantity=1){
@@ -817,7 +885,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido');return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 if(b.dataset.orderOpen){
  const o=findLocalOrder(b.dataset.orderOpen);if(!o)return;
  selectedOrderId=o.id;screen('orderDetail');return;
@@ -923,6 +991,8 @@ if(b.dataset.modalPickstore){
 if(b.hasAttribute('data-gps')){if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else toast('GPS no disponible. Ingresa la dirección manualmente.');return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-marketing-first-later')){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return}
 if(b.hasAttribute('data-marketing-first-accept')){localStorage.setItem(MARKETING_PROMPT_KEY,'accepted');marketingPromptVisible=false;render();window.AndroidBridge?.setMarketingNotificationsEnabled?.(true);return}
 if(b.hasAttribute('data-marketing-toggle')){if(window.AndroidBridge?.setMarketingNotificationsEnabled){window.AndroidBridge.setMarketingNotificationsEnabled(!window.AndroidBridge.marketingNotificationsEnabled());}else toast('Las notificaciones push solo están disponibles en Android.');return}
+if(b.dataset.notificationOpen){openNotificationDetail(b.dataset.notificationOpen);return}
+if(b.hasAttribute('data-notification-catalog')){nav('carta');return}
 if(b.hasAttribute('data-notifications-refresh')){void fetchNotifications();return}
 if(b.dataset.screen){if(b.dataset.screen==='detail'&&!st.selected)return;screen(b.dataset.screen);return}
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
@@ -1107,7 +1177,7 @@ setInterval(()=>{
 },1000);
 // Android App Link /abrir: keep the current single-page navigation, do not require sign-in.
 window.b3MarketingStatus=(enabled,message)=>{if(enabled)localStorage.setItem(MARKETING_PROMPT_KEY,'enabled');if(st.stage==='notifications'){render();if(message)toast(message)}else if(message&&st.stage==='app')toast(message)};
-window.b3OpenNotifications=()=>{screen('notifications')};
+window.b3OpenNotifications=(id)=>{openPushNotification(id)};
 window.b3OpenFromLink=()=>{
   reviewSheetOrderId=null;
   favoritePromptOrderId=null;
@@ -1126,11 +1196,13 @@ window.handleB3Back=()=>{
     return false; // First launch login: close app on Back, not splash.
   }
   if(st.stage.startsWith('signin-')){screen('login');return true}
-  const previous={orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
+  const previous={notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
   screen(previous[st.stage]||'app');return true
 };
 render();
 fetchConfig();
+// Refresh inbox silently; individual offers are still validated when opened.
+void fetchNotifications();
 // Present branded artwork only on cold launch, then clear it from the navigation stack.
 setTimeout(()=>{if(st.stage==='splash')screen(enteredBefore?'app':'login')},3000);
 })();
