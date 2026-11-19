@@ -52,6 +52,7 @@ let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI st
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
 let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
 let deliveryGpsRequested=false,deliveryLocation=null,deliveryGeocodeTask=null,deliveryGeocodeSequence=0;
+let deliveryGpsPending=false,deliveryGpsMessage='',deliveryGpsToken='';
 // Geocoded coordinates are transient; never reuse GPS collected for store distances.
 function deliveryAddressKey(address,district){return String(address||'').trim().toLowerCase()+'|'+String(district||'').trim().toLowerCase()}
 function hasDeliveryDestination(address,district){
@@ -394,6 +395,21 @@ window.b3StoreCoordinates=json=>{
  }
  if(st.stage==='app'&&st.tab==='inicio')render();
 };
+window.b3DeliveryGpsAddress=(token,street,district,hasNumber,error)=>{
+ if(!deliveryGpsPending||String(token)!==deliveryGpsToken)return;
+ deliveryGpsPending=false;
+ if(error||!String(street||'').trim()){
+  deliveryGpsMessage='No se pudo identificar la calle automáticamente. Completa calle, número y distrito; puedes conservar las coordenadas GPS como punto de entrega.';
+ }else{
+  st.profile.address=String(street).trim();
+  if(String(district||'').trim())st.profile.district=String(district).trim();
+  deliveryGpsMessage=hasNumber
+   ?'Dirección encontrada. Revisa la calle, el número y el distrito antes de continuar.'
+   :'Ubicación encontrada. Completa el número de puerta y revisa el distrito.';
+ }
+ if(deliveryLocation?.source==='gps')deliveryLocation.key=deliveryAddressKey(st.profile.address,st.profile.district);
+ deliveryRequestError='';save();render();
+};
 window.b3NativeLocation=(lat,lng,error)=>{
  const forDelivery=deliveryGpsRequested;
  deliveryGpsRequested=false;
@@ -402,16 +418,28 @@ window.b3NativeLocation=(lat,lng,error)=>{
   if(st.stage==='app'&&st.tab==='inicio')render();else toast('No fue posible obtener coordenadas');
   return;
  }
- st.coords={lat,lng};save();
- resolveStoreDistances();
+ st.coords={lat,lng};save();resolveStoreDistances();
  if(forDelivery&&(fulfillmentModal==='delivery'||st.stage==='deliveryAddress')){
   st.profile.address=v('address')||st.profile.address;
   st.profile.district=v('district')||st.profile.district;
   st.profile.reference=v('reference')||st.profile.reference;
   deliveryLocation={latitude:lat,longitude:lng,key:deliveryAddressKey(st.profile.address,st.profile.district),source:'gps'};
-  deliveryRequestError='';save();render();
-  toast('Ubicación actual seleccionada para este delivery. Confirma la dirección.');
-  return;
+  deliveryRequestError='';deliveryGpsMessage='Buscando la dirección de tu ubicación actual...';
+  if(window.AndroidBridge?.reverseGeocodeDeliveryLocation){
+   deliveryGpsPending=true;
+   const token=deliveryGpsToken=String(++deliveryGeocodeSequence);
+   try{
+    window.AndroidBridge.reverseGeocodeDeliveryLocation(JSON.stringify({token,latitude:lat,longitude:lng}));
+    setTimeout(()=>{
+     if(deliveryGpsPending&&deliveryGpsToken===token)
+      window.b3DeliveryGpsAddress(token,'','',false,'No se pudo identificar la dirección');
+    },12000);
+   }catch(e){window.b3DeliveryGpsAddress(token,'','',false,'Servicio no disponible')}
+  }else{
+   deliveryGpsPending=false;
+   deliveryGpsMessage='GPS recibido. Esta versión no identifica la calle: complétala manualmente antes de continuar.';
+  }
+  save();render();return;
  }
  if(fulfillmentModal==='pickup'||st.stage==='locations'||(st.stage==='app'&&st.tab==='inicio')){render();return}
  toast('Ubicación recibida. Verifica la dirección escrita.');
@@ -510,7 +538,8 @@ function fulfillmentOverlay(){
  const deliveryPanel=`<div class="b3-modal-fields">
    ${savedAddresses().length?`<div class="b3-modal-saved"><h3>Mis direcciones guardadas</h3>${savedAddressesHtml(true)}</div>`:''}
    <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual como destino</button>
-   <p class="smallprint">${hasDeliveryDestination(st.profile.address,st.profile.district)&&deliveryLocation.source==='gps'?'Ubicación GPS elegida para esta dirección.':'La dirección se localizará con el servicio de ubicación del dispositivo. Si no puede ubicarse, usa GPS en el destino.'}</p>
+   <p class="smallprint">${hasDeliveryDestination(st.profile.address,st.profile.district)&&deliveryLocation.source==='gps'?'GPS seleccionado como destino. Revisa calle y número.':'Puedes usar GPS para completar la dirección o ingresarla manualmente.'}</p>
+   ${deliveryGpsMessage?`<div class="notice" role="status">${esc(deliveryGpsMessage)}</div>`:''}
    <label>Dirección completa<input id="address" autocomplete="street-address" placeholder="Calle, avenida, número e interior" value="${esc(st.profile.address)}"></label>
    <label>Distrito<input id="district" placeholder="Distrito de entrega" value="${esc(st.profile.district||'')}"></label>
    
@@ -854,7 +883,8 @@ function address(){return `<div class="page form b3-address-page">${heading('Dir
  <p class="sub">Elige una dirección guardada o escribe una nueva. Puedes usarla solo para este pedido.</p>
  ${savedAddresses().length?'<div class="b3-modal-saved"><h3>Mis direcciones</h3>'+savedAddressesHtml(true)+'</div>':''}
  <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual como destino</button>
- <p class="smallprint">La distancia se estima en línea recta. Si no estás en la dirección de entrega, escribe la dirección completa.</p>
+ <p class="smallprint">El GPS intentará completar calle y distrito. Revisa siempre el número de puerta. La distancia es aproximada en línea recta.</p>
+ ${deliveryGpsMessage?`<div class="notice" role="status">${esc(deliveryGpsMessage)}</div>`:''}
  ${hasDeliveryDestination(st.profile.address,st.profile.district)&&deliveryLocation.source==='gps'?'<div class="notice">Ubicación GPS seleccionada para esta dirección.</div>':''}
  <label>Dirección completa<input id="address" maxlength="180" autocomplete="street-address" placeholder="Calle, avenida y número" value="${esc(st.profile.address||'')}"></label>
  <label>Distrito<input id="district" maxlength="80" value="${esc(st.profile.district||'')}"></label>
@@ -1240,7 +1270,11 @@ if(b.hasAttribute('data-clear')){if(!window.confirm('¿Eliminar los datos locale
 });
 root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target.matches('.hero-card[role=button],.promo-card[role=button]'))){e.preventDefault();e.target.click()}});
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();const m=v('chat-message');if(m){st.chat.push(m.slice(0,500));save();render()}}});
-root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){deliveryLocation=null;deliveryRequestError='';const warning=root.querySelector('[role="alert"]');if(warning)warning.remove()}if(e.target.id==='cash'){st.cash=e.target.value;let change=document.getElementById('change');if(change)change.textContent=Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total';}});
+root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){
+ if(deliveryLocation?.source==='gps')deliveryLocation.key=deliveryAddressKey(v('address'),v('district'));
+ else deliveryLocation=null;
+ deliveryRequestError='';const warning=root.querySelector('[role="alert"]');if(warning)warning.remove()
+}if(e.target.id==='cash'){st.cash=e.target.value;let change=document.getElementById('change');if(change)change.textContent=Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total';}});
 
 /* Carruseles B3: animación física horizontal, gestos táctiles y autoplay sin reconstruir Inicio.
    Solo se desplazan tarjetas visuales; selección de productos y checkout siguen intactos. */
