@@ -667,11 +667,41 @@ function localDetail(){
  </div>`;
 }
 function detail(){let p=product(st.selected)||products[0];if(!p)return `<div class="page"><div class="empty-state"><h2>No hay productos publicados</h2><p>La carta estará disponible cuando Pollos B3 publique sus productos.</p><button class="primary" data-tab="carta">Volver a la carta</button></div></div>`;return `<div class="detail">${heading('',st.mode?'app':'choice')}<div class="detail-photo">${img(p)}<small>${p.isPublished?'Imagen publicada':'Imagen referencial'}</small></div><div class="detail-content"><h1>${esc(p.name)}</h1><p>${esc(p.desc)}</p><div class="detail-price"><strong>${cash(p.price)}</strong><div class="counter"><button data-qty="-1">−</button><span>${st.qty}</span><button data-qty="1">+</button></div></div><button class="primary full" data-add="1">Agregar · ${cash(p.price*st.qty)}</button></div></div>`}
-function cart(){return `<div class="page">${heading('Tu carrito','app')}${!st.cart.length?`<div class="empty-state"><h2>Tu carrito está vacío</h2><button class="primary" data-tab="carta">Ver la carta</button></div>`:`<div>${st.cart.map(x=>{let p=product(x.id);return `<div class="cart-row">${img(p)}<div><strong>${esc(p.name)}</strong><span>${cash(p.price)}</span><div class="counter"><button data-cartdelta="${p.id}|-1">−</button><b>${x.qty}</b><button data-cartdelta="${p.id}|1">+</button></div></div><button class="remove" data-remove="${p.id}" aria-label="Quitar producto">${ic('trash',18)}</button></div>`}).join('')}</div><div class="totals"><p><span>Subtotal</span><b>${cash(subtotal())}</b></p><p><span>Delivery</span><span>${st.mode==='delivery'?(st.quote?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p><p class="grand"><b>Total estimado</b><strong>${cash(subtotal()+(st.quote?.deliveryFeePen||0))}</strong></p></div><p class="smallprint">Los cargos de delivery, si aplican, se mostrarán antes de realizar un pago real.</p><button class="outline full" data-tab="carta">Seguir pidiendo</button><button class="primary full" data-screen="identity">Pagar</button>`}</div>`}
+function cart(){
+ const rows=st.cart.map(x=>{
+  const p=product(x.id);
+  if(!p)return '<div class="cart-row"><div><strong>Producto retirado de la carta</strong><p>Quítalo para continuar.</p></div><button class="remove" data-remove="'+esc(x.id)+'" aria-label="Quitar producto">'+ic('trash',18)+'</button></div>';
+  return '<div class="cart-row">'+img(p)+'<div><strong>'+esc(p.name)+'</strong><span>'+cash(p.price)+'</span><div class="counter"><button data-cartdelta="'+esc(p.id)+'|-1">−</button><b>'+x.qty+'</b><button data-cartdelta="'+esc(p.id)+'|1">+</button></div></div><button class="remove" data-remove="'+esc(p.id)+'" aria-label="Quitar producto">'+ic('trash',18)+'</button></div>';
+ }).join('');
+ return `<div class="page">${heading('Tu carrito','app')}
+ ${!st.cart.length?'<div class="empty-state"><h2>Tu carrito está vacío</h2><button class="primary" data-tab="carta">Ver la carta</button></div>':`
+  <div>${rows}</div><div class="totals">
+   <p><span>Subtotal</span><b>${cash(subtotal())}</b></p>
+   <p><span>Delivery</span><span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
+   <p class="grand"><b>Total estimado</b><strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Por cotizar':cash(orderTotal())}</strong></p>
+  </div><p class="smallprint">No se enviarán pedidos reales ni se harán cobros en esta versión de prueba.</p>
+  <button class="outline full" data-tab="carta">Seguir pidiendo</button>
+  <button class="primary full" data-screen="identity">Continuar con pedido de prueba</button>`}
+ </div>`;
+}
 function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
 function phone(){return `<div class="page form">${heading('Tu teléfono','identity')}<p class="sub">Lo usaremos para identificar tu pedido. En esta demo no enviaremos mensajes ni códigos.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(st.profile.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`}
 function payment(){return `<div class="page">${heading('Método de pago','phone')}<p class="sub">Solo aparecen los métodos habilitados para tu local y modalidad. No hay cobros reales en este piloto.</p><div class="method-list">${paymentOptions().map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>${st.configReady&&!paymentOptions().length?'<div class="notice">No hay pagos habilitados para esta modalidad y local.</div>':''}${st.pay==='cash'?`<label>¿Con cuánto vas a pagar?<input id="cash" inputmode="decimal" placeholder="Ej. 100" value="${esc(st.cash)}"></label><div class="notice" id="change">${Number(st.cash)>=subtotal()?`Vuelto referencial: ${cash(Number(st.cash)-subtotal())}`:'Ingresa un monto igual o mayor al total'}</div>`:''}<button class="primary full" data-pay-next="1">Continuar</button></div>`}
-function summary(){let s=shops.find(x=>x.id===st.store);return `<div class="page">${heading('Resumen de tu pedido','payment')}<div class="summary-card"><h2>${st.mode==='delivery'?'Delivery':st.mode==='dine_in'?'Comer en tienda':'Recojo en tienda'}</h2><p>${st.mode==='delivery'?esc(st.profile.address+', '+(st.profile.district||'')):(s?esc(s.name+' · '+s.addr):'Local por confirmar')}</p><hr><p>Pago: <b>${{yape:'Yape',plin:'Plin',card:'Tarjeta',click:'Click to Pay',cash:'Efectivo al recibir'}[st.pay]}</b></p>${st.cart.map(x=>`<p>${esc(product(x.id).name)} ×${x.qty} <b>${cash(x.qty*product(x.id).price)}</b></p>`).join('')}<hr><p>Subtotal <b>${cash(subtotal())}</b></p><p>Delivery <span>${st.mode==='delivery'?(st.quote?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>${st.mode==='delivery'&&st.quote?.distanceSource==='GOOGLE_ROUTES'?`<p>Desde ${esc(st.quote.storeName)} · ${Number(st.quote.routeDistanceKm).toFixed(2)} km por ruta · ${st.quote.deliveryPricingMode==='FIXED'?'Tarifa fija: '+cash(st.quote.deliveryFeePen):'S/ '+Number(st.quote.ratePerKmPen).toFixed(2)+' por km'}</p>`:''}<p class="grand">Total estimado <strong>${st.mode==='delivery'&&!st.quote?'Pendiente de cotizar':cash(subtotal()+(st.quote?.deliveryFeePen||0))}</strong></p></div><div class="notice">No se confirmarán pagos ni enviarán pedidos al local. Confirmar únicamente para probar el recorrido.</div><button class="primary full" data-confirm="1">Confirmar pedido de prueba</button></div>`}
+function summary(){
+ const selectedStore=shops.find(x=>String(x.id)===String(st.store));
+ const items=st.cart.map(x=>{const p=product(x.id);return '<p>'+esc(p?.name||'Producto retirado')+' ×'+x.qty+' <b>'+(p?cash(x.qty*p.price):'Revisar')+'</b></p>'}).join('');
+ const methods={yape:'Yape',plin:'Plin',card:'Tarjeta',click:'Click to Pay',cash:'Efectivo al recibir'};
+ return `<div class="page">${heading('Resumen de tu pedido','payment')}<div class="summary-card">
+ <h2>${st.mode==='delivery'?'Delivery':'Recojo en tienda'}</h2>
+ <p>${st.mode==='delivery'?esc(st.profile.address+', '+(st.profile.district||'')):(selectedStore?esc(selectedStore.name+' · '+(selectedStore.address||selectedStore.addr||'')):'Local por confirmar')}</p>
+ <hr><p>Pago: <b>${esc(methods[st.pay]||'Por seleccionar')}</b></p>
+ ${items}<hr><p>Subtotal <b>${cash(subtotal())}</b></p>
+ <p>Delivery <span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
+ ${st.mode==='delivery'&&deliveryQuoteValid()&&st.quote.distanceSource==='GOOGLE_ROUTES'? `<p>Desde ${esc(st.quote.storeName||'la sede asignada')} · ${Number(st.quote.routeDistanceKm).toFixed(2)} km por ruta</p>`:''}
+ <p class="grand">Total estimado <strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Pendiente de cotizar':cash(orderTotal())}</strong></p>
+ </div><div class="notice">Recorrido de prueba: no se confirmarán pagos ni se enviarán pedidos a Pollos B3.</div>
+ <button class="primary full" data-confirm="1">Registrar pedido de prueba</button></div>`;
+}
 function success(){let o=st.orders[0];return `<div class="success"><div class="success-mark">${ic('check',54)}</div><h1>¡Pedido de prueba registrado!</h1><p>Este pedido se guardó en tu teléfono. <b>No fue enviado a Pollos B3 ni cobrado.</b></p><div class="success-box"><b>${esc(o?.id||'')}</b><span>${cash(o?.total||0)}</span><small>Simulación local</small></div><button class="primary full" data-tab="pedidos">Ver mis pedidos</button><button class="outline full" data-tab="inicio">Volver al inicio</button></div>`}
 function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3','app')}<div class="chat-info">${ic('chat')}<span>Chat de demostración · TU VERSO aún no conectado</span></div><div class="chat-messages"><div class="message agent">¡Hola! Esta es una vista previa del chat. Cuando se integre TU VERSO, aquí podrás conversar con un agente de Pollos B3.</div>${st.chat.map(m=>`<div class="message customer">${esc(m)}</div>`).join('')}</div><form id="chat-form" class="chat-compose"><input id="chat-message" placeholder="Escribe un mensaje de prueba..." aria-label="Mensaje de prueba"><button type="submit">${ic('chev')}</button></form></div>`}
 function about(){return `<div class="page about b3-about-new">${heading('Sobre la app','app')}
@@ -1055,7 +1085,16 @@ if(b.hasAttribute('data-marketing-toggle')){if(window.AndroidBridge?.setMarketin
 if(b.dataset.notificationOpen){openNotificationDetail(b.dataset.notificationOpen);return}
 if(b.hasAttribute('data-notification-catalog')){nav('carta');return}
 if(b.hasAttribute('data-notifications-refresh')){void fetchNotifications();return}
-if(b.dataset.screen){if(b.dataset.screen==='detail'&&!st.selected)return;screen(b.dataset.screen);return}
+if(b.dataset.screen){
+ if(b.dataset.screen==='detail'&&!st.selected)return;
+ if(b.dataset.screen==='identity'){
+  const issue=checkoutCartIssue();if(issue)return toast(issue);
+  if(!st.mode)return screen('choice');
+  if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){screen('locations');return toast('Confirma el local de retiro.')}
+  if(st.mode==='delivery'&&!deliveryQuoteValid()){fulfillmentModal='delivery';render();return toast('Confirma dirección y tarifa de delivery para continuar.')}
+ }
+ screen(b.dataset.screen);return
+}
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
 if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
 if(b.dataset.store){const s=shops.find(x=>x.id===b.dataset.store);if(!eligibleForPickup(s))return toast('Local no disponible para recojo');st.store=b.dataset.store;st.quote=null;st.mode='pickup';screen('localDetail');return}if(b.dataset.pickstore){const s=shops.find(x=>x.id===b.dataset.pickstore);if(!eligibleForPickup(s))return toast('Local cerrado o no habilitado para recojo');st.store=b.dataset.pickstore;st.fulfillment='pickup';st.quote=null;screen('localDetail');return}
@@ -1072,8 +1111,16 @@ if(b.hasAttribute('data-address-next')){if(v('address').length<6||v('district').
 if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2)return toast('Ingresa tus nombres y apellidos');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
 if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();screen('payment');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;render();return}
-if(b.hasAttribute('data-pay-next')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.mode==='delivery'&&!st.quote)return toast('Primero confirma la cobertura y el costo de Delivery');if(st.configReady&&!st.quote)return toast('Debes validar local y modalidad primero');if(st.pay==='cash'){st.cash=v('cash');if(!st.cash||!Number.isFinite(Number(st.cash))||Number(st.cash)<subtotal()+(st.mode==='delivery'?(st.quote?.deliveryFeePen||0):0))return toast('Ingresa un monto suficiente para pagar')}save();screen('summary');return}
-if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&!st.quote)return toast('No se puede continuar sin una cotización de Delivery');if(st.configReady)return toast('Integración de pedidos y pagos reales pendiente. No se enviará ni cobrará el pedido.');const order={id:'B3-DEMO-'+String(Date.now()),ts:Date.now(),total:subtotal(),items:st.cart.map(x=>({id:x.id,qty:x.qty})),mode:st.mode,pay:st.pay,status:'RECEIVED',demo:true,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false};st.orders.unshift(order);st.cart=[];save();screen('success');return}
+if(b.hasAttribute('data-pay-next')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.mode==='delivery'&&!deliveryQuoteValid())return toast('Primero confirma la cobertura y el costo de Delivery');if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store))))return toast('Selecciona un local disponible para recojo');if(st.pay==='cash'){st.cash=v('cash');if(!st.cash||!Number.isFinite(Number(st.cash))||Number(st.cash)<orderTotal())return toast('Ingresa un monto suficiente para pagar')}save();screen('summary');return}
+if(b.hasAttribute('data-confirm')){
+ const issue=checkoutCartIssue();if(issue)return toast(issue);
+ if(st.mode==='delivery'&&!deliveryQuoteValid())return toast('No se puede continuar sin una tarifa de delivery válida');
+ if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store))))return toast('El local de recojo no está disponible');
+ if(!['pickup','delivery'].includes(st.mode))return toast('Selecciona la modalidad de pedido');
+ if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Método de pago no habilitado');
+ const order={id:'B3-DEMO-'+String(Date.now()),ts:Date.now(),total:orderTotal(),items:st.cart.map(x=>({id:x.id,qty:x.qty})),mode:st.mode,pay:st.pay,status:'RECEIVED',demo:true,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false};
+ st.orders.unshift(order);st.cart=[];save();screen('success');return
+}
 if(b.dataset.social){toast('Facebook requiere una integración real. Usa invitado para probar.');return}
 if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin==='phone'?!/^9\d{8}$/.test(x):!/^\S+@\S+\.\S+$/.test(x))return toast('Completa el dato con un formato válido');st.registered=true;if(b.dataset.demoSignin==='phone')st.profile.phone=x;else st.profile.email=x;save();enterApp();return}
 if(b.hasAttribute('data-logout')){st.registered=false;save();render();return}
