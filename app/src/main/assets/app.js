@@ -280,7 +280,11 @@ function productsFromApi(rows){
 async function fetchConfig({strict=false}={}){
  if(!API_BASE){if(strict)throw Error('API de locales no configurada');return false}
  try{
-  const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});
+  const controller=strict?new AbortController():null;
+  const timeout=controller?setTimeout(()=>controller.abort(),15000):null;
+  let r;
+  try{r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store',...(controller?{signal:controller.signal}:{})})}
+  finally{if(timeout)clearTimeout(timeout)}
   if(!r.ok)throw Error('API unavailable');
   const c=await r.json();
   if(!c.ready||!Array.isArray(c.stores))throw Error('Stores not published');
@@ -750,6 +754,7 @@ function locations(){
  }):list;
  return `<div class="page pickup-page">${heading('Pide y Retira','choice')}
  <p class="sub">Selecciona el local donde recogerás tu pedido.</p>
+ ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
  <div class="pickup-origin">
    <button class="outline full" data-gps="1">${ic('pin')} Usar mi ubicación actual</button>
    <p class="smallprint">${st.coords?'Distancias aproximadas calculadas con tu ubicación.':'Puedes ver los locales sin compartir tu ubicación.'}</p>
@@ -1339,8 +1344,8 @@ if(b.hasAttribute('data-clear')){if(!window.confirm('¿Eliminar los datos locale
 root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target.matches('.hero-card[role=button],.promo-card[role=button]'))){e.preventDefault();e.target.click()}});
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();const m=v('chat-message');if(m){st.chat.push(m.slice(0,500));save();render()}}});
 root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){
- if(deliveryLocation?.source==='gps')deliveryLocation.key=deliveryAddressKey(v('address'),v('district'));
- else deliveryLocation=null;
+ deliveryLocation=null;
+ deliveryGpsMessage='Dirección editada: se volverá a verificar su ubicación antes de calcular el reparto.';
  deliveryRequestError='';const warning=root.querySelector('[role="alert"]');if(warning)warning.remove()
 }if(e.target.id==='cash'){st.cash=e.target.value;let change=document.getElementById('change');if(change)change.textContent=Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total';}});
 
