@@ -106,14 +106,14 @@ function productsFromApi(rows){
  if(!Array.isArray(rows))return [];
  const seen=new Set();
  return rows.flatMap(x=>{
-  if(!x||typeof x.id!=='string'||!x.id.trim()||typeof x.name!=='string'||!x.name.trim())return [];
+  if(!x||typeof x.id!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(x.id.trim())||typeof x.name!=='string'||!x.name.trim())return [];
   // Namespaced to keep demo identifiers and API identifiers independent.
   const id='api:'+x.id.trim();
   if(seen.has(id))return [];
   seen.add(id);
   const price=x.pricePen==null?NaN:Number(x.pricePen);
   const image=x.image_url||x.imageUrl||'';
-  const imageUrl=typeof image==='string'&&(/^https:\/\/[^\\s"'<>]+$/i.test(image)||/^\/api\/v1\/mobile\/images\/[a-zA-Z0-9/_-]+$/.test(image))?image:'';
+  const imageUrl=typeof image==='string'&&(/^https:\/\/[^\s"'<>]+$/i.test(image)||/^\/api\/v1\/mobile\/images\/[a-zA-Z0-9/_-]+$/.test(image))?image:'';
   return [{
    id,name:x.name.trim(),desc:typeof x.description==='string'?x.description:'',
    cat:typeof x.category==='string'&&x.category.trim()?x.category.trim():'Otros',
