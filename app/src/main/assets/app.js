@@ -60,7 +60,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 // Un catálogo publicado siempre utiliza las fotos autorizadas por la web administrativa.
 const demoPhotoById={p1:5,p2:8,p3:1,p4:3,p5:2,p6:4,p7:7,p8:6};
 const previewPhoto=n=>`images/b3-photo-${String(n).padStart(2,'0')}.webp`;
-const cash=n=>'S/ '+Number(n).toFixed(2), photo=p=>p.imageUrl&&(/^https:\/\//.test(p.imageUrl)||p.imageUrl.startsWith('/api/v1/mobile/images/'))?(p.imageUrl.startsWith('/')?API_BASE+p.imageUrl:p.imageUrl):(st.configReady?null:(p.previewPhoto||demoPhotoById[p.id]?previewPhoto(p.previewPhoto||demoPhotoById[p.id]):`images/combo${p.pic||p}.jpg`));
+const cash=n=>'S/ '+Number(n).toFixed(2), photo=p=>p.imageUrl&&(/^https:\/\//.test(p.imageUrl)||p.imageUrl.startsWith('/api/v1/mobile/images/'))?(p.imageUrl.startsWith('/')?API_BASE+p.imageUrl:p.imageUrl):(catalogPublished?null:(p.previewPhoto||demoPhotoById[p.id]?previewPhoto(p.previewPhoto||demoPhotoById[p.id]):`images/combo${p.pic||p}.jpg`));
 // App ID is registered by the super administrator. An app ID maps to exactly one tenant on the server.
 const APP_ID='com.integrab2g.pollosb3';
 // Configure only an HTTPS address when the admin server is deployed; never place credentials in Android.
@@ -68,6 +68,9 @@ const API_BASE=(()=>{
  const raw=window.AndroidBridge?.getApiBase?.()||'';
  return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):'';
 })();
+// Fase locales: conservar catálogo, imágenes, promociones y vacantes de demostración.
+const catalogPublished=false;
+if(API_BASE)shops.splice(0,shops.length); // No utilizar locales ficticios cuando hay API configurada.
 let publishedRevision=0;
 let publishedPromotions=[];
 let publishedVacancies=[];
@@ -77,7 +80,7 @@ const demonstrationVacancies=[
  {id:'demo-horneros',title:'Horneros con experiencia',summary:'Publicación de prueba basada en el afiche proporcionado.',description:'Se buscan horneros con experiencia.',requirements:'Experiencia como hornero.',schedule:'',employmentType:'',locationLabel:'',imageUrl:'images/demo-horneros.webp',whatsappPhone:'51937602607',isDemo:true},
  {id:'demo-cajeras-meseras',title:'Cajeras y meseras con experiencia',summary:'Publicación de prueba basada en el afiche proporcionado.',description:'Se buscan cajeras y meseras con experiencia.',requirements:'Experiencia en el puesto.',schedule:'Full time: 10:30 a. m. a 6:30 p. m. · Part time: 6:30 p. m. a 10:30 p. m.',employmentType:'Full time / Part time',locationLabel:'',imageUrl:'images/demo-cajeras-meseras.webp',whatsappPhone:'51937602607',isDemo:true}
 ];
-function visibleVacancies(){return st.configReady?publishedVacancies:demonstrationVacancies}
+function visibleVacancies(){return catalogPublished?publishedVacancies:demonstrationVacancies}
 let selectedVacancyId=null;
 function modeName(m){return ({delivery:'Pollo Delivery',pickup:'Pide y Retira'})[m]||'Elegir modalidad'}
 const storeAllowed=(s,m)=>!!s&&s.active!==false&&(m==='delivery'?s.delivery_enabled!==false:m==='pickup'?s.pickup_enabled!==false:s.dine_in_enabled===true);
@@ -97,8 +100,32 @@ function straightDistanceKm(s){
  const a=Math.sin(dLat/2)**2+Math.cos(rad(st.coords.lat))*Math.cos(rad(Number(s.latitude)))*Math.sin(dLon/2)**2;
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
-function paymentOptions(){const s=shops.find(x=>x.id===st.store);const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];if(!st.configReady||!s)return choices;return choices.filter(x=>(s.paymentMethods?.[st.mode]||[]).includes(x[0]))}
-async function fetchConfig(){if(!API_BASE)return;try{const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!r.ok)throw Error('API unavailable');const c=await r.json();if(!c.ready){resetDemoStores();publishedVacancies=[];complaintsBookUrl=null;st.configReady=false;st.quote=null;render();return}if(!Array.isArray(c.products)||!Array.isArray(c.stores))throw Error('Invalid schema');const revisionChanged=st.configReady&&publishedRevision!==c.revision;publishedRevision=c.revision;publishedPromotions=Array.isArray(c.promotions)?c.promotions:[];publishedVacancies=Array.isArray(c.vacancies)?c.vacancies:[];complaintsBookUrl=typeof c.complaintsBookUrl==='string'?c.complaintsBookUrl:null;if(st.cart.length&&revisionChanged){st.cart=[];st.notice='La carta publicada cambió. Verifica y vuelve a agregar los productos.'}products.splice(0,products.length,...c.products.map(x=>({id:x.id,name:x.name,desc:x.description||'',cat:x.category||'Otros',price:Number(x.pricePen),imageUrl:x.image_url||x.imageUrl,pic:1})));shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm),deliveryFeePen:x.deliveryFeePen})));storeGeocoding=false;if(st.coords)resolveStoreDistances();st.configReady=true;if(revisionChanged){st.quote=null;st.store=''}save();render()}catch(err){console.warn('Catalog unavailable; demo unchanged',err.message)}}
+function paymentOptions(){const s=shops.find(x=>x.id===st.store);const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];return choices; // Medios de pago de demostración, no se sincronizan en esta fase.}
+async function fetchConfig(){
+ if(!API_BASE)return;
+ try{
+  const r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});
+  if(!r.ok)throw Error('API unavailable');
+  const c=await r.json();
+  if(!c.ready||!Array.isArray(c.stores))throw Error('Stores not published');
+  // Única colección que sincronizamos en este piloto: locales publicados.
+  const revisionChanged=st.configReady&&publishedRevision!==c.revision;
+  publishedRevision=c.revision;
+  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen})));
+  storeGeocoding=false;
+  if(st.coords)resolveStoreDistances();
+  st.configReady=true;
+  if(revisionChanged||st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store=''}
+  save();render();
+ }catch(err){
+  // No sustituir locales reales por locales ficticios si la API no responde.
+  shops.splice(0,shops.length);
+  st.configReady=false;
+  st.quote=null;st.store='';
+  console.warn('Stores unavailable',err.message);
+  render();
+ }
+}
 async function resolveDelivery(){
  if(!st.configReady||!API_BASE){
   st.quote=null;st.store='';save();fulfillmentModal=null;nav('inicio');
@@ -167,7 +194,7 @@ function screen(n){selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancy
 function nav(tab){selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
-const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${st.configReady?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
+const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${catalogPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
 function savedAddresses(){return Array.isArray(st.addresses)?st.addresses.filter(x=>x&&typeof x.id==='string'&&typeof x.street==='string'&&typeof x.district==='string'):[]}
 function pickSavedAddress(id,quote=false){
  const item=savedAddresses().find(x=>x.id===id);if(!item)return toast('Dirección no disponible');
@@ -388,8 +415,8 @@ function afterOrderDelivered(o){
 function home(){
   const featured=products.slice(0,4);
   const f=featured.length?featured[st.carousel%featured.length]:null;
-  const heroVisual=f&&!st.configReady&&f.id==='p4'?{...f,previewPhoto:9}:f;
-  const promos=st.configReady?publishedPromotions:products.filter(p=>p.cat==='Promociones');
+  const heroVisual=f&&!catalogPublished&&f.id==='p4'?{...f,previewPhoto:9}:f;
+  const promos=catalogPublished?publishedPromotions:products.filter(p=>p.cat==='Promociones');
   const pp=promos.length?promos[st.promo%promos.length]:null;
   const shop=shops.length?shops[st.local%shops.length]:null;
   return `<div class="home home-v10">
@@ -412,7 +439,7 @@ function home(){
     </section>
     <section class="block promos" aria-label="Combos referenciales">
       <div class="section-head"><h2>Combos para compartir</h2><span class="minor">Precios por validar</span></div>
-      ${pp?(st.configReady?`<div class="promo-card published-promotion" role="status"><div class="promo-info"><span>PROMOCIÓN PUBLICADA</span><strong>${esc(pp.title)}</strong><small>Consulta los productos participantes en la carta.</small></div></div>`:`<div class="promo-card" data-product="${pp.id}" role="button" tabindex="0" aria-label="Ver ${esc(pp.name)}">${img(pp)}<div class="promo-info"><span>COMBO DE DEMOSTRACIÓN</span><strong>${esc(pp.name)}</strong><b>${cash(pp.price)}</b></div></div>`):'<div class="notice">No hay promociones publicadas.</div>'}
+      ${pp?(catalogPublished?`<div class="promo-card published-promotion" role="status"><div class="promo-info"><span>PROMOCIÓN PUBLICADA</span><strong>${esc(pp.title)}</strong><small>Consulta los productos participantes en la carta.</small></div></div>`:`<div class="promo-card" data-product="${pp.id}" role="button" tabindex="0" aria-label="Ver ${esc(pp.name)}">${img(pp)}<div class="promo-info"><span>COMBO DE DEMOSTRACIÓN</span><strong>${esc(pp.name)}</strong><b>${cash(pp.price)}</b></div></div>`):'<div class="notice">No hay promociones publicadas.</div>'}
       <div class="dots" role="group" aria-label="Cambiar combo">${promos.map((_,i)=>`<button aria-label="Combo ${i+1}" aria-pressed="${st.promo%promos.length===i}" data-promo="${i}" class="${st.promo%promos.length===i?'on':''}"></button>`).join('')}</div>
     </section>
     ${homeStores()}
@@ -503,7 +530,7 @@ function vacancyPhoto(v){
 function jobsScreen(){
  const items=visibleVacancies().filter(v=>v&&typeof v.id==='string'&&typeof v.title==='string');
  return '<div class="page b3-jobs">'+heading('Trabaja con nosotros','app')+
- '<p class="sub">'+(st.configReady?'Conoce las oportunidades publicadas por Pollos B3.':'VACANTES DE DEMOSTRACIÓN · No representan ofertas laborales vigentes.')+'</p>'+
+ '<p class="sub">'+(catalogPublished?'Conoce las oportunidades publicadas por Pollos B3.':'VACANTES DE DEMOSTRACIÓN · No representan ofertas laborales vigentes.')+'</p>'+
  (items.length?'<div class="b3-job-list">'+items.map(v=>
   '<button class="b3-job-card" data-vacancy="'+esc(v.id)+'">'+
   '<span class="b3-job-thumb">'+(vacancyPhoto(v)||ic('store',26))+'</span>'+
@@ -836,7 +863,7 @@ const carouselMotion={active:null,touch:null,pauseUntil:0,suppressClickUntil:0};
 const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches===true;
 function carouselCount(kind){
  return kind==='hero'?Math.min(products.length,4):kind==='local'?shops.filter(s=>s.active!==false).length:
-  (st.configReady?publishedPromotions.length:products.filter(p=>p.cat==='Promociones').length);
+  (catalogPublished?publishedPromotions.length:products.filter(p=>p.cat==='Promociones').length);
 }
 function updateCarouselDots(kind){
  const section=root.querySelector(kind==='hero'?'.hero-carousel':kind==='local'?'.b3-home-stores':'.promos');
