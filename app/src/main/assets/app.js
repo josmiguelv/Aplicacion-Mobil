@@ -354,7 +354,8 @@ async function resolveDelivery(){
     apiMessage&&apiMessage.length<=180?apiMessage:'No se pudo comprobar la cobertura (HTTP '+response.status+').';
    throw Error(reason);
   }
-  if(!result||!result.storeId||result.distanceSource!=='STRAIGHT_LINE'||result.deliveryFeePen==null||result.deliveryFeePen===''||
+  if(result&&result.distanceSource!=='STRAIGHT_LINE')throw Error('La API de delivery necesita actualizarse para usar la distancia en línea recta.');
+  if(!result||!result.storeId||result.deliveryFeePen==null||result.deliveryFeePen===''||
      !Number.isFinite(Number(result.deliveryFeePen))||Number(result.deliveryFeePen)<0)
    throw Error('La API no devolvió una sede y una tarifa de reparto válidas.');
   const selected=shops.find(store=>String(store.id)===String(result.storeId));
@@ -366,7 +367,8 @@ async function resolveDelivery(){
   fulfillmentModal=null;nav('inicio');
  }catch(err){
   st.quote=null;st.store='';save();
-  deliveryRequestError=err?.name==='AbortError'?'La cotización demoró demasiado. Comprueba la conexión y vuelve a intentarlo.':err instanceof TypeError?'No hay conexión con el servidor de delivery. Revisa Internet o el enlace de la API.':(err.message||'No se pudo cotizar el delivery.');
+  deliveryRequestError=err?.name==='AbortError'?'La cotización demoró demasiado. Intenta nuevamente.':err instanceof TypeError?'No pudimos consultar el cálculo de reparto. El catálogo puede funcionar aunque el servicio de delivery presente un error.':(err.message||'No se pudo cotizar el delivery.');
+  console.warn('Pollos B3 delivery quote error',err?.name||'Error');
   // Keep the exact screen and entered address, so the customer can retry.
  }finally{
   deliveryRequestPending=false;
