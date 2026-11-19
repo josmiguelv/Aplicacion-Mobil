@@ -67,7 +67,7 @@ test('tocar producto abre ficha sin exigir dirección o tarifa antes de agregar 
  assert.match(source,/function detail\(\)\{let p=product\(st\.selected\);/)
 })
 test('el checkout solicita modalidad y destino solo al continuar',()=>{
- const st={mode:'',store:'',quote:null,cart:[{id:'p',qty:1}]}
+ const st={mode:'',store:'',quote:null,cart:[{id:'p',qty:1}],profile:{address:'',district:''}}
  const ctx=functions(st,[store],[{id:'p',disabled:false}])
  ctx.checkoutPending=false;ctx.hasDeliveryDestination=()=>false
  ctx.revalidateCheckout=step=>{ctx.current=step}
@@ -97,7 +97,7 @@ test('recojo entra al checkout mediante revalidación de disponibilidad',()=>{
 test('cotizar delivery conserva el avance al pago y permite reintentar si falla',()=>{
  assert.match(source,/if\(checkoutPending\)\{checkoutPending=false;screen\('identity'\);return true\}/)
  assert.match(source,/deliveryRequestError=/)
- assert.match(source,/No pudimos cotizar el delivery/)
+ assert.match(source,/deliveryRequestError=err\?\.name/)
  assert.match(source,/if\(checkoutPending\)\{void confirmStore\('pickup',selected\.id\);return\}/)
 })
 
@@ -110,7 +110,7 @@ test('la dirección no se cotiza antes de que la configuración de sedes termine
   st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
   checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
   deliveryLocation:{latitude:-12.05,longitude:-77.12,source:'address'},hasDeliveryDestination:()=>true,deliveryAddressKey:()=> 'test-address',
-  AbortController,setTimeout,clearTimeout,
+  AbortController,setTimeout,clearTimeout,console:{warn:()=>{}},
   render:()=>{},save:()=>{},screen:name=>calls.push(name),nav:name=>calls.push(name),
   fetchConfig:async()=>{calls.push('config');st.configReady=true},
   fetch:async()=>{calls.push('quote');return {ok:true,status:200,json:async()=>({storeId:store.id,deliveryFeePen:4,distanceSource:'STRAIGHT_LINE',straightDistanceKm:1.2,deliveryPricingMode:'PER_KM'})}
@@ -132,7 +132,7 @@ test('un error 404 se muestra de forma persistente y permite reintentar sin perd
   st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
   checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
   deliveryLocation:{latitude:-12.05,longitude:-77.12,source:'address'},hasDeliveryDestination:()=>true,deliveryAddressKey:()=> 'test-address',
-  AbortController,setTimeout,clearTimeout,
+  AbortController,setTimeout,clearTimeout,console:{warn:()=>{}},
   render:()=>{},save:()=>{},screen:()=>{throw Error('Unexpected navigation')},nav:()=>{throw Error('Unexpected navigation')},
   fetchConfig:async()=>{},
   fetch:async()=>{requests++;return {ok:false,status:404,json:async()=>({error:'Not found'})}}
