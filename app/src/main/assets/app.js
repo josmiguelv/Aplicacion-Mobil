@@ -293,10 +293,15 @@ async function resolveDelivery(){
   // A cold-start deep link can reach the checkout before the asynchronous catalog loads.
   if(!st.configReady)await fetchConfig();
   if(!st.configReady||!API_BASE)throw Error('No se pudo conectar con la configuración de locales. Comprueba el servidor e inténtalo nuevamente.');
-  const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
-   method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district})
-  });
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),20000);
+  let response;
+  try{
+   response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
+    method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,
+    body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district})
+   });
+  }finally{clearTimeout(timeout)}
   const result=await response.json().catch(()=>null);
   if(!response.ok){
    const apiMessage=typeof result?.message==='string'?result.message:typeof result?.error==='string'?result.error:'';
@@ -317,7 +322,7 @@ async function resolveDelivery(){
   fulfillmentModal=null;nav('inicio');
  }catch(err){
   st.quote=null;st.store='';save();
-  deliveryRequestError=err instanceof TypeError?'No hay conexión con el servidor de delivery. Revisa Internet o el enlace de la API.':(err.message||'No se pudo cotizar el delivery.');
+  deliveryRequestError=err?.name==='AbortError'?'La cotización demoró demasiado. Comprueba la conexión y vuelve a intentarlo.':err instanceof TypeError?'No hay conexión con el servidor de delivery. Revisa Internet o el enlace de la API.':(err.message||'No se pudo cotizar el delivery.');
   // Keep the exact screen and entered address, so the customer can retry.
  }finally{
   deliveryRequestPending=false;
