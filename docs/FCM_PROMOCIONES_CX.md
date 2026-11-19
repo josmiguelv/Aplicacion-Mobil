@@ -78,3 +78,14 @@ Documentación oficial:
 - https://firebase.google.com/docs/cloud-messaging/android/receive-messages
 - https://firebase.google.com/docs/cloud-messaging/send-message
 - https://developer.android.com/develop/ui/views/notifications/badges
+
+## Vigencia y orden en la bandeja Android
+
+- **Avisos con `expiresAt`:** visibles únicamente hasta su vencimiento real; no extenderlos siete días.
+- **Avisos sin `expiresAt`:** visibles siete días desde `scheduledAt` (fecha de publicación); si tampoco existe una fecha válida de publicación, no se listan por falta de base temporal verificable.
+- **Orden:** fecha de publicación más reciente primero, máximo 20 avisos vigentes.
+- **Lectura:** al abrir el detalle se marca como leído; no se borra hasta que caduque o sea retirado de la API.
+- **Preferencias:** la opción «Avisos en mi celular» se presenta como fila pequeña al final de la bandeja; las promociones tienen prioridad visual.
+- **Backend:** debería proporcionar `scheduledAt` real incluso a novedades sin vencimiento y retirar las promociones anuladas de la API.
+- **Sin archivo histórico:** no se presentan promociones vencidas como si fueran vigentes.
+
