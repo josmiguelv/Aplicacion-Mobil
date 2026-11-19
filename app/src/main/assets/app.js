@@ -155,13 +155,16 @@ function openPushNotification(id){
 function notificationDetailScreen(){
  const item=liveNotifications().find(n=>n.id===selectedNotificationId);
  if(item){
+  const linkedProductId=typeof item.productId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.productId)?item.productId:'';
+  const linkedProduct=linkedProductId?product(linkedProductId):null;
+  const canOrderProduct=!!(linkedProduct&&linkedProduct.isPublished&&!linkedProduct.disabled);
   return `<div class="page b3-notification-detail">${heading('Detalle de novedad','notifications')}
    ${item.imageUrl?`<img class="b3-notification-detail-image" src="${esc(item.imageUrl)}" alt="Imagen de ${esc(item.title)}">`:''}
    <span class="b3-notification-kicker">NOVEDAD DE POLLOS B3</span>
    <h1>${esc(item.title)}</h1>
    <p class="b3-notification-copy">${esc(item.message).replace(/\n/g,'<br>')}</p>
    ${item.expiresAt&&Number.isFinite(Date.parse(item.expiresAt))?`<p class="b3-notification-validity">Disponible hasta ${esc(new Date(item.expiresAt).toLocaleString('es-PE',{timeZone:'America/Lima',dateStyle:'medium',timeStyle:'short'}))}</p>`:''}
-   <button class="primary full" data-notification-catalog="1">Explorar la carta</button>
+   ${canOrderProduct?`<button class="primary full" data-product="${esc(linkedProductId)}">Ver ${esc(linkedProduct.name)} y pedir</button>`:`<button class="primary full" data-notification-catalog="1">Explorar la carta</button>`}
    <button class="outline full" data-screen="notifications">Ver todas las notificaciones</button>
    <p class="smallprint">Los productos, precios y disponibilidad se confirman en la carta actual. La oferta no se aplica automáticamente al carrito.</p>
   </div>`;
@@ -805,7 +808,8 @@ async function fetchNotifications(){
    seen.add(n.id);
    const begin=n.scheduledAt?Date.parse(n.scheduledAt):NaN,expiry=n.expiresAt?Date.parse(n.expiresAt):NaN;
    return (!Number.isFinite(begin)||begin<=now)&&(!Number.isFinite(expiry)||expiry>now);
-  }).map(n=>({id:n.id,title:n.title,message:n.message,imageUrl:notificationImageUrl(n.imageUrl),scheduledAt:n.scheduledAt,expiresAt:n.expiresAt}));
+  }).map(n=>({id:n.id,title:n.title,message:n.message,imageUrl:notificationImageUrl(n.imageUrl),scheduledAt:n.scheduledAt,expiresAt:n.expiresAt,
+   productId:typeof n.productId==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n.productId)?n.productId:null}));
   if(requestId!==notificationsRequestId)return;
   commercialNotifications=next;notificationsLoaded=true;notificationsError='';
   if(pendingPushNotificationId){
