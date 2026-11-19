@@ -2,6 +2,8 @@ package com.integrab2g.pollosb3;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -23,6 +25,7 @@ import android.webkit.WebViewClient;
 import android.webkit.WebResourceResponse;
 import androidx.webkit.WebViewAssetLoader;
 import org.json.JSONObject;
+import com.google.firebase.messaging.FirebaseMessaging;
 import org.json.JSONArray;
 import java.util.List;
 import java.util.Locale;
@@ -30,6 +33,11 @@ import java.util.Locale;
 /** Android V10: navigation and optional foreground GPS for delivery. No background tracking. */
 public class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 41;
+    private static final int NOTIFICATION_REQUEST = 42;
+    static final String MARKETING_TOPIC = "pollosb3_promotions";
+    static final String NOTIFICATION_CHANNEL = "pollosb3_promotions";
+    static final String PREFS = "b3_push_settings";
+    private boolean pendingNotificationsScreen = false;
     private WebView web;
     private WebViewAssetLoader assetLoader;
     private LocationManager locationManager;
@@ -49,6 +57,11 @@ public class MainActivity extends Activity {
     }
 
     /** Reuses the existing WebView SPA and navigates only after its handlers exist. */
+    private void dispatchPendingNotificationsScreen() {
+        if (!pendingNotificationsScreen || !appLinkPageReady || web == null) return;
+        pendingNotificationsScreen = false;
+        web.evaluateJavascript("window.b3OpenNotifications && window.b3OpenNotifications()", null);
+    }
     private void dispatchPendingAppLink() {
         if (!pendingOpenHome || !appLinkPageReady || web == null) return;
         pendingOpenHome = false;
@@ -58,10 +71,43 @@ public class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        if (isMarketingNotificationIntent(intent)) {
+            pendingNotificationsScreen = true;
+            dispatchPendingNotificationsScreen();
+        }
         if (isPollosB3OpenLink(intent)) {
             pendingOpenHome = true;
             dispatchPendingAppLink();
         }
+    }
+    private static boolean isMarketingNotificationIntent(Intent intent) {
+        return intent != null && (intent.getBooleanExtra("b3_open_notifications",false) ||
+            ("marketing".equals(intent.getStringExtra("type")) && "notifications".equals(intent.getStringExtra("screen"))));
+    }
+    private boolean marketingEnabled() {
+        return getSharedPreferences(PREFS,MODE_PRIVATE).getBoolean("marketing_opt_in",false);
+    }
+    private void sendMarketingStatus(boolean enabled,String message) {
+        if(web==null)return;
+        String js="window.b3MarketingStatus && window.b3MarketingStatus("+enabled+","+JSONObject.quote(message)+")";
+        runOnUiThread(()->{if(web!=null)web.evaluateJavascript(js,null);});
+    }
+    private void setMarketingOptIn(boolean enabled){
+        if(!enabled){
+            getSharedPreferences(PREFS,MODE_PRIVATE).edit().putBoolean("marketing_opt_in",false).apply();
+            FirebaseMessaging.getInstance().unsubscribeFromTopic(MARKETING_TOPIC);
+            sendMarketingStatus(false,"Avisos promocionales desactivados.");
+            return;
+        }
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},NOTIFICATION_REQUEST);
+            return;
+        }
+        FirebaseMessaging.getInstance().subscribeToTopic(MARKETING_TOPIC).addOnCompleteListener(task->{
+            boolean ok=task.isSuccessful();
+            getSharedPreferences(PREFS,MODE_PRIVATE).edit().putBoolean("marketing_opt_in",ok).apply();
+            sendMarketingStatus(ok,ok?"Avisos promocionales activados.":"No se pudo activar. Vuelve a intentarlo.");
+        });
     }
     private final class Bridge {
         @JavascriptInterface public void setSplash(final boolean splash) {
@@ -82,6 +128,10 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String getNotificationsApiBase() {
             String configured = getString(R.string.b3_notifications_api_base).trim();
             return configured.startsWith("https://") ? configured : "";
+        }
+        @JavascriptInterface public boolean marketingNotificationsEnabled() {return marketingEnabled();}
+        @JavascriptInterface public void setMarketingNotificationsEnabled(boolean enabled) {
+            runOnUiThread(()->setMarketingOptIn(enabled));
         }
         @JavascriptInterface public void requestLocation() {
             runOnUiThread(() -> requestOptionalLocation());
@@ -208,6 +258,11 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if(requestCode==NOTIFICATION_REQUEST){
+            if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)setMarketingOptIn(true);
+            else sendMarketingStatus(false,"Android no autorizó mostrar avisos. Puedes habilitarlos en Ajustes.");
+            return;
+        }
         if (requestCode == LOCATION_REQUEST) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) requestOptionalLocation();
             else sendLocation(null,null,"Permiso de ubicación denegado. Puedes escribir tu dirección manualmente.");
@@ -216,6 +271,12 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         pendingOpenHome = isPollosB3OpenLink(getIntent());
+        pendingNotificationsScreen = isMarketingNotificationIntent(getIntent());
+        if(Build.VERSION.SDK_INT>=26){
+            NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+            if(manager!=null)manager.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL,"Ofertas Pollos B3",NotificationManager.IMPORTANCE_DEFAULT));
+        }
+        if(marketingEnabled())FirebaseMessaging.getInstance().subscribeToTopic(MARKETING_TOPIC);
         web = new WebView(this);
         web.setBackgroundColor(Color.rgb(9, 0, 1));
         assetLoader = new WebViewAssetLoader.Builder()
@@ -227,6 +288,7 @@ public class MainActivity extends Activity {
                 if (LOCAL_APP_URL.equals(url)) {
                     appLinkPageReady = true;
                     dispatchPendingAppLink();
+                    dispatchPendingNotificationsScreen();
                 }
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -259,6 +321,7 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy() {
         appLinkPageReady = false;
         pendingOpenHome = false;
+        pendingNotificationsScreen = false;
         if (locationManager != null && currentListener != null) try {locationManager.removeUpdates(currentListener);}catch(Exception ignored){}
         if (web != null) { web.removeJavascriptInterface("AndroidBridge"); web.destroy(); web=null; }
         super.onDestroy();
