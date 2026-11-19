@@ -51,6 +51,33 @@ let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,revi
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
 let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
+let deliveryGpsRequested=false,deliveryLocation=null,deliveryGeocodeTask=null,deliveryGeocodeSequence=0;
+// Geocoded coordinates are transient; never reuse GPS collected for store distances.
+function deliveryAddressKey(address,district){return String(address||'').trim().toLowerCase()+'|'+String(district||'').trim().toLowerCase()}
+function hasDeliveryDestination(address,district){
+ return !!deliveryLocation&&deliveryLocation.key===deliveryAddressKey(address,district)&&
+  Number.isFinite(deliveryLocation.latitude)&&Number.isFinite(deliveryLocation.longitude);
+}
+function geocodeDeliveryDestination(address,district){
+ if(!window.AndroidBridge?.geocodeDeliveryAddress)
+  return Promise.reject(Error('No es posible ubicar esta dirección en esta versión. Actualiza la app o usa GPS en el punto de entrega.'));
+ const token=String(++deliveryGeocodeSequence);
+ return new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>{if(deliveryGeocodeTask?.token===token){deliveryGeocodeTask=null;reject(Error('No se pudo ubicar la dirección. Verifica la calle y usa GPS si estás en el destino.'))}},12000);
+  deliveryGeocodeTask={token,resolve:value=>{clearTimeout(timer);deliveryGeocodeTask=null;resolve(value)},reject:error=>{clearTimeout(timer);deliveryGeocodeTask=null;reject(Error(error))}};
+  try{window.AndroidBridge.geocodeDeliveryAddress(JSON.stringify({token,address,district}))}
+  catch(e){clearTimeout(timer);deliveryGeocodeTask=null;reject(Error('No se pudo iniciar la localización de la dirección.'))}
+ });
+}
+window.b3DeliveryAddressGeocoded=(token,latitude,longitude,error)=>{
+ const task=deliveryGeocodeTask;
+ if(!task||task.token!==String(token))return;
+ if(error||!Number.isFinite(latitude)||!Number.isFinite(longitude)){
+  task.reject(error||'La dirección no tiene coordenadas verificables. Utiliza GPS en el destino.');
+  return;
+ }
+ task.resolve({latitude,longitude,source:'address'});
+};
 let selectedHomeStore=null;
 let homeLocationPrompted=false;
 let storeGeocoding=false;
@@ -293,13 +320,20 @@ async function resolveDelivery(){
   // A cold-start deep link can reach the checkout before the asynchronous catalog loads.
   if(!st.configReady)await fetchConfig();
   if(!st.configReady||!API_BASE)throw Error('No se pudo conectar con la configuración de locales. Comprueba el servidor e inténtalo nuevamente.');
+  if(!hasDeliveryDestination(address,district)){
+   const position=await geocodeDeliveryDestination(address,district);
+   deliveryLocation={...position,key:deliveryAddressKey(address,district)};
+  }
+  const destination=deliveryLocation;
+  if(!destination||!Number.isFinite(destination.latitude)||!Number.isFinite(destination.longitude))
+   throw Error('No se pudo verificar el destino de delivery. Usa GPS en el punto de entrega.');
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),20000);
   let response;
   try{
    response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
     method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,
-    body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district})
+    body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district,latitude:destination.latitude,longitude:destination.longitude,useGps:destination.source==='gps'})
    });
   }finally{clearTimeout(timeout)}
   const result=await response.json().catch(()=>null);
@@ -310,14 +344,14 @@ async function resolveDelivery(){
     apiMessage&&apiMessage.length<=180?apiMessage:'No se pudo comprobar la cobertura (HTTP '+response.status+').';
    throw Error(reason);
   }
-  if(!result||!result.storeId||result.deliveryFeePen==null||result.deliveryFeePen===''||
+  if(!result||!result.storeId||result.distanceSource!=='STRAIGHT_LINE'||result.deliveryFeePen==null||result.deliveryFeePen===''||
      !Number.isFinite(Number(result.deliveryFeePen))||Number(result.deliveryFeePen)<0)
    throw Error('La API no devolvió una sede y una tarifa de reparto válidas.');
   const selected=shops.find(store=>String(store.id)===String(result.storeId));
   if(!selected||selected.active===false||selected.delivery_enabled===false)
    throw Error('La sede asignada por el servidor no está disponible para delivery.');
   if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district)return;
-  st.store=selected.id;st.quote={...result,deliveryFeePen:Number(result.deliveryFeePen)};save();
+  st.store=selected.id;st.quote={...result,deliveryFeePen:Number(result.deliveryFeePen),quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};save();
   if(checkoutPending){checkoutPending=false;screen('identity');return}
   fulfillmentModal=null;nav('inicio');
  }catch(err){
@@ -383,7 +417,7 @@ const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src
 function savedAddresses(){return Array.isArray(st.addresses)?st.addresses.filter(x=>x&&typeof x.id==='string'&&typeof x.street==='string'&&typeof x.district==='string'):[]}
 function pickSavedAddress(id,quote=false){
  const item=savedAddresses().find(x=>x.id===id);if(!item)return toast('Dirección no disponible');
- st.profile.address=item.street;st.profile.district=item.district;st.profile.reference=item.reference||'';
+ st.profile.address=item.street;st.profile.district=item.district;st.profile.reference=item.reference||'';deliveryLocation=null;
  st.mode='delivery';st.store='';st.quote=null;save();
  if(quote){void resolveDelivery()}else{render();toast('Dirección seleccionada')}
 }
