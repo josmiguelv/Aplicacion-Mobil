@@ -519,3 +519,11 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-cart-added-chip{position:absolute;top:-13px;right:2px;display:grid;place-items:center;padding:4px 7px;min-width:25px;height:25px;border-radius:99px;background:#ffdc00;color:#151515;font-weight:900;font-size:12px;pointer-events:none;box-shadow:0 3px 10px #0004;animation:b3-cart-chip .68s ease-out forwards}
 @keyframes b3-cart-chip{0%{opacity:0;transform:translateY(12px) scale(.65)}30%{opacity:1;transform:translateY(-5px) scale(1.04)}100%{opacity:0;transform:translateY(-23px) scale(.95)}}
 @media(prefers-reduced-motion:reduce){.b3-splash-logo,.b3-splash-slogan,.b3-splash-loading,.float-cart.b3-cart-added,.b3-cart-added-chip{animation:none!important}.b3-splash-track i{animation:b3-splash-progress 3s linear forwards!important}}
+
+/* Pollos B3 commercial notifications, owned by the web administrator. */
+.b3-commercial-notification{background:#fff;border:1px solid #eee1e4;border-radius:18px;overflow:hidden;margin:14px 0;box-shadow:0 5px 17px rgba(90,12,27,.06)}
+.b3-notification-image{display:block;width:100%;height:auto;max-height:260px;object-fit:cover}
+.b3-notification-body{padding:17px}
+.b3-notification-body small{font-size:10px;letter-spacing:.06em;font-weight:800;color:#aa2331}
+.b3-notification-body h2{font-size:18px;line-height:1.3;margin:9px 0;color:#261b22}
+.b3-notification-body p{font-size:14px;line-height:1.55;color:#55434d;margin:0;overflow-wrap:anywhere}
