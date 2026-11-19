@@ -34,6 +34,10 @@ test('delivery exige sede y tarifa verificable, no asume reparto gratuito',()=>{
  assert.equal(ctx.deliveryQuoteValid(),false)
  st.quote={deliveryFeePen:-2}
  assert.equal(ctx.deliveryQuoteValid(),false)
+ st.quote={deliveryFeePen:null}
+ assert.equal(ctx.deliveryQuoteValid(),false)
+ st.quote={}
+ assert.equal(ctx.deliveryQuoteValid(),false)
 })
 test('recojo no requiere cotización de delivery y el total no suma reparto',()=>{
  const ctx=functions({mode:'pickup',store:'b3-local-1',quote:null,cart:[]})
