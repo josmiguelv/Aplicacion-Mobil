@@ -421,9 +421,7 @@ function deliveryQuoteValid(){
     window.B3OrderAvailability?.read()?.validationId===st.quote.validationId&&
     shops.some(x=>String(x.id)===String(st.store)&&x.active===true&&x.delivery_enabled===true);
  }
- return st.quote.distanceSource==='STRAIGHT_LINE'&&
-   shops.some(x=>String(x.id)===String(st.store)&&x.active===true&&x.delivery_enabled===true&&
-     storeAvailabilitySetting(x)===false);
+ return false; // Local Haversine quotes are reference-only; no checkout authority.
 }
 function orderTotal(){
  return st.mode==='delivery'&&deliveryQuoteValid()&&st.quote.serverValidated===true?
@@ -513,33 +511,16 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
  try{
   if(!skipConfig)await fetchConfig({strict:true});
   if(run!==deliveryValidationGeneration)return false;
-  if(!st.configReady)throw Error('No se pudo consultar la disponibilidad de las sedes.');
-  if(!hasDeliveryDestination(address,district)){
-   const pos=await geocodeDeliveryDestination(address,district);
-   if(run!==deliveryValidationGeneration)return false;
-   deliveryLocation={...pos,key:deliveryAddressKey(address,district)};
-  }
-  const candidates=eligibleDeliveryCandidates(deliveryLocation);
-  if(run!==deliveryValidationGeneration||st.mode!=='delivery'||
-   st.profile.address!==address||st.profile.district!==district||
+  if(!st.configReady)throw Error('No se pudo consultar la configuración publicada.');
+  if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district||
    (!silent&&st.stage!=='availability'))return false;
-  const first=candidates[0],flag=storeAvailabilitySetting(first.store);
-  if(flag===null){
-   deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
-    message:'La sede no publicó una regla válida de consulta de disponibilidad.'};
-   return false;
-  }
-  if(flag===true){
-   const ready=await requestBackendOrderAvailability({address,district,run,silent});
-   if(run!==deliveryValidationGeneration)return false;
-   if(!ready&&silent)screen('availability');
-   return ready;
-  }
-  const quote=quoteForDeliveryCandidate(first);
-  st.store=quote.storeId;
-  st.quote={...quote,quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
-  deliveryAvailability={status:'READY',storeName:quote.storeName,candidateNames:candidates.map(x=>x.store.name),message:''};
-  save();return true;
+  // The Administrator, not Android, decides every eligible store and road-based fee.
+  // Its per-store consultOrderAvailability flag controls whether TU VERSO is contacted.
+  // Both false and true always use the same server-authoritative validation contract.
+  const ready=await requestBackendOrderAvailability({address,district,run,silent});
+  if(run!==deliveryValidationGeneration)return false;
+  if(!ready&&silent)screen('availability');
+  return ready;
  }catch(error){
   if(run!==deliveryValidationGeneration)return false;
   st.quote=null;st.store='';
