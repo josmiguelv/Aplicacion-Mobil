@@ -62,7 +62,7 @@ test('tienda fuera de radio, inactiva, sin tarifa o sin horarios no cotiza',()=>
   [{...nogales,latitude:null}],
  ]) {
   const target=list[0].radiusKm===0.02?destination(nogales.latitude+0.01,nogales.longitude):near
-  assert.throws(()=>quote(list,target),/No hay locales|fuera del radio|no tienen coordenadas o tarifas/)
+  assert.throws(()=>quote(list,target),/No hay locales|fuera del radio|no tienen coordenadas o tarifas|está cerrado/)
  }
 })
 test('cobertura ilimitada solo cuando radiusKm es nulo',()=>{
