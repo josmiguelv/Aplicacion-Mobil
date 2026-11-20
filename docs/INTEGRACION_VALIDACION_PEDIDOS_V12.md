@@ -101,11 +101,14 @@ No ejecutar la app en producción con un túnel temporal o URL ilustrativa. La A
 
 ### Diagnóstico de conectividad integrado en la app móvil
 
-En la pantalla **Consultar disponibilidad**, si ocurre un error técnico se puede pulsar **Verificar conexión con el servidor**. Esa acción usa el puente nativo Android para realizar exclusivamente `GET /health/ready` al origen HTTPS predeterminado en la compilación; **no ejecuta POST**, no genera solicitudes en TU VERSO y no incluye tokens del comprador.
+En la pantalla **Consultar disponibilidad**, si ocurre un error técnico se puede pulsar **Verificar conexión con el servidor**. Esa acción usa el puente nativo Android para realizar `GET /health/ready`. Si el backend no confirma readiness, consulta también `GET /health/live`, siempre al mismo origen HTTPS compilado; **no ejecuta POST**, no genera solicitudes en TU VERSO y no incluye tokens ni cabeceras de autorización del comprador.
 
-- `200` con `status: ready`: el Administrador responde, sin demostrar que el tenant, las sedes o TU VERSO estén correctamente configurados.
-- `503` o respuesta diferente: el Administrador no confirma su disponibilidad.
-- Error de conexión: puede ser falla de Internet, túnel temporal caducado o backend inaccesible.
+- `GET /health/ready` devuelve HTTP `200` con `{"status":"ready"}`: el Administrador y su consulta SQL básica responden, **sin demostrar** que el tenant, las sedes o TU VERSO estén correctamente configurados.
+- `GET /health/live` devuelve HTTP `200` con `{"status":"ok"}` pero readiness devuelve `503`: backend iniciado, PostgreSQL del Administrador no responde.
+- `GET /health/live` responde pero readiness devuelve `404` o contenido diferente: túnel apuntando a otro servicio, versión antigua del backend o contrato incompatible.
+- HTTP `000`/DNS sin resolver, respuesta HTML o error de conexión: URL temporal de Cloudflare expirada, túnel inactivo, red o puerto local equivocado. La app evita interpretar esas respuestas como aceptación del asesor.
+
+**Alcance:** el botón de diagnóstico no transmite ningún formulario a TU VERSO. Solo una acción explícita de validación de delivery dispara el `POST /api/v1/mobile/orders/availability` al Administrador. Este decide si el local configurado requiere una interacción S2S de TU VERSO.
 
 Cuando la API devuelve `401`, `404` o `409`, Android descarta el token de validación que ya no puede recuperar y permite una nueva solicitud. En respuestas temporales (`429`, `5xx`, timeout o fallo de red), conserva la identidad e idempotencia de la solicitud existente para evitar duplicados.
 
