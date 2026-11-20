@@ -582,3 +582,46 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-marketing-compact-content p{font-size:11px;margin:3px 0 0;line-height:1.35}
 .b3-notifications-page .b3-marketing-compact .outline{font-size:11px;padding:8px 10px;min-height:34px;flex-shrink:0;border-radius:10px;margin:0}
 @media(max-width:380px){.b3-notifications-page .b3-marketing-compact{flex-direction:row;align-items:center}.b3-notifications-page .b3-marketing-compact .outline{width:auto}}
+
+
+/* Pollos B3 — fase de disponibilidad: sin estimar precio antes de elegir sede. */
+.b3-availability-page{padding-bottom:calc(42px + env(safe-area-inset-bottom))}
+.b3-availability-step{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 22px;color:#70666a;font-size:11px}
+.b3-availability-step>span{display:flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.04em;font-weight:900;color:#b71a2a}
+.b3-availability-step i{display:inline-block;width:20px;height:1px;background:#ddd0d3}
+.b3-availability-step small{font-size:10px;color:#807980}
+.b3-availability-card{background:linear-gradient(150deg,#fff7f8,#fff 47%);border:1px solid #f2e1e5;border-radius:24px;padding:27px 22px 24px;box-shadow:0 9px 36px rgba(129,34,46,.065);text-align:center}
+.b3-availability-orb{width:78px;height:78px;display:grid;place-items:center;margin:0 auto 18px;border-radius:25px;background:#fff0f1;color:#b62435;box-shadow:0 8px 24px #9d1e3011}
+.b3-availability-orb.checking{animation:b3-availability-breathe 1.7s ease-in-out infinite}
+.b3-availability-orb.ready{background:#eef8f0;color:#28884b}
+.b3-availability-orb.awaiting{background:#fff2e6;color:#ad6818}
+.b3-availability-orb.failed{background:#fff0f1;color:#c51d32}
+.b3-availability-eyebrow{font-size:10px;font-weight:900;letter-spacing:.15em;color:#bb2434}
+.b3-availability-card h2{font-size:clamp(22px,6vw,27px);line-height:1.12;letter-spacing:-.65px;margin:10px auto 11px;max-width:320px}
+.b3-availability-card>p{font-size:13px;color:#76676b;line-height:1.55;margin:0 auto 22px;max-width:340px}
+.b3-availability-milestones{border-top:1px solid #f1e6e8;text-align:left;padding-top:18px;display:grid;gap:14px}
+.b3-availability-milestones>div{display:flex;gap:11px;align-items:center;font-size:12px;font-weight:700;color:#473940}
+.b3-availability-check{width:25px;height:25px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;background:#edfbf1;color:#247444}
+.b3-availability-check.muted{background:#f6f3f4;color:#9c9196}
+.b3-availability-check.animated{background:#fff1e6;color:#a76b26}
+.b3-availability-order{border:1px solid #ece5e7;border-radius:19px;padding:18px 19px;margin:15px 0;background:#fff}
+.b3-availability-overline{color:#b31c30;font-weight:900;font-size:10px;letter-spacing:.13em;margin-bottom:14px}
+.b3-availability-order p{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin:0 0 12px;color:#655b5e}
+.b3-availability-order p strong{color:#30262a}
+.b3-availability-total{border-top:1px dashed #e9dadd;padding-top:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;font-weight:800}
+.b3-availability-total b{font-size:21px;color:#242025;white-space:nowrap}
+.b3-availability-order>small{display:block;color:#8b7f82;font-size:11px;margin-top:13px;line-height:1.35;overflow-wrap:anywhere}
+.b3-availability-message{padding:17px 18px;border:1px solid #efdcc6;background:#fffaf4;border-radius:17px;margin:16px 0;color:#634c38}
+.b3-availability-message strong{display:block;font-size:13px}
+.b3-availability-message p{font-size:12px;line-height:1.5;margin:9px 0}
+.b3-availability-message small{font-size:11px;line-height:1.5}
+.b3-availability-selected{display:flex;align-items:center;gap:12px;border-radius:16px;padding:15px 17px;margin:16px 0;background:#f7f8f6;color:#33623f}
+.b3-availability-selected span{display:grid;gap:4px}
+.b3-availability-selected strong{font-size:13px}
+.b3-availability-selected small{font-size:11px;color:#626f65}
+.b3-availability-wait{text-align:center;margin:19px 0;color:#86767b;font-size:12px;font-weight:700}
+.b3-availability-page .outline.full{min-height:46px}
+.b3-availability-page .smallprint{margin-bottom:8px}
+@keyframes b3-availability-breathe{0%,100%{transform:scale(1);box-shadow:0 8px 24px #9d1e3011}50%{transform:scale(1.055);box-shadow:0 11px 32px #9d1e3025}}
+@media(prefers-reduced-motion:reduce){.b3-availability-orb.checking{animation:none}}
+@media(max-width:360px){.b3-availability-card{padding:23px 17px}.b3-availability-step small{font-size:9px}.b3-availability-order{padding:16px}}
