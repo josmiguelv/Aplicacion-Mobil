@@ -146,8 +146,19 @@
     return data;
   }
   async function checkConnection() {
+    // A readiness failure does not imply that the HTTPS tunnel itself is down.
+    // Check the live endpoint only on failure, using read-only GET calls.
     const result = await nativeRequest({operation:'HEALTH'});
-    return {online:Number(result.status)===200 && result.data?.status==='ready',status:Number(result.status)};
+    const status = Number(result.status);
+    const online = status === 200 && result.data?.status === 'ready';
+    if (online) return {online:true,status,liveOnline:true,liveStatus:200};
+    let liveStatus = null;
+    try {
+      const live = await nativeRequest({operation:'HEALTH_LIVE'});
+      liveStatus = Number(live.status);
+    } catch (_) { /* Readiness status remains authoritative. */ }
+    return {online:false,status,liveOnline:liveStatus===200 && liveStatus!==null,
+      liveStatus};
   }
   function eraseLocalIdentity() {
     clear();
