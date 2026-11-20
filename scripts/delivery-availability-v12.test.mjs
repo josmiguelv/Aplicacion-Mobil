@@ -24,9 +24,10 @@ const destination={latitude:-12.0506096,longitude:-77.1251313}
 const mockResolver=({stores,flag,fail=false})=>{
  const events=[],st=baseState()
  const context={
-  st,deliveryRequestPending:false,deliveryRequestError:'',
+  st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',
   deliveryAvailability:{status:'IDLE',storeName:'',candidateNames:[],message:''},
   deliveryLocation:destination,fulfillmentModal:null,checkoutPending:true,
+  requestBackendOrderAvailability:async()=>{events.push('API');context.deliveryAvailability={status:'WAITING_APPROVAL',storeName:'',candidateNames:[],message:'Aprobación pendiente'};return false;},
   render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
   deliveryAddressKey:(a,b)=>a+'|'+b,
   hasDeliveryDestination:()=>true,
@@ -70,9 +71,9 @@ test('true deja pendiente TU VERSO, no crea precio y no salta al local false',as
  assert.equal(result,false)
  assert.equal(st.quote,null)
  assert.equal(st.store,'')
- assert.equal(context.deliveryAvailability.status,'APPROVAL_REQUIRED')
+ assert.equal(context.deliveryAvailability.status,'WAITING_APPROVAL')
  assert.deepEqual(Array.from(context.deliveryAvailability.candidateNames),['Nogales','Tallanes'])
- assert.deepEqual(events,['availability','GET'])
+ assert.deepEqual(events,['availability','GET','API'])
 })
 test('false calcula la tarifa estimada solo para la primera sede elegible',async()=>{
  const {context,st,events}=mockResolver({stores:[candidate('Tallanes',false)]})
@@ -99,7 +100,7 @@ test('error de cobertura no se confunde con rechazo de sede y conserva la direcc
  assert.equal(st.profile.address,'Av. Argentina 1653')
 })
 test('cambiar carrito invalida toda cotización anterior solo en delivery',()=>{
- const st=baseState(),context={st,deliveryAvailability:{status:'READY'}}
+ const st=baseState(),context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,window:{B3OrderAvailability:{clear(){}}},deliveryAvailability:{status:'READY'}}
  st.quote={deliveryFeePen:10};st.store='old'
  vm.runInNewContext(extract('clearDeliveryAvailability'),context)
  vm.runInNewContext(extract('invalidateDeliverySelection'),context)
