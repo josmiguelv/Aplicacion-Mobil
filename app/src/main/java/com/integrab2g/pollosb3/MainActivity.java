@@ -377,6 +377,36 @@ public class MainActivity extends Activity {
                         if (body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 65536)
                             throw new IllegalArgumentException("Body too large");
                         path = "/api/v1/mobile/orders/availability";
+                    } else if ("AGENT_AVAILABILITY".equals(operation)) {
+                        String storeId = request.optString("storeId", "");
+                        String appId = request.optString("appId", "");
+                        if (!storeId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !appId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}"))
+                            throw new IllegalArgumentException("Invalid store or app ID");
+                        path = "/api/v1/mobile/stores/" + storeId +
+                            "/agent-availability?appId=" + java.net.URLEncoder.encode(appId, "UTF-8");
+                    } else if ("DELIVERY_QUOTE".equals(operation)) {
+                        JSONObject payload = request.optJSONObject("body");
+                        if (payload == null || !"delivery".equals(payload.optString("mode")) ||
+                            !payload.optString("appId", "").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                            payload.optString("address", "").length() > 250 ||
+                            payload.optString("district", "").length() > 90)
+                            throw new IllegalArgumentException("Invalid delivery quote");
+                        body = payload.toString();
+                        path = "/api/v1/mobile/fulfillment/resolve";
+                    } else if ("INTERACTION_CREATE".equals(operation)) {
+                        JSONObject payload = request.optJSONObject("body");
+                        key = request.optString("idempotencyKey", "");
+                        if (payload == null ||
+                            !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !payload.optString("appId", "").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                            !payload.optString("storeId", "").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            payload.optInt("quoteRevision", 0) < 1 ||
+                            payload.optJSONArray("items") == null ||
+                            payload.optString("customerExternalId", "").isEmpty())
+                            throw new IllegalArgumentException("Invalid interaction request");
+                        body = payload.toString();
+                        path = "/api/v1/mobile/interactions";
                     } else if ("GET".equals(operation)) {
                         String id = request.optString("validationId", "");
                         token = request.optString("validationToken", "");
@@ -393,6 +423,9 @@ public class MainActivity extends Activity {
                     } else {
                         throw new IllegalArgumentException("Unsupported operation");
                     }
+                    if (body != null &&
+                        body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 65536)
+                        throw new IllegalArgumentException("Body too large");
                     java.net.URL destination = new java.net.URL(origin + path);
                     java.net.HttpURLConnection connection =
                         (java.net.HttpURLConnection) destination.openConnection();
@@ -400,12 +433,15 @@ public class MainActivity extends Activity {
                         connection.setInstanceFollowRedirects(false);
                         connection.setConnectTimeout(12000);
                         connection.setReadTimeout(15000);
-                        connection.setRequestMethod("HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ? "GET" : operation);
+                        String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
+                            "AGENT_AVAILABILITY".equals(operation) ? "GET" :
+                            "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ? "POST" : operation;
+                        connection.setRequestMethod(httpMethod);
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
-                        if ("POST".equals(operation)) {
+                        if ("POST".equals(httpMethod)) {
                             connection.setRequestProperty("Content-Type", "application/json");
-                            connection.setRequestProperty("Idempotency-Key", key);
+                            if (key != null) connection.setRequestProperty("Idempotency-Key", key);
                             connection.setDoOutput(true);
                             try (java.io.OutputStream output = connection.getOutputStream()) {
                                 output.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
