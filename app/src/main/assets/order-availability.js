@@ -130,19 +130,29 @@
         code===422?'La dirección necesita más detalles. Revísala.':
         code===404?'Esta validación ya no está disponible. Inicia una nueva solicitud.':
         'No se pudo validar el pedido en este momento.');
-      err.httpStatus = code; throw err;
+      err.httpStatus = code;
+      // A missing/unauthorized/conflicting validation cannot be recovered with the old token.
+      // Rate limits, server failures and network timeouts preserve idempotency for safe retries.
+      if (code === 401 || code === 404 || code === 409) clear();
+      throw err;
     }
-    if (!UUID.test(data.validationId) || typeof data.status !== 'string')
-      throw Error('El servidor devolvió una validación incompleta.');
+    if (!UUID.test(data.validationId) || typeof data.status !== 'string' ||
+      !['CHECKING_STORES','WAITING_APPROVAL','CREATE_UNCERTAIN','READY_FOR_PAYMENT','UNAVAILABLE','VALIDATION_ERROR','CANCELLED'].includes(data.status) ||
+      (entry.validationId && entry.validationId !== data.validationId))
+      throw Error('El servidor devolvió una validación incompleta o inconsistente.');
     entry.validationId = data.validationId;
     entry.lastStatus = data.status;
     save(entry);
     return data;
+  }
+  async function checkConnection() {
+    const result = await nativeRequest({operation:'HEALTH'});
+    return {online:Number(result.status)===200 && result.data?.status==='ready',status:Number(result.status)};
   }
   function eraseLocalIdentity() {
     clear();
     root.localStorage.removeItem(CUSTOMER_KEY);
   }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
-  root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,eraseLocalIdentity});
+  root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,eraseLocalIdentity});
 })(window);
