@@ -309,7 +309,7 @@ async function fetchConfig({strict=false}={}){
   storeGeocoding=false;
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
-  if(revisionChanged){st.quote=null;st.store='';clearDeliveryAvailability()}
+  if(revisionChanged){st.quote=null;st.store='';if(!deliveryRequestPending)clearDeliveryAvailability()}
   if(st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store='';clearDeliveryAvailability()}
   catalogRequestFinished=true;
   save();if(st.stage!=='splash')render();return true;
@@ -1464,8 +1464,8 @@ if(b.dataset.screen){
  if(b.dataset.screen==='identity'){startCheckout();return}
  if(b.dataset.screen==='cart'){
   screen('cart');
-  if((st.mode==='delivery'&&hasDeliveryDestination(st.profile.address,st.profile.district))||
-     (st.mode==='pickup'&&st.store))void revalidateCheckout('cart');
+  // Viewing the subtotal must never start a delivery availability consultation.
+  if(st.mode==='pickup'&&st.store)void revalidateCheckout('cart');
   return;
  }
  if(checkoutPending&&!['choice','locations','deliveryAddress'].includes(b.dataset.screen))checkoutPending=false;
@@ -1515,7 +1515,7 @@ root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();const m=v('chat-message');if(m){st.chat.push(m.slice(0,500));save();render()}}});
 root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){
  deliveryGpsPending=false; // Do not overwrite customer edits with a delayed GPS reverse-geocoding callback.
- deliveryLocation=null;
+ deliveryLocation=null;invalidateDeliverySelection();
  deliveryGpsMessage='Dirección editada: se volverá a verificar su ubicación antes de calcular el reparto.';
  deliveryRequestError='';const warning=root.querySelector('[role="alert"]');if(warning)warning.remove()
 }if(e.target.id==='cash'){st.cash=e.target.value;let change=document.getElementById('change');if(change)change.textContent=Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total';}});
