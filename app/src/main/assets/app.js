@@ -313,6 +313,59 @@ async function fetchConfig({strict=false}={}){
   if(st.stage!=='splash')render();return false;
  }
 }
+/** Provisional client-side quote from the latest published B3 config.
+ * No road kilometres and no commercial/authoritative order confirmation.
+ */
+function calculateLocalDeliveryQuote(destination,storeList=shops){
+ const latitude=Number(destination?.latitude),longitude=Number(destination?.longitude);
+ if(destination?.latitude==null||destination?.longitude==null||
+    !Number.isFinite(latitude)||!Number.isFinite(longitude)||
+    latitude<-90||latitude>90||longitude<-180||longitude>180)
+  throw Error('No se pudo verificar la ubicación de entrega. Comprueba la dirección o usa GPS.');
+ if(!st.configReady)throw Error('Primero necesitamos consultar los locales y tarifas publicadas.');
+ const radians=x=>x*Math.PI/180;
+ const candidates=[];
+ for(const store of storeList){
+  // The published API includes live isOpen; never assume "missing" means open.
+  if(!store||store.active!==true||store.delivery_enabled!==true||
+     store.hoursConfigured!==true||store.isOpen!==true)continue;
+  if(store.latitude==null||store.longitude==null)continue;
+  const lat=Number(store.latitude),lng=Number(store.longitude);
+  if(!Number.isFinite(lat)||!Number.isFinite(lng)||
+     lat<-90||lat>90||lng<-180||lng>180)continue;
+  const radiusRaw=store.radiusKm??store.radius_km;
+  const radius=radiusRaw==null?null:Number(radiusRaw);
+  if(radius!==null&&(!Number.isFinite(radius)||radius<0))continue;
+  const mode=store.deliveryPricingMode??store.delivery_pricing_mode;
+  if(mode!=='FIXED'&&mode!=='PER_KM')continue;
+  const amountRaw=mode==='FIXED'?(store.deliveryFeePen??store.delivery_fee_pen):
+   (store.deliveryRatePerKmPen??store.delivery_rate_per_km_pen);
+  if(amountRaw==null||amountRaw==='')continue;
+  const amount=Number(amountRaw);
+  if(!Number.isFinite(amount)||amount<0)continue;
+  const dLat=radians(lat-latitude),dLng=radians(lng-longitude);
+  const a=Math.sin(dLat/2)**2+
+    Math.cos(radians(latitude))*Math.cos(radians(lat))*Math.sin(dLng/2)**2;
+  const km=6371.0088*2*Math.atan2(Math.sqrt(Math.max(0,Math.min(1,a))),Math.sqrt(Math.max(0,1-a)));
+  if(radius!==null&&km>radius+1e-8)continue;
+  candidates.push({store,km,mode,amount});
+ }
+ candidates.sort((a,b)=>a.km-b.km||String(a.store.id).localeCompare(String(b.store.id)));
+ if(!candidates.length)throw Error('No hay locales abiertos con delivery, tarifa y cobertura para esta dirección.');
+ const selected=candidates[0];
+ const fee=selected.mode==='FIXED'?selected.amount:
+  Math.round((selected.km*selected.amount+Number.EPSILON)*100)/100;
+ return {
+  storeId:selected.store.id,storeName:selected.store.name,mode:'delivery',
+  paymentMethods:Array.isArray(selected.store.paymentMethods?.delivery)?[...selected.store.paymentMethods.delivery]:[],
+  deliveryFeePen:fee,straightDistanceKm:Math.round(selected.km*100)/100,
+  routeDistanceKm:null,distanceSource:'STRAIGHT_LINE',
+  deliveryPricingMode:selected.mode,
+  ratePerKmPen:selected.mode==='PER_KM'?selected.amount:null,
+  provisional:true,quoteOrigin:'ANDROID_LOCAL',
+  notice:'Cálculo aproximado en línea recta basado en locales y tarifas publicados. No se ha confirmado un pedido.'
+ };
+}
 function deliveryQuoteValid(){
  if(st.mode!=='delivery'||!st.quote||!st.store)return false;
  if(st.quote.deliveryFeePen==null||st.quote.deliveryFeePen==='')return false;
@@ -332,53 +385,31 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
  if(deliveryRequestPending)return false;
  const address=String(st.profile.address||'').trim();
  const district=String(st.profile.district||'').trim();
- if(address.length<6||district.length<2){deliveryRequestError='Ingresa una dirección completa y un distrito para verificar la cobertura.';render();return false}
+ if(address.length<6||district.length<2){
+  deliveryRequestError='Ingresa una dirección completa y un distrito para verificar la cobertura.';
+  render();return false;
+ }
  deliveryRequestPending=true;deliveryRequestError='';render();
  try{
-  // A cold-start deep link can reach the checkout before the asynchronous catalog loads.
+  // Every new total reads fresh store hours and pricing via GET, never a cached quote.
   if(!skipConfig)await fetchConfig({strict:true});
-  if(!st.configReady||!API_BASE)throw Error('No se pudo conectar con la configuración de locales. Comprueba el servidor e inténtalo nuevamente.');
+  if(!st.configReady)throw Error('No se pudo consultar la disponibilidad actual de los locales.');
   if(!hasDeliveryDestination(address,district)){
    const position=await geocodeDeliveryDestination(address,district);
    deliveryLocation={...position,key:deliveryAddressKey(address,district)};
   }
-  const destination=deliveryLocation;
-  if(!destination||!Number.isFinite(destination.latitude)||!Number.isFinite(destination.longitude))
-   throw Error('No se pudo verificar el destino de delivery. Usa GPS en el punto de entrega.');
-  const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),20000);
-  let response;
-  try{
-   response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
-    method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},signal:controller.signal,
-    body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district,latitude:destination.latitude,longitude:destination.longitude,useGps:destination.source==='gps'})
-   });
-  }finally{clearTimeout(timeout)}
-  const result=await response.json().catch(()=>null);
-  if(!response.ok){
-   const apiMessage=typeof result?.message==='string'?result.message:typeof result?.error==='string'?result.error:'';
-   const reason=response.status===404?'El servicio de cotización todavía no está disponible (HTTP 404).':
-    response.status>=500?'El servidor no pudo calcular el delivery (HTTP '+response.status+').':
-    apiMessage&&apiMessage.length<=180?apiMessage:'No se pudo comprobar la cobertura (HTTP '+response.status+').';
-   throw Error(reason);
-  }
-  if(result&&result.distanceSource!=='STRAIGHT_LINE')throw Error('La API de delivery necesita actualizarse para usar la distancia en línea recta.');
-  if(!result||!result.storeId||result.deliveryFeePen==null||result.deliveryFeePen===''||
-     !Number.isFinite(Number(result.deliveryFeePen))||Number(result.deliveryFeePen)<0)
-   throw Error('La API no devolvió una sede y una tarifa de reparto válidas.');
-  const selected=shops.find(store=>String(store.id)===String(result.storeId));
-  if(!selected||selected.active===false||selected.delivery_enabled===false)
-   throw Error('La sede asignada por el servidor no está disponible para delivery.');
+  const quote=calculateLocalDeliveryQuote(deliveryLocation);
+  // Reject a delayed geocoding result if the customer changed destination.
   if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district)return false;
-  st.store=selected.id;st.quote={...result,deliveryFeePen:Number(result.deliveryFeePen),quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};save();
+  st.store=quote.storeId;
+  st.quote={...quote,quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
+  save();
   if(silent)return true;
   if(checkoutPending){checkoutPending=false;screen('identity');return true}
   fulfillmentModal=null;nav('inicio');return true;
  }catch(err){
   st.quote=null;st.store='';save();
-  deliveryRequestError=err?.name==='AbortError'?'La cotización demoró demasiado. Intenta nuevamente.':err instanceof TypeError?'No se pudo obtener una respuesta de la API de delivery. Verifica que el túnel esté activo y que el backend permita el POST público.':(err.message||'No se pudo cotizar el delivery.');
-  console.warn('Pollos B3 delivery quote error',err?.name||'Error');
-  // Keep the exact screen and entered address, so the customer can retry.
+  deliveryRequestError=err?.message||'No fue posible calcular el costo estimado de delivery.';
   return false;
  }finally{
   deliveryRequestPending=false;
@@ -1096,13 +1127,8 @@ async function revalidateCheckout(next){
     checkoutReviewNote='El local de recojo ya no está abierto o no acepta pedidos.';
     screen('locations');return false
    }
-   const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
-    method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},
-    body:JSON.stringify({appId:APP_ID,mode:'pickup',storeId:st.store})
-   });
-   if(!response.ok)throw Error('El local de recojo ya no está disponible. Revisa los locales.');
-   const result=await response.json();
-   if(String(result.storeId)!==String(st.store))throw Error('El servidor no confirmó el local de recojo.');
+   // Pickup has no delivery fee. Fresh GET already checked this store's
+   // published pickup flag and opening hours; no fulfillment POST is required.
   }else{checkoutReviewNote='Selecciona Delivery o Pide y Retira.';screen('choice');return false}
   const after=checkoutSnapshot();
   const changed=before.store!==after.store||before.total!==after.total||before.items!==after.items;
