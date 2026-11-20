@@ -62,7 +62,7 @@ test('tienda fuera de radio, inactiva, sin tarifa o sin horarios no cotiza',()=>
   [{...nogales,latitude:null}],
  ]) {
   const target=list[0].radiusKm===0.02?destination(nogales.latitude+0.01,nogales.longitude):near
-  assert.throws(()=>quote(list,target),/No hay locales abiertos/)
+  assert.throws(()=>quote(list,target),/No hay locales|fuera del radio|no tienen coordenadas o tarifas/)
  }
 })
 test('cobertura ilimitada solo cuando radiusKm es nulo',()=>{
@@ -73,7 +73,7 @@ test('cobertura ilimitada solo cuando radiusKm es nulo',()=>{
 test('nunca se inventa coordenada, tarifa ni configuración publicada',()=>{
  assert.throws(()=>quote([nogales],destination(null,null)),/ubicación/)
  assert.throws(()=>quote([nogales],destination(nogales.latitude,nogales.longitude),false),/publicadas/)
- assert.throws(()=>quote([{...universal,deliveryFeePen:null}],destination(universal.latitude,universal.longitude)),/No hay locales abiertos/)
+ assert.throws(()=>quote([{...universal,deliveryFeePen:null}],destination(universal.latitude,universal.longitude)),/No hay locales|fuera del radio|no tienen coordenadas o tarifas/)
 })
 test('sin método de pago publicado el cliente no puede avanzar con pago ficticio',()=>{
  const context={st:{mode:'delivery',store:'universal',configReady:true,quote:{paymentMethods:[]}},shops:[universal]}
@@ -125,7 +125,7 @@ test('sin cobertura no se avanza y el error conserva la dirección',async()=>{
  }
  vm.runInNewContext(extract('resolveDelivery'),context)
  assert.equal(await context.resolveDelivery(),false)
- assert.match(context.deliveryRequestError,/No hay locales abiertos/)
+ assert.match(context.deliveryRequestError,/No hay locales|fuera del radio|no tienen coordenadas o tarifas/)
  assert.equal(context.checkoutPending,true)
  assert.equal(st.profile.address,'Av. Argentina 1653')
 })
@@ -356,4 +356,36 @@ test('Pide y Retira muestra la hora de cierre publicada correctamente',()=>{
  assert.match(result,/Hasta las 23:00/)
  assert.match(context.storeStatusHtml({hoursConfigured:true,isOpen:false,closesAt:null}),/Cerrado/)
  assert.equal(context.storeStatusHtml({hoursConfigured:false,isOpen:false}), '')
+})
+
+test('revisión 12: Tallanes publicado y habilitado, pero cerrado el jueves, no se cotiza',()=>{
+ const tallanesRevision12={
+  id:'ab05c102-7850-419f-ad0c-829dce200f39',name:'Tallanes',active:true,
+  latitude:-12.0506625,longitude:-77.1038664,radiusKm:4,
+  hoursConfigured:true,isOpen:false,openingHours:{thu:{closed:true}},
+  delivery_enabled:true,deliveryPricingMode:'PER_KM',deliveryRatePerKmPen:3,
+  paymentMethods:{delivery:[]}
+ }
+ assert.throws(
+  ()=>quote([tallanesRevision12],destination(-12.0506625,-77.1038664)),
+  /Tallanes está cerrado en este momento\. No hay otros locales abiertos publicados para delivery/
+ )
+})
+test('apertura y cobertura se distinguen: Tallanes abierto dentro de 4 km sí calcula',()=>{
+ const store={...tallanes,isOpen:true,hoursConfigured:true,active:true,delivery_enabled:true,
+  radiusKm:4,deliveryRatePerKmPen:3}
+ const result=quote([store],destination(-12.0406625,-77.1038664))
+ assert.equal(result.storeId,'tallanes')
+ assert.equal(result.deliveryPricingMode,'PER_KM')
+ assert.ok(result.deliveryFeePen>0)
+ assert.ok(result.deliveryFeePen<4)
+})
+test('apertura sin cobertura informa que el destino está fuera de radio',()=>{
+ assert.throws(()=>quote([nogales],destination(-11.95,-77.12)),/fuera del radio de cobertura/)
+})
+test('local abierto sin tarifa publicada presenta error de configuración',()=>{
+ assert.throws(()=>quote([{...nogales,deliveryRatePerKmPen:null}],destination(nogales.latitude,nogales.longitude)),/no tienen coordenadas o tarifas válidas/)
+})
+test('la API solo publica una sede sin delivery habilitado: no se inventan locales',()=>{
+ assert.throws(()=>quote([{...tallanes,delivery_enabled:false}],destination(tallanes.latitude,tallanes.longitude)),/No hay locales habilitados/)
 })
