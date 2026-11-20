@@ -139,6 +139,10 @@
     save(entry);
     return data;
   }
+  function eraseLocalIdentity() {
+    clear();
+    root.localStorage.removeItem(CUSTOMER_KEY);
+  }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
-  root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read});
+  root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,eraseLocalIdentity});
 })(window);
