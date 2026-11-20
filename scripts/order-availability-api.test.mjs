@@ -52,6 +52,16 @@ test('tokens CSPRNG de 256 bits, UUID y customerExternalId seudónimo, nunca en 
   assert.equal(p.body.items[0].productId,productId);
   assert.ok(!('tenantId' in p.body)&&!('storeId' in p.body)&&!('total' in p.body));
 });
+test('borrado de datos elimina token de sesión e identidad seudónima',()=>{
+ const {api,localStorage,sessionStorage}=client();
+ api.prepare(input());
+ assert.ok(localStorage.keys().length>0);
+ assert.ok(sessionStorage.keys().length>0);
+ api.eraseLocalIdentity();
+ assert.equal(localStorage.keys().length,0);
+ assert.equal(sessionStorage.keys().length,0);
+ assert.match(checkoutSource,/window\.B3OrderAvailability\?\.eraseLocalIdentity\(\)/);
+});
 test('misma solicitud reutiliza token y clave; cambio de carrito o dirección la rota',()=>{
   const {api}=client();
   const first=api.prepare(input()),second=api.prepare(input());
