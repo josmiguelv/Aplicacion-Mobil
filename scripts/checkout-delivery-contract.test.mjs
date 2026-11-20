@@ -101,7 +101,7 @@ test('dirección abre disponibilidad y cotiza solo si la sede no requiere aproba
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,store:'',quote:null,stage:'deliveryAddress'};
  const events=[],context={st,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
   deliveryLocation:{latitude:nogales.latitude,longitude:nogales.longitude},fulfillmentModal:null,checkoutPending:true,
-  render:()=>{},save:()=>{},screen:x=>events.push(x),deliveryAddressKey:(a,d)=>a+'|'+d,
+  render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},deliveryAddressKey:(a,d)=>a+'|'+d,
   hasDeliveryDestination:()=>true,fetchConfig:async()=>{events.push('GET')},
   eligibleDeliveryCandidates:()=>{events.push('FILTER');return [{store:nogales}]},storeAvailabilitySetting:()=>false,
   quoteForDeliveryCandidate:()=>{events.push('QUOTE');return {storeId:'nogales',storeName:'Nogales',deliveryFeePen:2.5}}
@@ -117,7 +117,7 @@ test('dirección abre disponibilidad y cotiza solo si la sede no requiere aproba
 test('sin cobertura mantiene dirección y muestra error en la nueva pantalla',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,quote:null,store:'',stage:'deliveryAddress'};
  const events=[],context={st,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
-  deliveryLocation:{latitude:-11.9,longitude:-77.12},render:()=>{},save:()=>{},screen:x=>events.push(x),
+  deliveryLocation:{latitude:-11.9,longitude:-77.12},render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
   deliveryAddressKey:(a,d)=>a+'|'+d,hasDeliveryDestination:()=>true,fetchConfig:async()=>{},
   eligibleDeliveryCandidates:()=>{throw Error('Fuera del radio de cobertura')}
  };
