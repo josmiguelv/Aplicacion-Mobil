@@ -248,7 +248,7 @@ function pickupPaymentWarning(s){
 function storeStatusHtml(s){
  if(s.hoursConfigured!==true)return '';
  const state=s.isOpen===true?'Abierto':'Cerrado';
- const until=s.isOpen===true&&/^([01]\\d|2[0-3]):[0-5]\\d$/.test(s.closesAt||'')?' · Hasta las '+esc(s.closesAt):'';
+ const until=s.isOpen===true&&/^([01]\d|2[0-3]):[0-5]\d$/.test(s.closesAt||'')?' · Hasta las '+esc(s.closesAt):'';
  return '<span class="pickup-status '+(s.isOpen===true?'open':'closed')+'">'+state+until+'</span>';
 }
 function straightDistanceKm(s){
