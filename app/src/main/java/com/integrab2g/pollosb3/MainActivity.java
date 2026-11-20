@@ -338,6 +338,109 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
             } catch (Exception ignored) { }
         }
+        /**
+         * Fixed-purpose HTTPS connector for the Administrator's public mobile order API.
+         * Requests originate only from bundled WebView assets; the JS caller never
+         * chooses an origin/path, supplies S2S secrets or receives HTTP redirect URLs.
+         * Native transport avoids relying on cross-origin WebView POST/GET CORS headers.
+         */
+        @JavascriptInterface public void orderAvailabilityRequest(String requestJson) {
+            new Thread(() -> {
+                JSONObject reply = new JSONObject();
+                String requestId = "";
+                try {
+                    JSONObject request = new JSONObject(requestJson);
+                    requestId = request.optString("requestId", "");
+                    if (!requestId.matches("oa_[0-9]{1,10}"))
+                        throw new IllegalArgumentException("Invalid request ID");
+                    reply.put("requestId", requestId);
+                    String origin = getString(R.string.b3_api_base).trim().replaceAll("/+$", "");
+                    java.net.URI base = new java.net.URI(origin);
+                    if (!"https".equalsIgnoreCase(base.getScheme()) ||
+                        base.getHost() == null || base.getUserInfo() != null ||
+                        (base.getRawPath() != null && !base.getRawPath().isEmpty()) ||
+                        base.getRawQuery() != null || base.getRawFragment() != null)
+                        throw new IllegalArgumentException("Invalid HTTPS backend");
+                    String operation = request.optString("operation", "");
+                    String path;
+                    String body = null;
+                    String token = null;
+                    String key = null;
+                    if ("POST".equals(operation)) {
+                        key = request.optString("idempotencyKey", "");
+                        JSONObject payload = request.optJSONObject("body");
+                        if (!key.matches("[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,36}") ||
+                            payload == null ||
+                            !payload.optString("validationToken", "").matches("ordv1_[A-Za-z0-9_-]{43}"))
+                            throw new IllegalArgumentException("Invalid POST");
+                        body = payload.toString();
+                        if (body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 65536)
+                            throw new IllegalArgumentException("Body too large");
+                        path = "/api/v1/mobile/orders/availability";
+                    } else if ("GET".equals(operation)) {
+                        String id = request.optString("validationId", "");
+                        token = request.optString("validationToken", "");
+                        if (!id.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !token.matches("ordv1_[A-Za-z0-9_-]{43}"))
+                            throw new IllegalArgumentException("Invalid GET");
+                        path = "/api/v1/mobile/orders/availability/" + id;
+                    } else {
+                        throw new IllegalArgumentException("Unsupported operation");
+                    }
+                    java.net.URL destination = new java.net.URL(origin + path);
+                    java.net.HttpURLConnection connection =
+                        (java.net.HttpURLConnection) destination.openConnection();
+                    try {
+                        connection.setInstanceFollowRedirects(false);
+                        connection.setConnectTimeout(12000);
+                        connection.setReadTimeout(15000);
+                        connection.setRequestMethod(operation);
+                        connection.setRequestProperty("Accept", "application/json");
+                        connection.setRequestProperty("Cache-Control", "no-store");
+                        if ("POST".equals(operation)) {
+                            connection.setRequestProperty("Content-Type", "application/json");
+                            connection.setRequestProperty("Idempotency-Key", key);
+                            connection.setDoOutput(true);
+                            try (java.io.OutputStream output = connection.getOutputStream()) {
+                                output.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            }
+                        } else {
+                            connection.setRequestProperty("Authorization", "Bearer " + token);
+                        }
+                        int status = connection.getResponseCode();
+                        reply.put("status", status);
+                        if (status >= 300 && status < 400) {
+                            reply.put("error", "REDIRECT_BLOCKED");
+                        } else {
+                            java.io.InputStream stream = status >= 400 ?
+                                connection.getErrorStream() : connection.getInputStream();
+                            if (stream == null) throw new java.io.IOException("Empty response");
+                            java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                            try (java.io.InputStream input = stream) {
+                                byte[] buffer = new byte[4096];
+                                int count;
+                                while ((count = input.read(buffer)) != -1) {
+                                    if (bytes.size() + count > 65536)
+                                        throw new java.io.IOException("Response too large");
+                                    bytes.write(buffer, 0, count);
+                                }
+                            }
+                            reply.put("data", new JSONObject(bytes.toString("UTF-8")));
+                        }
+                    } finally {
+                        connection.disconnect();
+                    }
+                } catch (Exception ignored) {
+                    try { reply.put("error", "NETWORK_OR_CONTRACT_ERROR"); } catch (Exception ignored2) {}
+                }
+                final String payload = reply.toString();
+                runOnUiThread(() -> {
+                    if (web != null) web.evaluateJavascript(
+                        "window.b3OrderAvailabilityNativeResponse && window.b3OrderAvailabilityNativeResponse(" +
+                        JSONObject.quote(payload) + ")", null);
+                });
+            }, "b3-order-availability").start();
+        }
         @JavascriptInterface public void openMaps(String url) {
             try {
                 Uri uri = Uri.parse(url);
