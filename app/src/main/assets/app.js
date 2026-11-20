@@ -428,6 +428,7 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   if(!silent)screen('deliveryAddress');else render();return false;
  }
  deliveryRequestPending=true;deliveryRequestError='';
+ st.quote=null;st.store=''; // No stale rate while choosing an eligible store.
  deliveryAvailability={status:'CHECKING',storeName:'',candidateNames:[],message:''};
  if(!silent){fulfillmentModal=null;screen('availability')}else render();
  try{
@@ -439,7 +440,7 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
    deliveryLocation={...position,key:deliveryAddressKey(address,district)};
   }
   const candidates=eligibleDeliveryCandidates(deliveryLocation);
-  if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district)return false;
+  if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district||!silent&&st.stage!=='availability')return false;
   const first=candidates[0],setting=storeAvailabilitySetting(first.store);
   st.quote=null;st.store='';
   const names=candidates.map(x=>String(x.store.name||'Sede disponible'));
