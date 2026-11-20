@@ -1,91 +1,77 @@
-# Pollos B3 Android — integración API de validación de pedidos (V12 / Fase 2)
+# Pollos B3 Android — Integración de atención TU VERSO mediante Administrador
 
-**Repositorio:** `josmiguelv/Aplicacion-Mobil`  
+**Actualizado:** 20/11/2026  
+**Repositorio intervenido:** `josmiguelv/Aplicacion-Mobil`  
 **Rama:** `feat/pollos-b3-v12-order-availability-api-20261120`  
-**Alcance:** únicamente la aplicación Android Pollos B3; sin cambios en TU VERSO ni en el Administrador.
+**Alcance:** Solo aplicación Android. No se modifica TU VERSO, Administrador Web, Railway ni PostgreSQL.
 
-## 1. Fuente de verdad y arquitectura
+## 1. Contrato actual — APIs independientes
 
-La app Android consulta el catálogo publicado del Administrador: `GET /api/v1/mobile/config?appId=com.integrab2g.pollosb3`.
+La app Android **no contacta TU VERSO directamente** ni conoce sus tokens. Todas las llamadas usan el puente nativo HTTPS de `MainActivity.java` al backend del Administrador, con origen fijo compilado.
 
-Para cada delivery, **sin importar el valor del interruptor `consultOrderAvailability`**, la app envía la solicitud al Administrador:
+1. `GET /api/v1/mobile/config?appId=com.integrab2g.pollosb3`: catálogo, sedes publicadas, horarios, modalidad delivery y opción `consultOrderAvailability`.
+2. **Solo lectura**: `GET /api/v1/mobile/stores/{storeId}/agent-availability?appId=com.integrab2g.pollosb3`. Verifica la capacidad elegible en la cola autorizada de TU VERSO. `200 AVAILABLE` significa capacidad, **no reserva de asesor**. `200 UNAVAILABLE` bloquea la creación de interacción en esa sede.
+3. `POST /api/v1/mobile/fulfillment/resolve`: cotización de delivery por el Administrador con `revision`, `storeId`, `deliveryFeePen` y medios de pago. El servidor puede devolver una sede diferente: **Android compara los UUID y NO crea interacción si difieren**.
+4. `POST /api/v1/mobile/interactions`: crea la interacción **solo tras AVAILABLE y cotización coincidente**. Android envía `appId`, `storeId`, `quoteRevision`, `customerExternalId`, `items`, y encabezado `Idempotency-Key`. El backend vuelve a comprobar capacidad. No se envía `tenantId`, `queueId`, precios inventados ni credenciales S2S.
+5. Respuesta `201/200` con `status=PENDING`: confirma únicamente la **creación de una solicitud pendiente**, no aprobación, envío de formulario estructurado, pago, pedido definitivo ni aceptación/rechazo.
 
-`POST /api/v1/mobile/orders/availability`  
-`GET /api/v1/mobile/orders/availability/{validationId}`.
+La operación anterior `POST /api/v1/mobile/orders/availability` permanece implementada en el cliente legado para compatibilidad de código y tests, pero **el flujo de esta pantalla ya no la llama**.
 
-El Administrador es la única autoridad para determinar productos, subtotal, horarios, cobertura, orden de evaluación de sedes, distancia por carretera, delivery, método de pago y aceptación. Una sede con `consultOrderAvailability=false` no requiere interacciones con TU VERSO; cuando el indicador es `true`, el Administrador usa internamente sus credenciales S2S y consulta la aceptación. Android jamás hace llamadas directas a `/api/v1/interactions` ni `/api/v1/queues/availability`.
+## 2. Proceso de la pantalla «Consultar disponibilidad»
 
-## 2. Archivos de integración
+- Verifica dirección y obtiene su ubicación para ordenar **locales candidatos** publicados por cercanía, horario, cobertura y tarifa. La distancia en línea recta local es solo un filtro preliminar: el costo y cobertura vial definitivos pertenecen a `fulfillment/resolve`.
+- Consulta `agent-availability` del local candidato. Si devuelve `UNAVAILABLE`, evalúa el siguiente candidato de la lista.
+- Requiere la opción `consultOrderAvailability=true` en las sedes que se consultan; si no está publicada, muestra error de configuración, no presume disponibilidad.
+- Antes de crear interacción, confirma **mismo local**, **misma revisión publicada** y productos con UUID publicados.
+- Conserva la misma clave de idempotencia si un envío termina sin respuesta definitiva; una interacción `PENDING` guardada en el dispositivo impide crear una segunda por pulsar «Volver a comprobar».
+- Durante `PENDING` muestra una espera de asesor, **sin autorizar checkout**, porque el Administrador aún **no expone una API móvil de lectura de decisión**. No hay sondeo falso ni aprobación automática.
+- Cuando la operación falla por `409`, `429` o `503`, se muestra el error correspondiente; `health/ready` solo diagnostica el Administrador y **no demuestra disponibilidad de TU VERSO**.
 
-| Archivo | Función |
-|---|---|
-| `app/src/main/assets/order-availability.js` | Identidad seudónima, token aleatorio, clave UUID, POST/GET, recuperación con idempotencia, manejo de errores |
-| `app/src/main/java/com/integrab2g/pollosb3/MainActivity.java` | Pasarela HTTPS nativa de rutas fijas; evita depender de CORS de WebView; no admite URL arbitraria |
-| `app/src/main/assets/index.html` | Carga el nuevo módulo antes de `app.js` |
-| `app/src/main/assets/app.js` | Inicio de validación, polling, aprobación, cuota del servidor y bloqueo de pago cuando falla |
-| `scripts/order-availability-api.test.mjs` | Pruebas contractuales sintéticas, sin conversaciones reales |
-| `scripts/order-availability-flow.test.mjs` | Flujo simulado de aprobación, rechazo, expira y cotización autoritativa |
-| `.github/workflows/availability-apk-v12.yml` | Ejecuta pruebas y compila APK de depuración |
+## 3. Restricciones y pendientes críticos
 
-## 3. Datos enviados y seguridad
+**Todavía NO es un flujo E2E de pedido aceptado.** Para completarlo, fuera de Android se requiere:
 
-La app envía `appId`, `validationToken`, `customerExternalId`, `items` con `productId` UUID y `quantity`, y `address/district/city/country`. Las coordenadas `latitude/longitude` y `useGps=true` solo se envían cuando corresponden a un GPS confirmado por el usuario.
+1. Reiniciar el proceso local de Node del Administrador con su rama de APIs separadas. Esta versión Android puede usar la nueva ruta, pero no puede demostrar que el Windows donde corre el servidor ya ha cargado la nueva implementación.
+2. Tenant activo, aplicación publicada, sede activa/abierta y `consultOrderAvailability=true` publicado.
+3. Una integración TU VERSO autorizada por sede y propósito `ORDER_REQUEST`, con scopes `queue.availability.read` e `interactions.create`.
+4. `TUVERSO_LIVE_CHECKS_ENABLED=true`; habilitar `TUVERSO_LIVE_REQUESTS_ENABLED=true` solo para una prueba controlada que pueda crear una interacción real en TU VERSO. No cambiar credenciales ni la clave `INTEGRATION_MASTER_KEY`.
+5. **Cotización de la sede elegida**: el endpoint actual `fulfillment/resolve` para delivery elige automáticamente una sede. Si difiere de la consultada, Android se detiene correctamente. Para completar los casos de sedes alternativas se necesita que el backend cotice una sede concreta o entregue alternativas verificables.
+6. **Decisión del asesor**: falta una API pública de consulta del estado final y su vínculo al móvil. `PENDING` no equivale a formulario visto, aceptado ni rechazado.
+7. **Formulario**: `POST /interactions` envía un resumen de productos y subtotal, no un esquema de formulario arbitrario. La representación al asesor y botones de aceptación/rechazo deben verificarse mediante una prueba de TU VERSO independiente.
+8. Pedido comercial definitivo, pagos y seguimiento siguen fuera del alcance y **no se simulan como aprobados**.
 
-- `validationToken`: 32 bytes aleatorios CSPRNG, `ordv1_` + 43 caracteres base64url.
-- `Idempotency-Key`: UUID v4 aleatorio; se conserva para reintentar una misma solicitud después de un timeout incierto.
-- `customerExternalId`: identificador local aleatorio seudónimo; no incluye DNI, celular, correo ni otros datos sensibles.
-- Token, solicitud e idempotencia se conservan en `sessionStorage` de la WebView. No se escriben en logs ni en el `localStorage` del perfil.
-- La app **no** envía `tenantId`, `storeId`, `externalLocationId`, cola, tarifa ni total.
-- El Java nativo selecciona exclusivamente el endpoint fijo del Administrador y rechaza redirecciones HTTP.
-- `B3_API_BASE` debe ser una URL HTTPS del backend del Administrador, accesible desde el teléfono. No debe ser la API S2S de TU VERSO ni contener secretos.
+## 4. Seguridad Android
 
-## 4. Estados
+- `MainActivity.java` solo permite las rutas HTTPS de trabajo explícitamente codificadas; no recibe URL ni host arbitrario desde JS, y prohíbe redirecciones.
+- Los secretos de TU VERSO no aparecen en la APK.
+- `customerExternalId` es un identificador seudónimo, no nombre, DNI ni teléfono.
+- `Idempotency-Key` se genera con CSPRNG y persiste con el intento lógico, incluidos timeouts de creación. Tras `PENDING`, el cliente no reenvía la interacción.
+- El estado pendiente se guarda localmente para prevenir duplicados; limpiar los datos privados desde la propia aplicación borra también esa referencia. Sin una API para seguimiento/cancelación, el cliente no debe deducir el resultado tras un reinicio o cambio de pedido.
+- `GET /health/live` y `GET /health/ready` no envían Authorization ni crean interacción.
 
-| Respuesta del Administrador | Comportamiento de Android |
-|---|---|
-| `CHECKING_STORES` | Indica consulta de sedes; sigue consultando |
-| `WAITING_APPROVAL` | Indica revisión real del asesor; no anticipa aprobación |
-| `CREATE_UNCERTAIN` | Reconsulta la misma operación, sin duplicar |
-| `READY_FOR_PAYMENT` | Usa sede, tarifa, total y métodos devueltos por el servidor |
-| `UNAVAILABLE` | Bloquea avance y muestra que no hay sede disponible |
-| `VALIDATION_ERROR` | Bloquea avance y muestra error |
-| `CANCELLED` | Bloquea avance |
+## 5. Configuración de pruebas
 
-Las respuestas HTTP 200/202 se procesan sin inferir aceptación; 400/401/404/409/422/429/500/503 se tratan como errores y **nunca** se convierten en un estado aprobado. El polling es incremental y acotado; si vence su presupuesto, la interfaz permite **volver a comprobar la misma validación**. Si el usuario cambia carrito, dirección o modalidad, se invalida la validación y se inicia otra únicamente al volver a solicitarla.
-
-## 5. Barreras y límites funcionales
-
-1. La WebView **no cotiza comercialmente desde Haversine**: cualquier ruta de delivery exige el POST de validación del Administrador y una cotización de servidor.
-2. Solo productos publicados con UUID y cantidades válidas pueden enviarse a las APIs. Los productos y ofertas demostrativos no generan validaciones.
-3. `READY_FOR_PAYMENT` **no es una orden confirmada**, ni reserva inventario, ni cobra Yape, Plin, efectivo o tarjeta.
-4. El botón final permanece como **pedido de prueba local**, hasta desarrollar/publicar el contrato independiente de pedido definitivo y pagos.
-5. La modalidad **Pide y Retira** y su flujo previo no se alteran por esta integración de delivery.
-6. El servicio del Administrador debe estar operativo, con migración 006 y configuración por tenant, app y sede, catálogo publicado y credenciales TU VERSO apropiadas cuando proceda.
-7. No se certificó E2E real contra un Administrador migrado ni TU VERSO; las pruebas disponibles son sintéticas y de compilación.
-8. La URL Cloudflare de ejemplo incluida antes en la configuración Gradle no constituye un backend de producción; configurar una URL HTTPS real antes de instalar para pruebas conectadas.
-
-## 6. Endpoint temporal de pruebas — 20/11/2026
-
-El administrador se ha indicado en esta URL HTTPS temporal:
+Endpoint HTTPS temporal configurado en Gradle:
 
 `https://live-proved-lot-theatre.trycloudflare.com`
 
-La rama Android ahora utiliza esa dirección predeterminada en `app/build.gradle` tanto para `b3_api_base` (catálogo y validación de pedidos) como para `b3_notifications_api_base` (avisos publicados). Ambas pueden sustituirse **en compilación** con el parámetro `-PB3_API_BASE` sin cambiar el código. Esta dirección **no** es el dominio definitivo de producción.
+Es un túnel temporal, **no un dominio de producción**. La presencia del endpoint en la APK no prueba conectividad ni despliegue del Administrador.
 
-**Estado de comprobación:** la dirección fue actualizada el 20/11/2026. La presencia de la URL en Android no demuestra que el túnel esté encendido ni que el backend o TU VERSO respondan. Verificar por las rutas GET de solo lectura antes de iniciar una validación real.
-
-Verificar desde la misma computadora y desde el teléfono de pruebas, con el túnel encendido:
+Comprobar rutas de solo lectura sin crear una solicitud:
 
 ```powershell
 $api = "https://live-proved-lot-theatre.trycloudflare.com"
+$appId = "com.integrab2g.pollosb3"
 Invoke-RestMethod "$api/health/live"
 Invoke-RestMethod "$api/health/ready"
-Invoke-RestMethod "$api/api/v1/mobile/config?appId=com.integrab2g.pollosb3"
+$config = Invoke-RestMethod "$api/api/v1/mobile/config?appId=$appId"
+$storeId = ($config.stores | Select-Object -First 1).id
+Invoke-RestMethod "$api/api/v1/mobile/stores/$storeId/agent-availability?appId=$appId"
 ```
 
-**No enviar un POST de validación real para comprobar conectividad:** la llamada crea una operación y, si la sede lo requiere, puede iniciar una interacción de atención. Para pruebas de conexión usar solamente los GET anteriores.
+La disponibilidad devuelve HTTP 200 con `AVAILABLE` o `UNAVAILABLE`. HTTP 409 puede significar sede cerrada, configuración o vínculo no válido. HTTP 503 puede significar conexión S2S no habilitada o no verificable. **No hacer un POST de interacción para diagnosticar una conexión**: puede alcanzar a un asesor.
 
-## 7. Compilar y probar (PowerShell, repositorio de la app móvil)
+Actualizar Android desde GitHub:
 
 ```powershell
 git fetch origin
@@ -94,38 +80,11 @@ git pull --ff-only origin feat/pollos-b3-v12-order-availability-api-20261120
 node --check app/src/main/assets/app.js
 node --check app/src/main/assets/order-availability.js
 node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs scripts/order-availability-api.test.mjs scripts/order-availability-flow.test.mjs
-.\gradlew.bat :app:assembleDebug -PB3_API_BASE=https://live-proved-lot-theatre.trycloudflare.com
+.\gradlew.bat :app:assembleDebug
 ```
 
-No ejecutar la app en producción con un túnel temporal o URL ilustrativa. La API del Administrador debe estar levantada y accesible desde Android, no solo desde `localhost` del equipo de desarrollo.
+APK: `app/build/outputs/apk/debug/app-debug.apk`. La rama incorpora un workflow propio para pruebas y compilación V12.
 
-### Diagnóstico de conectividad integrado en la app móvil
+## 6. Certificación pendiente
 
-En la pantalla **Consultar disponibilidad**, si ocurre un error técnico se puede pulsar **Verificar conexión con el servidor**. Esa acción usa el puente nativo Android para realizar `GET /health/ready`. Si el backend no confirma readiness, consulta también `GET /health/live`, siempre al mismo origen HTTPS compilado; **no ejecuta POST**, no genera solicitudes en TU VERSO y no incluye tokens ni cabeceras de autorización del comprador.
-
-- `GET /health/ready` devuelve HTTP `200` con `{"status":"ready"}`: el Administrador y su consulta SQL básica responden, **sin demostrar** que el tenant, las sedes o TU VERSO estén correctamente configurados.
-- `GET /health/live` devuelve HTTP `200` con `{"status":"ok"}` pero readiness devuelve `503`: backend iniciado, PostgreSQL del Administrador no responde.
-- `GET /health/live` responde pero readiness devuelve `404` o contenido diferente: túnel apuntando a otro servicio, versión antigua del backend o contrato incompatible.
-- HTTP `000`/DNS sin resolver, respuesta HTML o error de conexión: URL temporal de Cloudflare expirada, túnel inactivo, red o puerto local equivocado. La app evita interpretar esas respuestas como aceptación del asesor.
-
-**Alcance:** el botón de diagnóstico no transmite ningún formulario a TU VERSO. Solo una acción explícita de validación de delivery dispara el `POST /api/v1/mobile/orders/availability` al Administrador. Este decide si el local configurado requiere una interacción S2S de TU VERSO.
-
-Cuando la API devuelve `401`, `404` o `409`, Android descarta el token de validación que ya no puede recuperar y permite una nueva solicitud. En respuestas temporales (`429`, `5xx`, timeout o fallo de red), conserva la identidad e idempotencia de la solicitud existente para evitar duplicados.
-
-**Límite de la información enviada al asesor:** el contrato móvil admite identificadores publicados de productos, cantidades y dirección de entrega. El Administrador construye el resumen que recibe TU VERSO con productos y subtotal; **no hay un campo API para enviar un formulario arbitrario, ni se transmite DNI o teléfono a la interacción S2S**. Mostrar la solicitud en la bandeja del asesor y comprobar su respuesta requiere certificación fuera del repositorio Android. No se modificaron otros proyectos para este diagnóstico.
-
-## 8. Pruebas E2E pendientes para habilitar producción
-
-- Tenant y app ID vinculados, catálogo publicado, disponibilidad configurada por sede.
-- Local con consulta deshabilitada: respuesta `READY_FOR_PAYMENT` sin interacción TU VERSO.
-- Local con consulta habilitada: `WAITING_APPROVAL` y aceptación real, resultando `READY_FOR_PAYMENT`.
-- Rechazo real y avance a sede siguiente **solo por el servidor**.
-- Ausencia de asesores, expiración, cierre de sede, error de geocodificación, timeout de red y 429.
-- Coherencia centavo a centavo entre catálogo, `subtotal`, `deliveryFee` y `total`.
-- Comportamiento tras pérdida de conexión y regreso a la app.
-- Pruebas físicas Android 24–35 (permisos, reanudación, doble toque, navegación).
-- Backend adicional para creación de pedido definitivo, pagos y estados del pedido: fuera del contrato de disponibilidad actual.
-
-## 9. Control de cambios
-
-La implementación se desarrolla en rama separada basada en `6b30ef7468194075e4580223e267c15bcd5d7552`. No se cambia ninguna base de datos, infraestructura, rama `main` ni ningún otro repositorio. La aprobación y despliegue dependen de revisión y pruebas finales.
+Las pruebas incluidas utilizan respuestas sintéticas de las nuevas APIs y aseguran el orden de llamadas, ausencia de interacciones cuando no hay capacidad, detección de sede distinta, cambios de revisión y conservación de idempotencia. **No constituyen evidencia E2E** de interacción recibida por TU VERSO ni aceptación real del asesor. No se han generado pedidos comerciales ni cobros.
