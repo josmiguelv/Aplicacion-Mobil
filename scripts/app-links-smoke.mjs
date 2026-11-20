@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+// Focused structural checks only. Device, web and WhatsApp verification require real infrastructure.
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const read=path=>readFileSync(path,'utf8');
+const manifest=read('app/src/main/AndroidManifest.xml');
+const java=read('app/src/main/java/com/integrab2g/pollosb3/MainActivity.java');
+const js=read('app/src/main/assets/app.js');
+const gradle=read('app/build.gradle');
+const page=read('app-links/site/index.html');
+const htaccess=read('app-links/site/.htaccess');
+const links=JSON.parse(read('app-links/site/.well-known/assetlinks.json'));
+assert.match(gradle,/applicationId 'com\.integrab2g\.pollosb3'/);
+assert.match(manifest,/android:launchMode="singleTask"/);
+assert.match(manifest,/android:autoVerify="true"/);
+for(const marker of ['android.intent.action.VIEW','android.intent.category.DEFAULT','android.intent.category.BROWSABLE','android:scheme="https"','android:host="app.integra-b2g.com"','android:path="/abrir"'])assert.ok(manifest.includes(marker),marker);
+assert.match(java,/isPollosB3OpenLink\(Intent intent\)/);
+assert.match(java,/onNewIntent\(Intent intent\)/);
+assert.match(java,/dispatchPendingAppLink\(\)/);
+assert.match(java,/onPageFinished\(WebView view, String url\)/);
+assert.match(java,/web\.evaluateJavascript\("window\.b3OpenFromLink && window\.b3OpenFromLink\(\)"/);
+assert.match(js,/window\.b3OpenFromLink=\(\)=>\{/);
+assert.match(js,/nav\('inicio'\);/);
+assert.match(page,/<h1>Bienvenido a Pollos B3<\/h1>/);
+assert.match(page,/const OFFICIAL_GOOGLE_PLAY_URL = '';/);
+assert.doesNotMatch(page,/location\.(replace|assign)\s*\(/);
+assert.match(htaccess,/RewriteRule \^abrir\/\?\$ index\.html \[L\]/);
+assert.equal(links[0].relation[0],'delegate_permission/common.handle_all_urls');
+assert.equal(links[0].target.package_name,'com.integrab2g.pollosb3');
+assert.equal(links[0].target.namespace,'android_app');
+const fps=links[0].target.sha256_cert_fingerprints;
+assert.ok(Array.isArray(fps));
+for(const fp of fps)assert.match(fp,/^(?:[0-9A-F]{2}:){31}[0-9A-F]{2}$/);
+console.log('PASS: manifest, deep-link handling, exact /abrir entry, fallback and Digital Asset Links structure');
+if(!fps.length)console.log('PENDING: real signing SHA-256; association cannot verify until configured and published');

@@ -1,0 +1,22 @@
+name: Pollos B3 notification product contract
+on:
+  push:
+    branches: [feat/pollos-b3-v11-webview-fulfillment]
+    paths:
+      - app/src/main/assets/app.js
+      - scripts/notification-product-contract.test.mjs
+      - .github/workflows/notification-product-contract.yml
+jobs:
+  notification-product:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check app JavaScript syntax
+        run: node --check app/src/main/assets/app.js
+      - name: Check optional product navigation contract
+        run: node --test scripts/notification-product-contract.test.mjs

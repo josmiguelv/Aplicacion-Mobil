@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "794622772783",
+    "project_id": "pollosb3-84297",
+    "storage_bucket": "pollosb3-84297.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:794622772783:android:d88ebf3c764818adee68da",
+        "android_client_info": {
+          "package_name": "com.integrab2g.pollosb3"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANYFBLsLkrajfCWQgfTW1ehbv5jSJ64GU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

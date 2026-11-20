@@ -1,0 +1,10 @@
+# Publicar este directorio como document root de app.integra-b2g.com
+# Servir /abrir sin redirección; mantener /.well-known/assetlinks.json accesible directamente.
+Options -MultiViews
+RewriteEngine On
+RewriteRule ^abrir/?$ index.html [L]
+<IfModule mod_headers.c>
+  <Files "assetlinks.json">
+    Header set Content-Type "application/json; charset=utf-8"
+  </Files>
+</IfModule>

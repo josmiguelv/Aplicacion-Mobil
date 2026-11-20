@@ -1,0 +1,22 @@
+name: Pollos B3 checkout contract
+on:
+  push:
+    branches: [feat/pollos-b3-v11-webview-fulfillment]
+    paths:
+      - app/src/main/assets/app.js
+      - scripts/checkout-delivery-contract.test.mjs
+      - .github/workflows/checkout-delivery.yml
+jobs:
+  checkout-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check app JavaScript syntax
+        run: node --check app/src/main/assets/app.js
+      - name: Check checkout and delivery contract
+        run: node --test scripts/checkout-delivery-contract.test.mjs
