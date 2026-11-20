@@ -42,3 +42,20 @@ Esta V11 WebView se incorpora a una rama separada de GitHub Android y no debe fu
 ## Regla obligatoria de fuente única
 
 Toda información administrativa procede de la publicación de la web multiempresa. Si una tienda no tiene horarios informados para el día, Android **no muestra estado Abierto/Cerrado ni hora de cierre**. Cuando la API informa que está cerrada, el cliente puede verla pero no seleccionar un retiro inmediato. La API evalúa el horario en `America/Lima`. Nombres, direcciones, locales, fotos, ofertas y pagos no se inventan ni se incrustan en la app. Antes de la configuración publicada no se muestran locales ficticios.
+
+
+## Fase 1 V12 — Consultar disponibilidad antes de cotizar el reparto (19/11/2026)
+
+Esta rama añade el paso `Carrito/subtotal → Dirección → Consultar disponibilidad` para la modalidad delivery, sin cambiar la modalidad Pide y Retira. La aplicación lee la regla publicada por sede `consultOrderAvailability` (con `consult_order_availability` como respaldo); un campo ausente/incorrecto no se interpreta como `false`.
+
+- Android revalida el catálogo y ordena sedes activas, abiertas, habilitadas para delivery y dentro del radio de cobertura estimado, descartando coordenadas o tarifas inválidas. Todavía usa distancia Haversine aproximada únicamente en el piloto; la verificación definitiva por carretera corresponde al backend comercial.
+- Si la primera sede elegible publica `false`, Android no contacta TU VERSO, puede calcular su tarifa **provisional** y muestra un resumen con subtotal, delivery y total estimado. El cliente debe pulsar «Continuar» para ingresar sus datos y avanzar.
+- Si publica `true`, la pantalla indica que necesita aprobación. **No solicita ni simula ACCEPTED, no calcula ni muestra tarifa final, no prueba otra sede por su cuenta y no permite avanzar al pago.** El siguiente paso real requiere la API privada del backend comercial para crear/persistir la interacción y recuperar decisiones.
+- Si falta el campo, no hay cobertura o falla el GET, se muestra error sin reusar una cotización vieja. Los cambios de carrito, dirección, modalidad y revisión de catálogo invalidan selección/importe.
+- La selección secuencial de sedes después de un rechazo verdadero y la cotización comercial de Google Routes forman parte de la **Fase 2**, no están implementadas aquí. El valor de esta fase es la UI premium, el filtro comercial local y la seguridad fail-closed para `true`.
+
+**Importante:** la pantalla no debe presentarse como un pedido confirmado. Todos los pedidos de esta rama continúan siendo demostraciones locales, sin cobros, envío a sedes o interacción real en TU VERSO.
+
+Pruebas focalizadas: `node --check app/src/main/assets/app.js` y `node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs`. CI: `.github/workflows/checkout-delivery.yml`.
+
+La conexión futura con el backend comercial deberá reutilizar la interfaz sin exponer bearer S2S en APK/WebView. Los estados PENDING, ACCEPTED, REJECTED, EXPIRED son decisiones del contrato de TU VERSO, no respuestas inventadas por Android.
