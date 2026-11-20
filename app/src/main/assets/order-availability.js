@@ -160,10 +160,112 @@
     return {online:false,status,liveOnline:liveStatus===200 && liveStatus!==null,
       liveStatus};
   }
+  // Separate public mobile contract: no TU VERSO S2S token is ever present in Android.
+  const INTERACTION_KEY = 'b3-mobile-interaction-request-v1';
+  function responseError(response,context) {
+    const status = Number(response?.status);
+    const message = typeof response?.data?.error === 'string' ? response.data.error : '';
+    const error = Error(status===429?'Demasiadas consultas. Intenta más tarde.':
+      status===409?message || 'La sede o el catálogo cambiaron. Verifica la configuración.':
+      status===503?'El Administrador no pudo comunicarse con TU VERSO o la función está deshabilitada.':
+      context+' (HTTP '+(status || 'sin respuesta')+').');
+    error.httpStatus = status;
+    return error;
+  }
+  async function checkAgentAvailability({appId,storeId}) {
+    if(typeof appId!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,149}$/.test(appId)||
+      !UUID.test(storeId)) throw Error('Identificadores de sede o aplicación inválidos.');
+    const response = await nativeRequest({operation:'AGENT_AVAILABILITY',appId,storeId});
+    if(Number(response.status)!==200) throw responseError(response,'No se pudo consultar disponibilidad del asesor');
+    const data=response.data||{};
+    if(data.storeId!==storeId || !['AVAILABLE','UNAVAILABLE'].includes(data.status)||
+       typeof data.available!=='boolean'||data.available!==(data.status==='AVAILABLE')||
+       data.reservation!==false)
+      throw Error('La disponibilidad de TU VERSO no corresponde a la sede solicitada.');
+    return {storeId,status:data.status,available:data.available,checkedAt:data.checkedAt};
+  }
+  async function quoteDelivery({appId,address,district,latitude,longitude,useGps}) {
+    if(typeof appId!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,149}$/.test(appId))
+      throw Error('Identificador de aplicación inválido.');
+    if(typeof address!=='string'||address.trim().length<6||typeof district!=='string'||
+       district.trim().length<2) throw Error('Confirma la dirección para cotizar delivery.');
+    const body={appId,mode:'delivery',address:address.trim(),district:district.trim(),
+      city:'Lima',country:'Perú',useGps:useGps===true};
+    if(useGps===true&&Number.isFinite(latitude)&&Number.isFinite(longitude)){
+      body.latitude=latitude;body.longitude=longitude;
+    }
+    const response=await nativeRequest({operation:'DELIVERY_QUOTE',body});
+    if(Number(response.status)!==200)throw responseError(response,'No se pudo cotizar el delivery');
+    const data=response.data||{};
+    if(!UUID.test(data.storeId)||!Number.isSafeInteger(data.revision)||data.revision<1||
+       data.mode!=='delivery'||!Number.isFinite(Number(data.deliveryFeePen))||
+       data.deliveryFeePen==null||Number(data.deliveryFeePen)<0||
+       !Array.isArray(data.paymentMethods))
+      throw Error('El Administrador devolvió una cotización incompleta.');
+    return data;
+  }
+  function readInteraction() {
+    try{
+      const entry=JSON.parse(root.localStorage.getItem(INTERACTION_KEY)||'null');
+      if(!entry||!UUID.test(entry.idempotencyKey)||
+        typeof entry.fingerprint!=='string'||!entry.body||
+        !['PREPARED','SUBMITTING','PENDING'].includes(entry.status)||
+        (entry.interactionId&&!UUID.test(entry.interactionId)))return null;
+      return entry;
+    }catch(_){return null;}
+  }
+  function persistInteraction(entry) {
+    root.localStorage.setItem(INTERACTION_KEY,JSON.stringify(entry));return entry;
+  }
+  function prepareInteraction({appId,storeId,quoteRevision,items,address,district}) {
+    if(typeof appId!=='string'||!UUID.test(storeId)||
+      !Number.isSafeInteger(quoteRevision)||quoteRevision<1||
+      !Array.isArray(items)||items.length<1||items.length>50||
+      !items.every(i=>i&&UUID.test(i.productId)&&Number.isInteger(i.quantity)&&
+        i.quantity>=1&&i.quantity<=99))
+      throw Error('La solicitud de atención no tiene sede, revisión o productos publicados válidos.');
+    const body={appId,storeId,quoteRevision,customerExternalId:externalCustomerId(),
+      items:items.map(i=>({productId:i.productId,quantity:i.quantity}))
+        .sort((a,b)=>a.productId.localeCompare(b.productId))};
+    const fingerprint=JSON.stringify({...body,address:String(address||'').trim(),
+      district:String(district||'').trim()});
+    const prior=readInteraction();
+    if(prior?.fingerprint===fingerprint)return prior;
+    if(prior&&prior.status!=='PREPARED')
+      throw Error('Ya existe una solicitud de atención iniciada. No enviaremos otro formulario mientras no se confirme su resolución.');
+    return persistInteraction({fingerprint,body,idempotencyKey:uuid(),interactionId:null,
+      status:'PREPARED',createdAt:Date.now()});
+  }
+  async function createInteraction(entry) {
+    if(!entry||!UUID.test(entry.idempotencyKey)||!entry.body)
+      throw Error('No existe una solicitud de atención válida.');
+    if(entry.status==='PENDING'&&UUID.test(entry.interactionId))
+      return {interactionId:entry.interactionId,status:'PENDING',storeId:entry.body.storeId};
+    entry.status='SUBMITTING';
+    persistInteraction(entry); // Persist before network I/O: reuse the same key after timeout.
+    const response=await nativeRequest({operation:'INTERACTION_CREATE',
+      idempotencyKey:entry.idempotencyKey,body:entry.body});
+    const status=Number(response.status);
+    if(status!==201&&status!==200){
+      if(status===409||status===400)
+        {entry.status='PREPARED';persistInteraction(entry);}
+      throw responseError(response,'No se pudo crear la interacción');
+    }
+    const data=response.data||{};
+    if(!UUID.test(data.interactionId)||data.status!=='PENDING'||
+      data.storeId!==entry.body.storeId||
+      typeof data.externalReference!=='string'||!data.externalReference.startsWith('mobile:'))
+      throw Error('La respuesta de TU VERSO no confirmó una interacción pendiente válida.');
+    entry.status='PENDING';entry.interactionId=data.interactionId;
+    persistInteraction(entry);
+    return data;
+  }
   function eraseLocalIdentity() {
     clear();
     root.localStorage.removeItem(CUSTOMER_KEY);
+    root.localStorage.removeItem(INTERACTION_KEY);
   }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
-  root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,eraseLocalIdentity});
+  root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
+    checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,readInteraction,eraseLocalIdentity});
 })(window);
