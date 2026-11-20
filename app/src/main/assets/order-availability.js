@@ -165,9 +165,9 @@
   function responseError(response,context) {
     const status = Number(response?.status);
     const message = typeof response?.data?.error === 'string' ? response.data.error : '';
-    const error = Error(status===429?'Demasiadas consultas. Intenta más tarde.':
-      status===409?message || 'La sede o el catálogo cambiaron. Verifica la configuración.':
-      status===503?'El Administrador no pudo comunicarse con TU VERSO o la función está deshabilitada.':
+    const error = Error(status===429?context+': demasiadas consultas (HTTP 429).':
+      status===409?context+': '+(message || 'La sede o el catálogo cambiaron. Verifica la configuración.')+' (HTTP 409).':
+      status===503?context+' (HTTP 503): el Administrador no pudo completar esta operación. Revisa esta etapa específica; no implica necesariamente que TU VERSO esté desconectado.':
       context+' (HTTP '+(status || 'sin respuesta')+').');
     error.httpStatus = status;
     return error;
