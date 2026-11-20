@@ -7,7 +7,8 @@ on:
       - app/src/main/assets/index.html
       - app/src/main/assets/order-availability.js
       - app/src/main/java/com/integrab2g/pollosb3/MainActivity.java
-      - scripts/order-availability-api.test.mjs
+      - scripts/order-availability-api.test.mjs scripts/order-availability-flow.test.mjs
+      - scripts/order-availability-flow.test.mjs
       - app/src/main/assets/styles.css
       - scripts/checkout-delivery-contract.test.mjs
       - scripts/delivery-availability-v12.test.mjs
