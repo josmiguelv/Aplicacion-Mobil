@@ -485,16 +485,48 @@ window.b3NativeLocation=(lat,lng,error)=>{
  if(fulfillmentModal==='pickup'||st.stage==='locations'||(st.stage==='app'&&st.tab==='inicio')){render();return}
  toast('Ubicación recibida. Verifica la dirección escrita.');
 };
-async function confirmStore(mode,id){
- const selected=shops.find(x=>String(x.id)===String(id));
- if(!storeAllowed(selected,mode)||(mode==='pickup'&&!eligibleForPickup(selected)))return toast('Local cerrado o no disponible para retiro inmediato');
- st.store=selected.id;st.quote=null;
- // Pickup is confirmed from authoritative published store flags; no delivery quote is needed.
- if(mode==='delivery')return toast('Para delivery, confirma la dirección y solicita una tarifa de reparto.');
- save();
- if(checkoutPending){checkoutPending=false;screen('identity');return}
- if(fulfillmentModal){fulfillmentModal=null;nav('inicio');return}
- if(st.selected)screen('detail');else nav('carta');
+async function confirmStore(mode,id,{showDetails=false}={}){
+ if(mode!=='pickup')return toast('Para delivery, confirma la dirección y solicita una tarifa de reparto.');
+ if(checkoutRefreshPending)return false;
+ checkoutRefreshPending=true;checkoutReviewNote='';render();
+ try{
+  // Do not accept a pickup store from a stale home card or cached location list.
+  await fetchConfig({strict:true});
+  const selected=shops.find(x=>String(x.id)===String(id));
+  if(!eligibleForPickup(selected)){
+   checkoutReviewNote='Este local está cerrado o dejó de aceptar recojos. Selecciona otro local disponible.';
+   if(String(st.store)===String(id)){st.store='';st.pay='';save()}
+   if(fulfillmentModal){fulfillmentModal='pickup';render()}
+   else screen('locations');
+   return false;
+  }
+  const previousStore=String(st.store||'');
+  const previousMode=st.mode;
+  st.mode='pickup';st.store=selected.id;st.fulfillment='pickup';st.quote=null;
+  if(previousMode!=='pickup'||(previousStore&&previousStore!==String(selected.id))){
+   st.pay='';st.cash='';
+  }
+  save();
+  if(checkoutPending){
+   checkoutPending=false;
+   const issue=checkoutCartIssue();
+   if(issue){checkoutReviewNote=issue;screen('cart');return false}
+   screen('identity');return true;
+  }
+  if(showDetails){screen('localDetail');return true}
+  fulfillmentModal=null;
+  if(st.cart.length)screen('cart');
+  else nav('carta');
+  return true;
+ }catch(err){
+  checkoutReviewNote=err?.message||'No se pudo actualizar el horario del local. Intenta nuevamente.';
+  if(fulfillmentModal){fulfillmentModal='pickup';render()}
+  else screen('locations');
+  return false;
+ }finally{
+  checkoutRefreshPending=false;
+  render();
+ }
 }
 
 const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configReady,...d}=st;localStorage.setItem(K,JSON.stringify(d));};
@@ -1280,7 +1312,7 @@ if(b.dataset.applyVacancy){applyVacancy(b.dataset.applyVacancy);return}
 if(b.hasAttribute('data-home-store-close')){if(b.classList.contains('b3-store-detail-backdrop')&&e.target!==b)return;selectedHomeStore=null;render();return}
 if(b.dataset.homeStore){selectedHomeStore=b.dataset.homeStore;render();return}
 if(b.dataset.homeLocal!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('local',Number(b.dataset.homeLocal));return}
-if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){st.mode='pickup';void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;fulfillmentModal='delivery';render()}return}
+if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;fulfillmentModal='delivery';render()}return}
 if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
 if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;checkoutPending=false;fulfillmentModal=null;render();return}
 if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
@@ -1317,11 +1349,7 @@ if(b.hasAttribute('data-modal-save-delivery')){
  st.mode='delivery';st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.quote=null;st.store='';maybeSaveDeliveryAddress();
  save();void resolveDelivery();return;
 }
-if(b.dataset.modalPickstore){
- const store=shops.find(s=>s.id===b.dataset.modalPickstore);
- if(!eligibleForPickup(store))return toast('El local está cerrado o no acepta retiros');
- st.mode='pickup';void confirmStore('pickup',store.id);return;
-}
+if(b.dataset.modalPickstore){void confirmStore('pickup',b.dataset.modalPickstore);return;}
 if(b.hasAttribute('data-gps')){deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-marketing-first-later')){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return}
 if(b.hasAttribute('data-marketing-first-accept')){localStorage.setItem(MARKETING_PROMPT_KEY,'accepted');marketingPromptVisible=false;render();window.AndroidBridge?.setMarketingNotificationsEnabled?.(true);return}
 if(b.hasAttribute('data-marketing-toggle')){if(window.AndroidBridge?.setMarketingNotificationsEnabled){window.AndroidBridge.setMarketingNotificationsEnabled(!window.AndroidBridge.marketingNotificationsEnabled());}else toast('Las notificaciones push solo están disponibles en Android.');return}
@@ -1342,15 +1370,10 @@ if(b.dataset.screen){
 }
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
 if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
-if(b.dataset.store){const s=shops.find(x=>x.id===b.dataset.store);if(!eligibleForPickup(s))return toast('Local no disponible para recojo');st.store=b.dataset.store;st.quote=null;st.mode='pickup';screen('localDetail');return}if(b.dataset.pickstore){
- const selected=shops.find(x=>String(x.id)===String(b.dataset.pickstore));
- if(!eligibleForPickup(selected))return toast('Local cerrado o no habilitado para recojo');
- st.mode='pickup';
- if(checkoutPending){void confirmStore('pickup',selected.id);return}
- st.store=selected.id;st.fulfillment='pickup';st.quote=null;screen('localDetail');return;
-}
+if(b.dataset.store){void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
+ if(st.stage==='localDetail'&&st.mode==='pickup'){void confirmStore('pickup',st.store);return}
  if(st.selected&&product(st.selected)){screen('detail');return}
  nav('carta');return;
 }
