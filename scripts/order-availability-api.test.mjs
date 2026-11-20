@@ -95,10 +95,10 @@ test('prohíbe productos no UUID, duplicados, cantidades inválidas y no simula 
   assert.throws(()=>api.prepare(input({items:[{productId,quantity:100}]})),/productos publicados/);
   assert.throws(()=>api.prepare(input({items:[{productId,quantity:1},{productId,quantity:1}]})),/duplicados/);
   assert.match(checkoutSource,/function publishedOrderItems\(\)/);
-  assert.match(checkoutSource,/if\(flag===true\)/);
+  assert.match(checkoutSource,/const ready=await requestBackendOrderAvailability/);
   assert.match(checkoutSource,/await requestBackendOrderAvailability/);
-  assert.match(checkoutSource,/if\(flag===null\)/);
-  assert.match(checkoutSource,/quoteForDeliveryCandidate\(first\)/);
+  assert.match(checkoutSource,/Both false and true always use the same server-authoritative validation contract/);
+  assert.doesNotMatch(checkoutSource,/const quote=quoteForDeliveryCandidate\(first\);/);
   assert.match(checkoutSource,/serverValidated:true/);
   assert.match(checkoutSource,/READY_FOR_PAYMENT/);
   assert.match(checkoutSource,/UNAVAILABLE/);
