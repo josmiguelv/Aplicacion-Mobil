@@ -251,7 +251,7 @@ function straightDistanceKm(s){
 }
 function paymentOptions(){
  const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];
- if(!st.configReady)return choices; // Demo without a published configuration; never charges.
+ if(!st.configReady)return []; // No published store or payment methods: never assume enabled.
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const published=st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)
   ?st.quote.paymentMethods:selected?.paymentMethods?.[st.mode];
@@ -503,7 +503,7 @@ async function confirmStore(mode,id,{showDetails=false}={}){
   const previousStore=String(st.store||'');
   const previousMode=st.mode;
   st.mode='pickup';st.store=selected.id;st.fulfillment='pickup';st.quote=null;
-  if(previousMode!=='pickup'||(previousStore&&previousStore!==String(selected.id))){
+  if(previousMode!=='pickup'||previousStore!==String(selected.id)){
    st.pay='';st.cash='';
   }
   save();
@@ -1191,7 +1191,8 @@ async function revalidateCheckout(next){
    if(next==='cart')screen('cart');else screen('deliveryAddress');
   }else{
    // Pickup also needs a fresh, successful GET before the customer can proceed.
-   if(!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store))))screen('locations');
+   // Route back to store selection rather than leaving a stale payment/summary.
+   if(st.mode==='pickup')screen('locations');
    else render();
   }
   return false;
