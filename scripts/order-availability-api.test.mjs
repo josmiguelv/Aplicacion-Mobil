@@ -229,14 +229,14 @@ test('503 de cotización identifica fulfillment sin atribuirlo a TU VERSO',async
  const c=client(req=>({requestId:req.requestId,status:503,data:{error:'Operación temporalmente no disponible'}}));
  await assert.rejects(()=>c.api.quoteDelivery({
   appId:'com.integrab2g.pollosb3',address:'Av. Ejemplo 123',district:'Santa Anita',useGps:false
- }),/No se pudo cotizar el delivery \\(HTTP 503\\)/);
+ }),/No se pudo cotizar el delivery \(HTTP 503\)/);
  assert.deepEqual(c.requests.map(x=>x.operation),['DELIVERY_QUOTE']);
 });
 test('503 de disponibilidad identifica la consulta y no inicia interacción',async()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
  const c=client(req=>({requestId:req.requestId,status:503,data:{error:'Operación temporalmente no disponible'}}));
  await assert.rejects(()=>c.api.checkAgentAvailability({appId:'com.integrab2g.pollosb3',storeId}),
-  /No se pudo consultar disponibilidad del asesor \\(HTTP 503\\)/);
+  /No se pudo consultar disponibilidad del asesor \(HTTP 503\)/);
  assert.deepEqual(c.requests.map(x=>x.operation),['AGENT_AVAILABILITY']);
 });
 test('error 503 conserva idempotencia para reintento, nunca aprueba por timeout',async()=>{
@@ -244,7 +244,7 @@ test('error 503 conserva idempotencia para reintento, nunca aprueba por timeout'
  const c=client(req=>({requestId:req.requestId,status:503,data:{error:'unavailable'}}));
  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,quoteRevision:18,
   items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
- await assert.rejects(()=>c.api.createInteraction(entry),/No se pudo crear la interacción \\(HTTP 503\\)/);
+ await assert.rejects(()=>c.api.createInteraction(entry),/No se pudo crear la interacción \(HTTP 503\)/);
  assert.equal(c.api.readInteraction().status,'SUBMITTING');
  assert.equal(c.api.readInteraction().idempotencyKey,entry.idempotencyKey);
  await assert.rejects(()=>c.api.createInteraction(c.api.readInteraction()));
