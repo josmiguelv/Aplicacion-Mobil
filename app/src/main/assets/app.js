@@ -1004,7 +1004,7 @@ function cart(){
    <p><span>Subtotal</span><b>${cash(subtotal())}</b></p>
    <p><span>Delivery</span><span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
    <p class="grand"><b>Total estimado</b><strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Por cotizar':cash(orderTotal())}</strong></p>
-  </div>${st.mode==='delivery'&&deliveryQuoteValid()? `<p class="smallprint">Desde ${esc(st.quote.storeName||'sede disponible')} · ${Number(st.quote.straightDistanceKm).toFixed(2)} km aproximados en línea recta · ${st.quote.deliveryPricingMode==='FIXED'?'tarifa fija':'tarifa por km'}.</p>`:''}
+  </div>${st.mode==='delivery'&&deliveryQuoteValid()? `<p class="smallprint">Desde ${esc(st.quote.storeName||'sede disponible')} · ${st.quote.serverValidated?'Cotización del servidor':Number(st.quote.straightDistanceKm).toFixed(2)+' km aproximados en línea recta · '+(st.quote.deliveryPricingMode==='FIXED'?'tarifa fija':'tarifa por km')}.</p>`:''}
   ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
   <p class="smallprint">No se enviarán pedidos reales ni se harán cobros en esta versión de prueba.</p>
   <button class="outline full" data-tab="carta">Seguir pidiendo</button>
@@ -1013,20 +1013,22 @@ function cart(){
 }
 function availability(){
  const status=deliveryAvailability.status;
- const checking=deliveryRequestPending||status==='CHECKING';
- const ready=!checking&&status==='READY'&&deliveryQuoteValid();
+ const checking=status==='CHECKING'||status==='CHECKING_STORES';
+ const waiting=status==='WAITING_APPROVAL'||status==='CREATE_UNCERTAIN';
+ const ready=!checking&&!waiting&&status==='READY'&&deliveryQuoteValid();
  const required=!checking&&status==='APPROVAL_REQUIRED';
- const failed=!checking&&status==='ERROR';
+ const failed=!checking&&!waiting&&(status==='ERROR'||status==='UNAVAILABLE');
  const names=deliveryAvailability.candidateNames||[];
- const title=checking?'Buscando una sede para ti':ready?'Tenemos una sede disponible':required?'Tu pedido necesita confirmación':'No pudimos completar la consulta';
+ const title=checking?'Buscando una sede para ti':waiting?'Esperando confirmación de la sede':ready?'Tenemos una sede disponible':status==='UNAVAILABLE'?'No hay sedes disponibles':required?'Tu pedido necesita confirmación':'No pudimos completar la consulta';
  const detail=checking?'Revisamos los locales abiertos, habilitados para delivery y con cobertura en tu dirección.'
-  :ready?'La sede seleccionada no requiere aprobación adicional. Revisa el costo referencial antes de continuar.'
+  :waiting?deliveryAvailability.message
+  :ready?'La sede respondió. Revisa el total y las formas de pago antes de continuar.'
   :required?'La primera sede elegible requiere una respuesta real del equipo antes de confirmar tu pedido.'
   :deliveryAvailability.message||'Verifica tu dirección e inténtalo otra vez.';
  return `<div class="page b3-availability-page">${heading('Consultar disponibilidad','deliveryAddress')}
   <div class="b3-availability-step"><span>01 <i></i> 02 <i></i> 03</span><small>Carrito · Dirección · Disponibilidad</small></div>
   <section class="b3-availability-card" aria-live="polite">
-   <div class="b3-availability-orb ${checking?'checking':ready?'ready':required?'awaiting':'failed'}" aria-hidden="true">${ic(checking?'clock':ready?'check':required?'store':'close',34)}</div>
+   <div class="b3-availability-orb ${checking?'checking':waiting?'awaiting':ready?'ready':required?'awaiting':'failed'}" aria-hidden="true">${ic(checking?'clock':ready?'check':required?'store':'close',34)}</div>
    <span class="b3-availability-eyebrow">POLLOS B3 · DELIVERY</span>
    <h2>${esc(title)}</h2><p>${esc(detail)}</p>
    <div class="b3-availability-milestones">
@@ -1047,10 +1049,11 @@ function availability(){
     ${names.length>1?'<small>Si esta sede rechaza el pedido, la integración consultará otra sede elegible.</small>':''}
    </div>`:''}
   ${failed?`<div class="notice" role="alert">${esc(deliveryAvailability.message)}</div>`:''}
-  ${ready?`<div class="b3-availability-selected">${ic('store',22)}<span><strong>${esc(st.quote.storeName||'Sede disponible')}</strong><small>Delivery referencial · ${Number(st.quote.straightDistanceKm).toFixed(2)} km en línea recta</small></span></div>
+  ${waiting?`<div class="b3-availability-message" role="status"><p>${esc(deliveryAvailability.message)}</p></div>`:''}
+  ${ready?`<div class="b3-availability-selected">${ic('store',22)}<span><strong>${esc(st.quote.storeName||'Sede disponible')}</strong><small>${st.quote.serverValidated?'Sede y tarifa verificadas por el servidor': 'Delivery referencial · '+Number(st.quote.straightDistanceKm).toFixed(2)+' km en línea recta'}</small></span></div>
    <button class="primary full" data-availability-continue="1">Continuar con mi pedido ${ic('chev',18)}</button>`:''}
-  ${!checking&&!ready?'<button class="primary full" data-availability-retry="1">Volver a comprobar</button>':''}
-  ${checking?'<div class="b3-availability-wait">Consultando locales disponibles…</div>':''}
+  ${!deliveryRequestPending&&!ready?'<button class="primary full" data-availability-retry="1">Volver a comprobar</button>':''}
+  ${deliveryRequestPending?'<div class="b3-availability-wait">'+(waiting?'Esperando la decisión del asesor…':'Consultando locales disponibles…')+'</div>':''}
   <button class="outline full" data-screen="deliveryAddress">Modificar dirección de entrega</button>
   <p class="smallprint">No se enviarán pedidos ni se realizarán cobros reales en esta versión de prueba.</p>
  </div>`;
@@ -1079,7 +1082,7 @@ function summary(){
  <hr><p>Pago: <b>${esc(methods[st.pay]||'Por seleccionar')}</b></p>
  ${items}<hr><p>Subtotal <b>${cash(subtotal())}</b></p>
  <p>Delivery <span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
- ${st.mode==='delivery'&&deliveryQuoteValid()?`<p>Sede: ${esc(st.quote.storeName||selectedStore?.name||'Asignada por cobertura')} · ${Number(st.quote.straightDistanceKm).toFixed(2)} km aproximados en línea recta · ${st.quote.deliveryPricingMode==='FIXED'?'Tarifa fija':'Tarifa por kilómetro'}</p><p class="smallprint">Distancia estimada, no equivale a un recorrido por carretera.</p>`:''}
+ ${st.mode==='delivery'&&deliveryQuoteValid()?`<p>Sede: ${esc(st.quote.storeName||selectedStore?.name||'Asignada por cobertura')} · ${st.quote.serverValidated?'Cotización de servidor':Number(st.quote.straightDistanceKm).toFixed(2)+' km aproximados en línea recta · '+(st.quote.deliveryPricingMode==='FIXED'?'Tarifa fija':'Tarifa por kilómetro')}</p><p class="smallprint">${st.quote.serverValidated?'Disponibilidad validada. No reserva productos ni crea un pedido comercial.':'Distancia estimada, no equivale a un recorrido por carretera.'}</p>`:''}
  <p class="grand">Total estimado <strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Pendiente de cotizar':cash(orderTotal())}</strong></p>
  </div>${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
  <div class="notice">Recorrido de prueba: no se confirmarán pagos ni se enviarán pedidos a Pollos B3.</div>
