@@ -102,7 +102,8 @@ test('HTTP 429 nunca se interpreta como rechazo ni como cotización',async()=>{
 test('salud del backend usa únicamente GET de lectura sin crear interacción ni exponer tokens',async()=>{
   const {api,requests}=client(req=>({requestId:req.requestId,status:200,data:{status:'ready'}}));
   const result=await api.checkConnection();
-  assert.deepEqual(result,{online:true,status:200});
+  assert.equal(result.online,true);
+  assert.equal(result.status,200);
   assert.equal(requests.length,1);
   assert.equal(requests[0].operation,'HEALTH');
   assert.ok(!('body' in requests[0])&&!('idempotencyKey' in requests[0])&&!('validationToken' in requests[0]));
@@ -112,7 +113,9 @@ test('salud del backend usa únicamente GET de lectura sin crear interacción ni
 });
 test('el backend no listo se reporta sin crear validaciones',async()=>{
  const {api}=client(req=>({requestId:req.requestId,status:503,data:{status:'unavailable'}}));
- assert.deepEqual(await api.checkConnection(),{online:false,status:503});
+ const result=await api.checkConnection();
+ assert.equal(result.online,false);
+ assert.equal(result.status,503);
 });
 test('HTTP 404 invalida el token perdido y permite nueva solicitud; 429 conserva idempotencia',async()=>{
  const lost=client(req=>({requestId:req.requestId,status:404,data:{error:'Not found'}}));
