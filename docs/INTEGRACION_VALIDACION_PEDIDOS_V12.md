@@ -24,6 +24,7 @@ El Administrador es la única autoridad para determinar productos, subtotal, hor
 | `app/src/main/assets/index.html` | Carga el nuevo módulo antes de `app.js` |
 | `app/src/main/assets/app.js` | Inicio de validación, polling, aprobación, cuota del servidor y bloqueo de pago cuando falla |
 | `scripts/order-availability-api.test.mjs` | Pruebas contractuales sintéticas, sin conversaciones reales |
+| `scripts/order-availability-flow.test.mjs` | Flujo simulado de aprobación, rechazo, expira y cotización autoritativa |
 | `.github/workflows/availability-apk-v12.yml` | Ejecuta pruebas y compila APK de depuración |
 
 ## 3. Datos enviados y seguridad
@@ -71,7 +72,7 @@ git switch feat/pollos-b3-v12-order-availability-api-20261120
 git pull --ff-only origin feat/pollos-b3-v12-order-availability-api-20261120
 node --check app/src/main/assets/app.js
 node --check app/src/main/assets/order-availability.js
-node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs scripts/order-availability-api.test.mjs
+node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs scripts/order-availability-api.test.mjs scripts/order-availability-flow.test.mjs
 .\gradlew.bat :app:assembleDebug -PB3_API_BASE=https://TU_BACKEND_ADMIN_HTTPS
 ```
 
