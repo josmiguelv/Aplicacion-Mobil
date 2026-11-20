@@ -350,7 +350,7 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   let response;
   try{
    response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
-    method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,
+    method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},signal:controller.signal,
     body:JSON.stringify({appId:APP_ID,mode:'delivery',address,district,latitude:destination.latitude,longitude:destination.longitude,useGps:destination.source==='gps'})
    });
   }finally{clearTimeout(timeout)}
@@ -376,7 +376,7 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   fulfillmentModal=null;nav('inicio');return true;
  }catch(err){
   st.quote=null;st.store='';save();
-  deliveryRequestError=err?.name==='AbortError'?'La cotización demoró demasiado. Intenta nuevamente.':err instanceof TypeError?'No pudimos consultar el cálculo de reparto. El catálogo puede funcionar aunque el servicio de delivery presente un error.':(err.message||'No se pudo cotizar el delivery.');
+  deliveryRequestError=err?.name==='AbortError'?'La cotización demoró demasiado. Intenta nuevamente.':err instanceof TypeError?'No se pudo obtener una respuesta de la API de delivery. Verifica que el túnel esté activo y que el backend permita el POST público.':(err.message||'No se pudo cotizar el delivery.');
   console.warn('Pollos B3 delivery quote error',err?.name||'Error');
   // Keep the exact screen and entered address, so the customer can retry.
   return false;
@@ -1097,7 +1097,7 @@ async function revalidateCheckout(next){
     screen('locations');return false
    }
    const response=await fetch(API_BASE+'/api/v1/mobile/fulfillment/resolve',{
-    method:'POST',headers:{'Content-Type':'application/json'},
+    method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},
     body:JSON.stringify({appId:APP_ID,mode:'pickup',storeId:st.store})
    });
    if(!response.ok)throw Error('El local de recojo ya no está disponible. Revisa los locales.');
