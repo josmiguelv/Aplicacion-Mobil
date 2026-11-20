@@ -929,6 +929,50 @@ function cart(){
   <button class="primary full" data-screen="identity" ${checkoutRefreshPending?"disabled":""}>${checkoutRefreshPending?"Actualizando disponibilidad...":"Continuar con pedido de prueba"}</button>`}
  </div>`;
 }
+function availability(){
+ const status=deliveryAvailability.status;
+ const checking=deliveryRequestPending||status==='CHECKING';
+ const ready=!checking&&status==='READY'&&deliveryQuoteValid();
+ const required=!checking&&status==='APPROVAL_REQUIRED';
+ const failed=!checking&&status==='ERROR';
+ const names=deliveryAvailability.candidateNames||[];
+ const title=checking?'Buscando una sede para ti':ready?'Tenemos una sede disponible':required?'Tu pedido necesita confirmación':'No pudimos completar la consulta';
+ const detail=checking?'Revisamos los locales abiertos, habilitados para delivery y con cobertura en tu dirección.'
+  :ready?'La sede seleccionada no requiere aprobación adicional. Revisa el costo referencial antes de continuar.'
+  :required?'La primera sede elegible requiere una respuesta real del equipo antes de confirmar tu pedido.'
+  :deliveryAvailability.message||'Verifica tu dirección e inténtalo otra vez.';
+ return `<div class="page b3-availability-page">${heading('Consultar disponibilidad','deliveryAddress')}
+  <div class="b3-availability-step"><span>01 <i></i> 02 <i></i> 03</span><small>Carrito · Dirección · Disponibilidad</small></div>
+  <section class="b3-availability-card" aria-live="polite">
+   <div class="b3-availability-orb ${checking?'checking':ready?'ready':required?'awaiting':'failed'}" aria-hidden="true">${ic(checking?'clock':ready?'check':required?'store':'close',34)}</div>
+   <span class="b3-availability-eyebrow">POLLOS B3 · DELIVERY</span>
+   <h2>${esc(title)}</h2><p>${esc(detail)}</p>
+   <div class="b3-availability-milestones">
+    <div><span class="b3-availability-check">${ic('check',16)}</span><span>Dirección registrada</span></div>
+    <div><span class="b3-availability-check ${checking?'animated':''}">${ic(checking?'clock':'check',16)}</span><span>Locales y cobertura</span></div>
+    <div><span class="b3-availability-check ${ready?'':'muted'}">${ic(ready?'check':'clock',16)}</span><span>Confirmación de la sede</span></div>
+   </div>
+  </section>
+  <section class="b3-availability-order"><div class="b3-availability-overline">TU PEDIDO</div>
+   <p><span>${cartCount()} producto(s)</span><strong>${cash(subtotal())}</strong></p>
+   <p><span>Delivery</span><strong>${ready?cash(st.quote.deliveryFeePen):'Por confirmar'}</strong></p>
+   <div class="b3-availability-total"><span>${ready?'Total estimado':'Subtotal de productos'}</span><b>${cash(ready?orderTotal():subtotal())}</b></div>
+   <small>${esc(st.profile.address||'')} · ${esc(st.profile.district||'')}</small>
+  </section>
+  ${required?`<div class="b3-availability-message" role="status">
+    <strong>${esc(deliveryAvailability.storeName||'Sede seleccionada')} requiere aprobación</strong>
+    <p>${esc(deliveryAvailability.message)}</p>
+    ${names.length>1?'<small>Si esta sede rechaza el pedido, la integración consultará otra sede elegible.</small>':''}
+   </div>`:''}
+  ${failed?`<div class="notice" role="alert">${esc(deliveryAvailability.message)}</div>`:''}
+  ${ready?`<div class="b3-availability-selected">${ic('store',22)}<span><strong>${esc(st.quote.storeName||'Sede disponible')}</strong><small>Delivery referencial · ${Number(st.quote.straightDistanceKm).toFixed(2)} km en línea recta</small></span></div>
+   <button class="primary full" data-availability-continue="1">Continuar con mi pedido ${ic('chev',18)}</button>`:''}
+  ${!checking&&!ready?'<button class="primary full" data-availability-retry="1">Volver a comprobar</button>':''}
+  ${checking?'<div class="b3-availability-wait">Consultando locales disponibles…</div>':''}
+  <button class="outline full" data-screen="deliveryAddress">Modificar dirección de entrega</button>
+  <p class="smallprint">No se enviarán pedidos ni se realizarán cobros reales en esta versión de prueba.</p>
+ </div>`;
+}
 function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
 function phone(){return `<div class="page form">${heading('Tu teléfono','identity')}<p class="sub">Lo usaremos para identificar tu pedido. En esta demo no enviaremos mensajes ni códigos.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(st.profile.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`}
 function payment(){
@@ -1179,7 +1223,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
+function render(){if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
  return {store:String(st.store||''),total:Math.round(orderTotal()*100),
@@ -1187,7 +1231,7 @@ function checkoutSnapshot(){
 }
 function finalizeDemoOrder(){
  const issue=checkoutCartIssue();if(issue){checkoutReviewNote=issue;screen('cart');return}
- if(st.mode==='delivery'&&!deliveryQuoteValid()){checkoutReviewNote='La cotización de delivery no es válida. Confirma nuevamente la dirección.';screen('deliveryAddress');return}
+ if(st.mode==='delivery'&&!deliveryQuoteValid()){checkoutReviewNote='La sede debe validar disponibilidad y tarifa antes de continuar.';screen('availability');return}
  if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){checkoutReviewNote='El local de recojo ya no está disponible.';screen('locations');return}
  if(!paymentOptions().some(x=>x[0]===st.pay)){checkoutReviewNote='El método de pago ya no está disponible.';screen('payment');return}
  const order={id:'B3-DEMO-'+String(Date.now()),ts:Date.now(),total:orderTotal(),items:st.cart.map(x=>({id:x.id,qty:x.qty})),mode:st.mode,pay:st.pay,status:'RECEIVED',demo:true,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false};
@@ -1208,8 +1252,8 @@ async function revalidateCheckout(next){
     screen('deliveryAddress');return false
    }
    if(!await resolveDelivery({silent:true,skipConfig:true})){
-    checkoutReviewNote=deliveryRequestError||'No fue posible actualizar el costo de delivery.';
-    screen('deliveryAddress');return false
+    checkoutReviewNote=deliveryRequestError||deliveryAvailability.message||'Se necesita validar disponibilidad.';
+    if(st.stage!=='availability')screen('availability');return false
    }
   }else if(st.mode==='pickup'){
    if(!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){
@@ -1257,8 +1301,10 @@ async function revalidateCheckout(next){
 function startCheckout(){
  const issue=checkoutCartIssue();if(issue){toast(issue);return}
  if(!st.mode){checkoutPending=true;screen('choice');return}
- if(st.mode==='delivery'&&!hasDeliveryDestination(st.profile.address,st.profile.district)){
-  checkoutPending=true;screen('deliveryAddress');return
+ if(st.mode==='delivery'){
+  checkoutPending=true;
+  if(!hasDeliveryDestination(st.profile.address,st.profile.district)){screen('deliveryAddress');return}
+  void resolveDelivery();return
  }
  checkoutPending=false;void revalidateCheckout('identity');
 }
@@ -1644,7 +1690,7 @@ window.handleB3Back=()=>{
   }
   if(st.stage.startsWith('signin-')){screen('login');return true}
   if(checkoutPending)checkoutPending=false;
-  const previous={notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
+  const previous={availability:'deliveryAddress',notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
   screen(previous[st.stage]||'app');return true
 };
 render();
