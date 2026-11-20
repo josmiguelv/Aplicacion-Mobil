@@ -184,3 +184,146 @@ test('la compra es demostración: sin cobros ni pedidos enviados al local',()=>{
  assert.match(source,/revalidateCheckout\('confirm'\)/)
  assert.match(source,/window\.b3DeliveryGpsAddress=/)
 })
+
+test('Pide y Retira: local activo, habilitado, con horario conocido y abierto',()=>{
+ const context={demoStoreClock:()=>({isOpen:true})}
+ vm.runInNewContext(extract('eligibleForPickup'),context)
+ const ok={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true}
+ assert.equal(context.eligibleForPickup(ok),true)
+ for(const sample of [
+  {...ok,active:false},{...ok,pickup_enabled:false},
+  {...ok,isOpen:false},{...ok,hoursConfigured:false},
+  {...ok,pickup_enabled:null},null
+ ]) assert.equal(context.eligibleForPickup(sample),false)
+})
+test('seleccionar recojo desde ventana con carrito verifica GET y abre el carrito',async()=>{
+ const events=[]
+ const selected={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true}
+ const st={mode:'delivery',store:'',quote:{deliveryFeePen:5},pay:'yape',cash:'100',cart:[{id:'p',qty:1}]}
+ const context={
+  shops:[selected],st,checkoutRefreshPending:false,checkoutReviewNote:'',checkoutPending:false,fulfillmentModal:'pickup',
+  render:()=>{},save:()=>events.push('save'),screen:name=>events.push(name),nav:name=>events.push('nav:'+name),toast:msg=>events.push('toast:'+msg),
+  fetchConfig:async({strict})=>{assert.equal(strict,true);events.push('GET')},
+  eligibleForPickup:store=>store?.active===true&&store?.pickup_enabled===true&&store?.isOpen===true
+ }
+ vm.runInNewContext(extract('confirmStore'),context)
+ assert.equal(await context.confirmStore('pickup','nogales'),true)
+ assert.equal(st.mode,'pickup')
+ assert.equal(st.store,'nogales')
+ assert.equal(st.quote,null)
+ assert.equal(st.pay,'')
+ assert.equal(st.cash,'')
+ assert.equal(context.fulfillmentModal,null)
+ assert.ok(events.indexOf('GET')>=0&&events.indexOf('GET')<events.indexOf('cart'))
+ assert.ok(!events.some(x=>x==='identity'||x==='nav:inicio'))
+ assert.equal(context.checkoutRefreshPending,false)
+})
+test('seleccionar local desde listado abre detalle y Continuar verifica nuevamente',async()=>{
+ const events=[]
+ const selected={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true}
+ const st={mode:'pickup',store:'',quote:null,pay:'',cart:[]}
+ const context={shops:[selected],st,checkoutRefreshPending:false,checkoutReviewNote:'',checkoutPending:false,fulfillmentModal:null,
+  render:()=>{},save:()=>{},screen:name=>events.push(name),nav:name=>events.push('nav:'+name),toast:()=>{},
+  fetchConfig:async()=>events.push('GET'),eligibleForPickup:()=>true}
+ vm.runInNewContext(extract('confirmStore'),context)
+ assert.equal(await context.confirmStore('pickup','nogales',{showDetails:true}),true)
+ assert.deepEqual(events,['GET','localDetail'])
+ assert.equal(await context.confirmStore('pickup','nogales'),true)
+ assert.deepEqual(events,['GET','localDetail','GET','nav:carta'])
+ assert.match(source,/if\(st\.stage==='localDetail'&&st\.mode==='pickup'\)\{void confirmStore\('pickup',st\.store\);return\}/)
+})
+test('si el carrito estaba en checkout y se elige recojo, pasa a datos solo después del GET',async()=>{
+ const events=[]
+ const selected={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true}
+ const st={mode:'pickup',store:'',quote:null,pay:'',cart:[{id:'p',qty:1}]}
+ const context={shops:[selected],st,checkoutRefreshPending:false,checkoutReviewNote:'',checkoutPending:true,fulfillmentModal:null,
+  render:()=>{},save:()=>{},screen:name=>events.push(name),nav:name=>events.push('nav:'+name),toast:()=>{},
+  fetchConfig:async()=>events.push('GET'),eligibleForPickup:()=>true,checkoutCartIssue:()=>''}
+ vm.runInNewContext(extract('confirmStore'),context)
+ assert.equal(await context.confirmStore('pickup','nogales'),true)
+ assert.deepEqual(events,['GET','identity'])
+ assert.equal(context.checkoutPending,false)
+})
+test('local cerrado entre selección y confirmación no se acepta ni permite avanzar',async()=>{
+ const events=[]
+ const selected={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true}
+ const st={mode:'pickup',store:'',quote:null,pay:'',cart:[]}
+ const context={shops:[selected],st,checkoutRefreshPending:false,checkoutReviewNote:'',checkoutPending:true,fulfillmentModal:null,
+  render:()=>{},save:()=>{},screen:name=>events.push(name),nav:()=>{throw Error('Must not navigate to catalog')},toast:()=>{},
+  fetchConfig:async()=>{events.push('GET');selected.isOpen=false},
+  eligibleForPickup:store=>store?.isOpen===true&&store?.pickup_enabled===true}
+ vm.runInNewContext(extract('confirmStore'),context)
+ assert.equal(await context.confirmStore('pickup','nogales'),false)
+ assert.deepEqual(events,['GET','locations'])
+ assert.equal(st.store,'')
+ assert.match(context.checkoutReviewNote,/cerrado/)
+ assert.equal(context.checkoutRefreshPending,false)
+})
+test('si falla la API de locales al elegir recojo, no se confirma la sede',async()=>{
+ const events=[]
+ const selected={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true}
+ const st={mode:'pickup',store:'',quote:null,pay:'',cart:[]}
+ const context={shops:[selected],st,checkoutRefreshPending:false,checkoutReviewNote:'',checkoutPending:true,fulfillmentModal:null,
+  render:()=>{},save:()=>{},screen:name=>events.push(name),nav:()=>{throw Error('Must not continue')},toast:()=>{},
+  fetchConfig:async()=>{throw Error('API de locales temporalmente no disponible')},eligibleForPickup:()=>true}
+ vm.runInNewContext(extract('confirmStore'),context)
+ assert.equal(await context.confirmStore('pickup','nogales'),false)
+ assert.deepEqual(events,['locations'])
+ assert.equal(st.store,'')
+ assert.match(context.checkoutReviewNote,/API de locales/)
+})
+test('recojo muestra exclusivamente métodos de pago pickup publicados',()=>{
+ const context={st:{mode:'pickup',configReady:true,store:'nogales',quote:null},
+  shops:[{id:'nogales',paymentMethods:{pickup:[],delivery:['yape','card']}}]}
+ vm.runInNewContext(extract('paymentOptions'),context)
+ assert.deepEqual(Array.from(context.paymentOptions()),[])
+ context.shops[0].paymentMethods.pickup=['yape','plin']
+ assert.deepEqual(Array.from(context.paymentOptions(),x=>x[0]),['yape','plin'])
+ context.st.configReady=false
+ assert.deepEqual(Array.from(context.paymentOptions()),[])
+ assert.match(source,/no tiene métodos de pago publicados/)
+})
+test('recojo tiene total igual al subtotal y nunca aplica cargo delivery',()=>{
+ const context={st:{mode:'pickup',quote:{deliveryFeePen:15}},subtotal:()=>13,deliveryQuoteValid:()=>true}
+ vm.runInNewContext(extract('orderTotal'),context)
+ assert.equal(context.orderTotal(),13)
+})
+test('recojo consulta de nuevo locales y horarios al pago, resumen y confirmación',async()=>{
+ const calls=[],selected={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true}
+ const st={mode:'pickup',store:'nogales',cart:[{id:'p',qty:1}],pay:'yape',cash:'',quote:null}
+ const context={shops:[selected],st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
+  checkoutSnapshot:()=>({store:st.store,total:1300,items:'p:1:13'}),
+  fetchConfig:async({strict})=>{assert.equal(strict,true);calls.push('GET')},
+  checkoutCartIssue:()=>'',eligibleForPickup:store=>store?.isOpen===true,
+  paymentOptions:()=>[['yape','Yape','']],save:()=>{},screen:name=>calls.push(name),
+  finalizeDemoOrder:()=>calls.push('confirmado')}
+ vm.runInNewContext(extract('revalidateCheckout'),context)
+ for(const stage of ['payment','summary','confirm'])assert.equal(await context.revalidateCheckout(stage),true)
+ assert.deepEqual(calls,['GET','payment','GET','summary','GET','confirmado'])
+ assert.doesNotMatch(source,/\/api\/v1\/mobile\/fulfillment\/resolve/)
+})
+test('cierre de sede antes de confirmar recojo bloquea el pedido',async()=>{
+ const calls=[],selected={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true}
+ const st={mode:'pickup',store:'nogales',cart:[{id:'p',qty:1}],pay:'yape',quote:null}
+ const context={shops:[selected],st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
+  checkoutSnapshot:()=>({store:st.store,total:1300,items:'p:1:13'}),
+  fetchConfig:async()=>{selected.isOpen=false;calls.push('GET')},
+  checkoutCartIssue:()=>'',eligibleForPickup:store=>store?.isOpen===true,
+  screen:name=>calls.push(name),save:()=>{},
+  finalizeDemoOrder:()=>calls.push('confirmado')}
+ vm.runInNewContext(extract('revalidateCheckout'),context)
+ assert.equal(await context.revalidateCheckout('confirm'),false)
+ assert.deepEqual(calls,['GET','locations'])
+ assert.match(context.checkoutReviewNote,/ya no está abierto/)
+})
+test('si falla un GET previo al pago de recojo vuelve a la selección y bloquea confirmación',async()=>{
+ const calls=[],st={mode:'pickup',store:'nogales',pay:'yape',quote:null}
+ const context={st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
+  checkoutSnapshot:()=>({store:'nogales',total:1300,items:'p:1:13'}),
+  fetchConfig:async()=>{throw Error('No se pudo actualizar la disponibilidad de locales')},
+  screen:name=>calls.push(name),save:()=>{},finalizeDemoOrder:()=>calls.push('confirmado')}
+ vm.runInNewContext(extract('revalidateCheckout'),context)
+ assert.equal(await context.revalidateCheckout('confirm'),false)
+ assert.deepEqual(calls,['locations'])
+ assert.match(context.checkoutReviewNote,/No se pudo actualizar/)
+})
