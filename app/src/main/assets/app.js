@@ -484,11 +484,13 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   deliveryLocation={...loc,key:deliveryAddressKey(address,district)};
  }
  const candidates=eligibleDeliveryCandidates(loc),items=publishedOrderItems();
+ // A disabled store must not block checking the next configured candidate.
+ const consultable=candidates.filter(({store})=>storeAvailabilitySetting(store)===true);
+ if(!consultable.length)
+  throw Error('Ninguna sede elegible tiene publicada la opción Consultar disponibilidad del pedido.');
  let selected=null;
- for(const {store} of candidates){
+ for(const {store} of consultable){
   if(!active())return false;
-  if(storeAvailabilitySetting(store)!==true)
-   throw Error('La sede '+store.name+' no tiene publicada la opción Consultar disponibilidad del pedido.');
   deliveryAvailability={status:'CHECKING_STORES',storeName:store.name,candidateNames:[],
    message:'Consultando agentes disponibles de '+store.name+' en TU VERSO.'};
   if(!silent)render();
@@ -1059,6 +1061,8 @@ function availability(){
  const status=deliveryAvailability.status;
  const checking=status==='CHECKING'||status==='CHECKING_STORES';
  const waiting=status==='WAITING_APPROVAL'||status==='CREATE_UNCERTAIN';
+ const provisionalFee=waiting&&st.quote?.quoteOrigin==='ADMIN_API_PRE_APPROVAL'&&
+  Number.isFinite(Number(st.quote.deliveryFeePen))&&Number.isFinite(Number(st.quote.estimatedTotalPen));
  const ready=!checking&&!waiting&&status==='READY'&&deliveryQuoteValid();
  const required=!checking&&status==='APPROVAL_REQUIRED';
  const failed=!checking&&!waiting&&(status==='ERROR'||status==='UNAVAILABLE');
@@ -1083,8 +1087,8 @@ function availability(){
   </section>
   <section class="b3-availability-order"><div class="b3-availability-overline">TU PEDIDO</div>
    <p><span>${cartCount()} producto(s)</span><strong>${cash(subtotal())}</strong></p>
-   <p><span>Delivery</span><strong>${ready?cash(st.quote.deliveryFeePen):'Por confirmar'}</strong></p>
-   <div class="b3-availability-total"><span>${ready?'Total estimado':'Subtotal de productos'}</span><b>${cash(ready?orderTotal():subtotal())}</b></div>
+   <p><span>Delivery</span><strong>${ready||provisionalFee?cash(st.quote.deliveryFeePen):'Por confirmar'}</strong></p>
+   <div class="b3-availability-total"><span>${ready?'Total estimado':provisionalFee?'Total provisional (pendiente de aprobación)':'Subtotal de productos'}</span><b>${cash(ready?orderTotal():provisionalFee?st.quote.estimatedTotalPen:subtotal())}</b></div>
    <small>${esc(st.profile.address||'')} · ${esc(st.profile.district||'')}</small>
   </section>
   ${required?`<div class="b3-availability-message" role="status">
