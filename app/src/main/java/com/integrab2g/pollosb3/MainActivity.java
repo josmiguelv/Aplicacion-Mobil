@@ -385,8 +385,11 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid GET");
                         path = "/api/v1/mobile/orders/availability/" + id;
                     } else if ("HEALTH".equals(operation)) {
-                        // Diagnostic GET only: no request, agent interaction or sensitive token is sent.
+                        // Read-only database readiness check; never create an interaction.
                         path = "/health/ready";
+                    } else if ("HEALTH_LIVE".equals(operation)) {
+                        // Read-only service liveness check; no DB query and no credentials.
+                        path = "/health/live";
                     } else {
                         throw new IllegalArgumentException("Unsupported operation");
                     }
@@ -397,7 +400,7 @@ public class MainActivity extends Activity {
                         connection.setInstanceFollowRedirects(false);
                         connection.setConnectTimeout(12000);
                         connection.setReadTimeout(15000);
-                        connection.setRequestMethod("HEALTH".equals(operation) ? "GET" : operation);
+                        connection.setRequestMethod("HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ? "GET" : operation);
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
                         if ("POST".equals(operation)) {
@@ -407,9 +410,10 @@ public class MainActivity extends Activity {
                             try (java.io.OutputStream output = connection.getOutputStream()) {
                                 output.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                             }
-                        } else {
+                        } else if ("GET".equals(operation)) {
                             connection.setRequestProperty("Authorization", "Bearer " + token);
                         }
+                        // Neither diagnostic health GET sends an Authorization header.
                         int status = connection.getResponseCode();
                         reply.put("status", status);
                         if (status >= 300 && status < 400) {
