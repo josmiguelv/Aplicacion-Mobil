@@ -236,6 +236,15 @@ function availableStores(m){return shops.filter(s=>s.active!==false)}
 function localIsClosed(s){return s.isDemo?!demoStoreClock(s).isOpen:s.hoursConfigured===true&&s.isOpen===false}
 function eligibleForPickup(s){return !!s&&s.active!==false&&s.pickup_enabled===true&&
  (s.isDemo?!!demoStoreClock(s).isOpen:s.hoursConfigured===true&&s.isOpen===true)}
+function pickupPaymentConfigured(s){
+ return Array.isArray(s?.paymentMethods?.pickup)&&
+  s.paymentMethods.pickup.some(m=>['yape','plin','card','cash'].includes(m));
+}
+function pickupPaymentWarning(s){
+ return st.configReady&&eligibleForPickup(s)&&!pickupPaymentConfigured(s)
+  ?'<p class="smallprint">Este local no tiene medios de pago habilitados para recojo. Puedes ver la carta, pero no finalizar el pedido de prueba hasta que la administración los publique.</p>'
+  :'';
+}
 function storeStatusHtml(s){
  if(s.hoursConfigured!==true)return '';
  const state=s.isOpen===true?'Abierto':'Cerrado';
@@ -631,7 +640,8 @@ function fulfillmentOverlay(){
      <div class="b3-store-top"><strong>${esc(s.name)}</strong>${storeStatusHtml(s)}</div>
      ${s.address?`<span class="b3-store-line">${ic('pin',15)}${esc(s.address)}</span>`:''}
      ${straightDistanceKm(s)?`<span class="b3-store-line">${ic('map',15)}${esc(straightDistanceKm(s))}</span>`:''}
-     ${eligibleForPickup(s)?`<button type="button" class="b3-store-select" data-modal-pickstore="${esc(s.id)}">Elegir local ${ic('chev',16)}</button>`:'<span class="b3-store-unavailable">No disponible para retiro inmediato</span>'}
+     ${pickupPaymentWarning(s)}
+     ${eligibleForPickup(s)?`<button type="button" class="b3-store-select" data-modal-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'} ${ic('chev',16)}</button>`:'<span class="b3-store-unavailable">No disponible para retiro inmediato</span>'}
    </div>`).join(''):'<div class="notice">No hay locales activos publicados por la web administrativa.</div>'}</div>
  </div>`;
  return `<div class="b3-modal-backdrop" data-modal-close="1">
@@ -833,8 +843,9 @@ function locations(){
      <div class="pickup-location-title"><b>${esc(s.name)}</b>${storeStatusHtml(s)}</div>
      ${s.address?`<p class="pickup-address">${ic('pin',17)} ${esc(s.address)}</p>`:''}
      ${straightDistanceKm(s)?`<p class="pickup-distance">${ic('map',16)} ${esc(straightDistanceKm(s))}</p>`:''}
+     ${pickupPaymentWarning(s)}
      <div class="pickup-actions">
-      ${eligibleForPickup(s)?`<button class="primary" data-pickstore="${esc(s.id)}">Elegir local</button>`:'<span class="smallprint">No disponible para recojo inmediato</span>'}
+      ${eligibleForPickup(s)?`<button class="primary" data-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'}</button>`:'<span class="smallprint">No disponible para recojo inmediato</span>'}
      </div>
    </div>`).join(''):'<div class="notice">No hay locales publicados por la administración. Consulta más adelante.</div>'}
  </div></div>`;
@@ -848,9 +859,10 @@ function localDetail(){
    <h1>${esc(s.name)}</h1>
    ${addr?`<div class="detail-row">${ic('pin')}<span>${esc(addr)}</span></div>`:''}
    ${storeStatusHtml(s)}
+   ${pickupPaymentWarning(s)}
    ${straightDistanceKm(s)?`<p class="pickup-distance">${ic('map',16)} ${esc(straightDistanceKm(s))}</p>`:''}
    ${addr?`<button class="outline full" data-openmaps="${url}">${ic('map')} Cómo llegar con Google Maps</button>`:''}
-   <button class="primary full" data-start="1">Continuar con Pide y Retira</button>
+   <button class="primary full" data-start="1" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando local...':'Continuar con Pide y Retira'}</button>
  </div>`;
 }
 function detail(){let p=product(st.selected);if(!p)return `<div class="page"><div class="empty-state"><h2>No hay productos publicados</h2><p>La carta estará disponible cuando Pollos B3 publique sus productos.</p><button class="primary" data-tab="carta">Volver a la carta</button></div></div>`;return `<div class="detail">${heading('','app')}<div class="detail-photo">${img(p)}<small>${p.isPublished?'Imagen publicada':'Imagen referencial'}</small></div><div class="detail-content"><h1>${esc(p.name)}</h1><p>${esc(p.desc)}</p><div class="detail-price"><strong>${cash(p.price)}</strong><div class="counter"><button data-qty="-1">−</button><span>${st.qty}</span><button data-qty="1">+</button></div></div><button class="primary full" data-add="1">Agregar · ${cash(p.price*st.qty)}</button></div></div>`}
