@@ -17,7 +17,7 @@ const approved={validationId:vid,status:'READY_FOR_PAYMENT',
  routeDistanceKm:1.8};
 function simulation(states){
  const st={mode:'delivery',profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},
-  quote:null,store:''};
+  quote:null,store:'',stage:'availability'};
  const info={calls:[],clears:0,saves:0,renders:0};
  const entry={validationId:vid};
  let i=0;
