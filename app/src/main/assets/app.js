@@ -52,7 +52,8 @@ let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI st
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
 let checkoutRefreshPending=false,checkoutReviewNote=''; // fresh availability at each checkout gate
 let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
-let deliveryAvailability={status:'IDLE',storeName:'',candidateNames:[],message:''}; // not persisted or treated as an agent decision
+let deliveryAvailability={status:'IDLE',storeName:'',candidateNames:[],message:''};
+let deliveryValidationGeneration=0; // not persisted or treated as an agent decision
 let deliveryGpsRequested=false,deliveryLocation=null,deliveryGeocodeTask=null,deliveryGeocodeSequence=0;
 let deliveryGpsPending=false,deliveryGpsMessage='',deliveryGpsToken='';
 // Geocoded coordinates are transient; never reuse GPS collected for store distances.
@@ -309,7 +310,7 @@ async function fetchConfig({strict=false}={}){
   storeGeocoding=false;
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
-  if(revisionChanged){st.quote=null;st.store='';if(!deliveryRequestPending)clearDeliveryAvailability()}
+  if(revisionChanged){deliveryValidationGeneration++;st.quote=null;st.store='';clearDeliveryAvailability()}
   if(st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store='';clearDeliveryAvailability()}
   catalogRequestFinished=true;
   save();if(st.stage!=='splash')render();return true;
@@ -399,76 +400,156 @@ function storeAvailabilitySetting(store){
 }
 function clearDeliveryAvailability(){
  deliveryAvailability={status:'IDLE',storeName:'',candidateNames:[],message:''};
+ window.B3OrderAvailability?.clear();
 }
 function invalidateDeliverySelection(){
  if(st.mode!=='delivery')return;
+ deliveryValidationGeneration++;deliveryRequestPending=false;
  st.quote=null;st.store='';clearDeliveryAvailability();
 }
 function deliveryQuoteValid(){
  if(st.mode!=='delivery'||!st.quote||!st.store)return false;
- if(st.quote.deliveryFeePen==null||st.quote.deliveryFeePen==='')return false;
  const fee=Number(st.quote.deliveryFeePen);
- return Number.isFinite(fee)&&fee>=0&&st.quote.distanceSource==='STRAIGHT_LINE'&&
-  st.quote.destinationKey===deliveryAddressKey(st.profile.address,st.profile.district)&&
-  Number.isFinite(st.quote.quotedAt)&&Date.now()-st.quote.quotedAt<15*60*1000&&
-  shops.some(store=>String(store.id)===String(st.store)&&store.active===true&&store.delivery_enabled===true&&storeAvailabilitySetting(store)===false);
+ if(st.quote.deliveryFeePen==null||!Number.isFinite(fee)||fee<0||
+    st.quote.destinationKey!==deliveryAddressKey(st.profile.address,st.profile.district)||
+    !Number.isFinite(st.quote.quotedAt)||Date.now()-st.quote.quotedAt>=900000)return false;
+ if(st.quote.serverValidated===true){
+  const total=Number(st.quote.serverTotalPen),serverSubtotal=Number(st.quote.serverSubtotalPen);
+  return st.quote.distanceSource==='SERVER_ROUTE'&&Number.isFinite(total)&&
+    Number.isFinite(serverSubtotal)&&Math.abs(subtotal()-serverSubtotal)<.015&&
+    Math.abs(total-serverSubtotal-fee)<.015&&
+    window.B3OrderAvailability?.read()?.validationId===st.quote.validationId&&
+    shops.some(x=>String(x.id)===String(st.store)&&x.active===true&&x.delivery_enabled===true);
+ }
+ return st.quote.distanceSource==='STRAIGHT_LINE'&&
+   shops.some(x=>String(x.id)===String(st.store)&&x.active===true&&x.delivery_enabled===true&&
+     storeAvailabilitySetting(x)===false);
 }
-function orderTotal(){return subtotal()+(st.mode==='delivery'&&deliveryQuoteValid()?Number(st.quote.deliveryFeePen):0)}
+function orderTotal(){
+ return st.mode==='delivery'&&deliveryQuoteValid()&&st.quote.serverValidated===true?
+  Number(st.quote.serverTotalPen):
+  subtotal()+(st.mode==='delivery'&&deliveryQuoteValid()?Number(st.quote.deliveryFeePen):0);
+}
 function checkoutCartIssue(){
  if(!st.cart.length)return 'Agrega un producto a tu carrito para continuar.';
  if(st.cart.some(item=>!product(item.id)||product(item.id).disabled))return 'Hay un producto que ya no está disponible. Revisa tu carrito.';
  return '';
 }
+function publishedOrderItems(){
+ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+ if(!st.cart.length||st.cart.length>50)throw Error('El pedido debe tener entre 1 y 50 productos.');
+ return st.cart.map(x=>{
+  const p=product(x.id),id=String(x.id).replace(/^api:/,'');
+  if(!p?.isPublished||p.disabled||!String(x.id).startsWith('api:')||!uuid.test(id)||
+    !Number.isInteger(x.qty)||x.qty<1||x.qty>99)
+   throw Error('Solo puedes validar productos publicados y cantidades válidas. Retira los productos de muestra.');
+  return {productId:id,quantity:x.qty};
+ });
+}
+function applyBackendQuote(result,entry,address,district){
+ const fee=Number(result.deliveryFee),amount=Number(result.total),serverSubtotal=Number(result.subtotal);
+ if(result.currency!=='PEN'||!result.store||!shops.some(s=>String(s.id)===String(result.store.id))||
+  result.deliveryFee==null||result.total==null||result.subtotal==null||
+  !Number.isFinite(fee)||fee<0||!Number.isFinite(amount)||!Number.isFinite(serverSubtotal)||
+  Math.abs(amount-fee-serverSubtotal)>.015||Math.abs(serverSubtotal-subtotal())>.015)
+  throw Error('La cotización del servidor no coincide con el catálogo. Revisa los productos y vuelve a intentarlo.');
+ const dist=result.routeDistanceKm==null?null:Number(result.routeDistanceKm);
+ st.store=result.store.id;
+ st.quote={storeId:result.store.id,storeName:String(result.store.name||'Sede asignada'),
+   deliveryFeePen:fee,serverSubtotalPen:serverSubtotal,serverTotalPen:amount,
+   paymentMethods:Array.isArray(result.paymentMethods)?result.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)):[],
+   routeDistanceKm:Number.isFinite(dist)&&dist>=0?dist:null,distanceSource:'SERVER_ROUTE',
+   quoteOrigin:'ADMIN_API',serverValidated:true,provisional:true,
+   validationId:entry.validationId,quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
+ deliveryAvailability={status:'READY',storeName:st.quote.storeName,candidateNames:[],message:''};save();
+}
+async function requestBackendOrderAvailability({address,district,run,silent}){
+ if(!window.B3OrderAvailability)throw Error('La versión de Android no incluye el conector seguro de pedidos.');
+ const loc=hasDeliveryDestination(address,district)?deliveryLocation:null;
+ const entry=window.B3OrderAvailability.prepare({appId:APP_ID,items:publishedOrderItems(),
+   address,district,revision:publishedRevision,
+   latitude:loc?.latitude,longitude:loc?.longitude,useGps:loc?.source==='gps'});
+ const active=()=>run===deliveryValidationGeneration&&st.mode==='delivery'&&
+   st.profile.address===address&&st.profile.district===district&&(silent||st.stage==='availability');
+ const explanations={
+  CHECKING_STORES:'Estamos comprobando la capacidad de atención de las sedes.',
+  WAITING_APPROVAL:'Un asesor está revisando tu solicitud; todavía no es un pedido confirmado.',
+  CREATE_UNCERTAIN:'Estamos verificando el registro anterior para evitar solicitudes duplicadas.'};
+ for(let attempt=0;attempt<18;attempt++){
+  if(!active())return false;
+  const result=await window.B3OrderAvailability.execute(entry);
+  if(!active())return false;
+  if(result.status==='READY_FOR_PAYMENT'){applyBackendQuote(result,entry,address,district);return true;}
+  if(result.status==='UNAVAILABLE'){
+   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
+    message:'Ninguna sede puede atender la solicitud en este momento.'};return false;
+  }
+  if(result.status==='VALIDATION_ERROR'||result.status==='CANCELLED'){
+   deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
+    message:'No fue posible completar la validación. Revisa la dirección o vuelve a intentar.'};return false;
+  }
+  if(!(result.status in explanations))throw Error('Estado de validación desconocido.');
+  deliveryAvailability={status:result.status,storeName:'',candidateNames:[],message:explanations[result.status]};
+  if(!silent)render();
+  if(attempt===17){
+   deliveryAvailability.message='La solicitud sigue pendiente. Pulsa Volver a comprobar para recuperar la misma validación sin duplicarla.';
+   return false;
+  }
+  await new Promise(resolve=>setTimeout(resolve,Math.min(10000,2500+attempt*650)));
+ }
+ return false;
+}
 async function resolveDelivery({silent=false,skipConfig=false}={}){
  if(deliveryRequestPending)return false;
- const address=String(st.profile.address||'').trim();
- const district=String(st.profile.district||'').trim();
+ const run=++deliveryValidationGeneration;
+ const address=String(st.profile.address||'').trim(),district=String(st.profile.district||'').trim();
  if(address.length<6||district.length<2){
   deliveryRequestError='Ingresa una dirección completa y un distrito para verificar la cobertura.';
   if(!silent)screen('deliveryAddress');else render();return false;
  }
- deliveryRequestPending=true;deliveryRequestError='';
- st.quote=null;st.store=''; // No stale rate while choosing an eligible store.
+ deliveryRequestPending=true;deliveryRequestError='';st.quote=null;st.store='';
  deliveryAvailability={status:'CHECKING',storeName:'',candidateNames:[],message:''};
  if(!silent){fulfillmentModal=null;screen('availability')}else render();
  try{
-  // Read published commercial rules; TU VERSO S2S credentials never belong in Android.
   if(!skipConfig)await fetchConfig({strict:true});
-  if(!st.configReady)throw Error('No se pudo consultar la disponibilidad actual de los locales.');
+  if(run!==deliveryValidationGeneration)return false;
+  if(!st.configReady)throw Error('No se pudo consultar la disponibilidad de las sedes.');
   if(!hasDeliveryDestination(address,district)){
-   const position=await geocodeDeliveryDestination(address,district);
-   deliveryLocation={...position,key:deliveryAddressKey(address,district)};
+   const pos=await geocodeDeliveryDestination(address,district);
+   if(run!==deliveryValidationGeneration)return false;
+   deliveryLocation={...pos,key:deliveryAddressKey(address,district)};
   }
   const candidates=eligibleDeliveryCandidates(deliveryLocation);
-  if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district||!silent&&st.stage!=='availability')return false;
-  const first=candidates[0],setting=storeAvailabilitySetting(first.store);
-  st.quote=null;st.store='';
-  const names=candidates.map(x=>String(x.store.name||'Sede disponible'));
-  if(setting===null){
-   deliveryAvailability={status:'ERROR',storeName:String(first.store.name||''),candidateNames:names,
-    message:'La sede no publicó una regla válida de consulta de disponibilidad. Actualiza la configuración antes de continuar.'};
-   save();if(silent)screen('availability');return false;
+  if(run!==deliveryValidationGeneration||st.mode!=='delivery'||
+   st.profile.address!==address||st.profile.district!==district||
+   (!silent&&st.stage!=='availability'))return false;
+  const first=candidates[0],flag=storeAvailabilitySetting(first.store);
+  if(flag===null){
+   deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
+    message:'La sede no publicó una regla válida de consulta de disponibilidad.'};
+   return false;
   }
-  if(setting===true){
-   // Phase 1: UI and safe gate. Only a private backend may create an interaction
-   // and obtain a real decision. Never skip this store or fabricate ACCEPTED.
-   deliveryAvailability={status:'APPROVAL_REQUIRED',storeName:String(first.store.name||''),candidateNames:names,
-    message:'Esta sede necesita confirmar tu pedido. La validación segura con TU VERSO todavía no está conectada; no podemos avanzar al pago.'};
-   save();if(silent)screen('availability');return false;
+  if(flag===true){
+   const ready=await requestBackendOrderAvailability({address,district,run,silent});
+   if(run!==deliveryValidationGeneration)return false;
+   if(!ready&&silent)screen('availability');
+   return ready;
   }
   const quote=quoteForDeliveryCandidate(first);
   st.store=quote.storeId;
   st.quote={...quote,quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
-  deliveryAvailability={status:'READY',storeName:quote.storeName,candidateNames:names,message:''};
+  deliveryAvailability={status:'READY',storeName:quote.storeName,candidateNames:candidates.map(x=>x.store.name),message:''};
   save();return true;
- }catch(err){
+ }catch(error){
+  if(run!==deliveryValidationGeneration)return false;
   st.quote=null;st.store='';
-  deliveryRequestError=err?.message||'No se pudo consultar la disponibilidad de sedes.';
+  deliveryRequestError=error?.message||'No se pudo verificar la disponibilidad.';
   deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],message:deliveryRequestError};
   save();if(silent)screen('availability');return false;
  }finally{
-  deliveryRequestPending=false;
-  if(st.stage!=='splash')render();
+  if(run===deliveryValidationGeneration){
+   deliveryRequestPending=false;if(st.stage!=='splash')render();
+  }
  }
 }
 function resolveStoreDistances(){
@@ -1354,7 +1435,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Agregado a tu pedido');return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-availability-continue],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 if(b.dataset.orderOpen){
  const o=findLocalOrder(b.dataset.orderOpen);if(!o)return;
  selectedOrderId=o.id;screen('orderDetail');return;
