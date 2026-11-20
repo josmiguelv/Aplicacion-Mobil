@@ -1,9 +1,15 @@
 name: Pollos B3 Android V12 availability APK
 on:
   push:
-    branches: [feat/pollos-b3-v12-delivery-availability-20261119]
+    branches: [feat/pollos-b3-v12-delivery-availability-20261119, feat/pollos-b3-v12-order-availability-api-20261120]
     paths:
+      - app/build.gradle
       - app/src/main/assets/app.js
+      - app/src/main/assets/index.html
+      - app/src/main/assets/order-availability.js
+      - app/src/main/java/com/integrab2g/pollosb3/MainActivity.java
+      - scripts/order-availability-api.test.mjs
+      - scripts/order-availability-flow.test.mjs
       - app/src/main/assets/styles.css
       - scripts/checkout-delivery-contract.test.mjs
       - scripts/delivery-availability-v12.test.mjs
@@ -36,7 +42,8 @@ jobs:
       - name: Validate V12 checkout contracts
         run: |
           node --check app/src/main/assets/app.js
-          node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs
+          node --check app/src/main/assets/order-availability.js
+          node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs scripts/order-availability-api.test.mjs scripts/order-availability-flow.test.mjs
       - name: Compile Android APK debug
         run: gradle --no-daemon :app:assembleDebug
       - name: Attach APK

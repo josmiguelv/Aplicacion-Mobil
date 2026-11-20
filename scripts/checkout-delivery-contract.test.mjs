@@ -82,44 +82,48 @@ test('sin método de pago publicado el cliente no puede avanzar con pago fictici
  context.st.quote.paymentMethods=['yape','plin']
  assert.deepEqual(Array.from(context.paymentOptions(),x=>x[0]),['yape','plin'])
 })
-test('deliveryQuoteValid exige una cotización local reciente y dirección consistente',()=>{
- const now=Date.now()
+test('deliveryQuoteValid solo admite cotización reciente y vinculada al servidor',()=>{
+ const now=Date.now();
+ const id='7a723b2b-540b-47dc-a2c3-6745c8a42d1d';
  const st={mode:'delivery',store:'nogales',profile:{address:'Calle 123',district:'Callao'},
-  quote:{deliveryFeePen:2.78,quotedAt:now,destinationKey:'calle 123|callao',distanceSource:'STRAIGHT_LINE'}}
- const context={st,shops:[nogales],deliveryAddressKey:(a,d)=>a.toLowerCase()+'|'+d.toLowerCase()}
- vm.runInNewContext(extract('storeAvailabilitySetting'),context)
- vm.runInNewContext(extract('deliveryQuoteValid'),context)
- assert.equal(context.deliveryQuoteValid(),true)
- st.quote.quotedAt=now-20*60*1000
- assert.equal(context.deliveryQuoteValid(),false)
- st.quote.quotedAt=now;st.quote.deliveryFeePen=null
- assert.equal(context.deliveryQuoteValid(),false)
- st.quote.deliveryFeePen=2.78;st.profile.address='Otra calle'
- assert.equal(context.deliveryQuoteValid(),false)
-})
-test('dirección abre disponibilidad y cotiza solo si la sede no requiere aprobación',async()=>{
+  quote:{deliveryFeePen:2.78,serverSubtotalPen:20,serverTotalPen:22.78,
+   quotedAt:now,destinationKey:'calle 123|callao',distanceSource:'SERVER_ROUTE',
+   serverValidated:true,validationId:id}};
+ const context={st,shops:[nogales],subtotal:()=>20,
+  window:{B3OrderAvailability:{read:()=>({validationId:id})}},
+  deliveryAddressKey:(a,d)=>a.toLowerCase()+'|'+d.toLowerCase()};
+ vm.runInNewContext(extract('deliveryQuoteValid'),context);
+ assert.equal(context.deliveryQuoteValid(),true);
+ st.quote.distanceSource='STRAIGHT_LINE';
+ assert.equal(context.deliveryQuoteValid(),false,'tarifa local no autoriza checkout');
+ st.quote.distanceSource='SERVER_ROUTE';st.quote.quotedAt=now-20*60*1000;
+ assert.equal(context.deliveryQuoteValid(),false);
+ st.quote.quotedAt=now;st.quote.deliveryFeePen=null;
+ assert.equal(context.deliveryQuoteValid(),false);
+ st.quote.deliveryFeePen=2.78;st.profile.address='Otra calle';
+ assert.equal(context.deliveryQuoteValid(),false);
+});
+test('dirección abre disponibilidad y siempre solicita cotización al backend',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,store:'',quote:null,stage:'deliveryAddress'};
- const events=[],context={st,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
-  deliveryLocation:{latitude:nogales.latitude,longitude:nogales.longitude},fulfillmentModal:null,checkoutPending:true,
+ const events=[],context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
+  deliveryLocation:null,fulfillmentModal:null,checkoutPending:true,
   render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},deliveryAddressKey:(a,d)=>a+'|'+d,
-  hasDeliveryDestination:()=>true,fetchConfig:async()=>{events.push('GET')},
-  eligibleDeliveryCandidates:()=>{events.push('FILTER');return [{store:nogales}]},storeAvailabilitySetting:()=>false,
-  quoteForDeliveryCandidate:()=>{events.push('QUOTE');return {storeId:'nogales',storeName:'Nogales',deliveryFeePen:2.5}}
+  fetchConfig:async()=>{events.push('GET')},
+  requestBackendOrderAvailability:async()=>{events.push('API');st.store='nogales';st.quote={deliveryFeePen:2.5,serverValidated:true};context.deliveryAvailability={status:'READY'};return true;}
  };
  vm.runInNewContext(extract('resolveDelivery'),context);
  assert.equal(await context.resolveDelivery(),true);
- assert.deepEqual(events,['availability','GET','FILTER','QUOTE']);
+ assert.deepEqual(events,['availability','GET','API']);
  assert.equal(st.quote.deliveryFeePen,2.5);
- assert.equal(st.store,'nogales');
+ assert.equal(st.quote.serverValidated,true);
  assert.equal(context.deliveryAvailability.status,'READY');
  assert.equal(context.checkoutPending,true);
 });
-test('sin cobertura mantiene dirección y muestra error en la nueva pantalla',async()=>{
+test('sin cobertura del servidor conserva dirección y bloquea checkout',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,quote:null,store:'',stage:'deliveryAddress'};
- const events=[],context={st,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
-  deliveryLocation:{latitude:-11.9,longitude:-77.12},render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
-  deliveryAddressKey:(a,d)=>a+'|'+d,hasDeliveryDestination:()=>true,fetchConfig:async()=>{},
-  eligibleDeliveryCandidates:()=>{throw Error('Fuera del radio de cobertura')}
+ const events=[],context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
+  deliveryLocation:null,render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
+  fetchConfig:async()=>{},requestBackendOrderAvailability:async()=>{throw Error('Fuera del radio de cobertura')}
  };
  vm.runInNewContext(extract('resolveDelivery'),context);
  assert.equal(await context.resolveDelivery(),false);
