@@ -99,6 +99,43 @@ test('HTTP 429 nunca se interpreta como rechazo ni como cotización',async()=>{
   const {api}=client(req=>({requestId:req.requestId,status:429,data:{error:'Rate limited'}}));
   await assert.rejects(()=>api.execute(api.prepare(input())),/Demasiadas consultas/);
 });
+test('salud del backend usa únicamente GET de lectura sin crear interacción ni exponer tokens',async()=>{
+  const {api,requests}=client(req=>({requestId:req.requestId,status:200,data:{status:'ready'}}));
+  const result=await api.checkConnection();
+  assert.deepEqual(result,{online:true,status:200});
+  assert.equal(requests.length,1);
+  assert.equal(requests[0].operation,'HEALTH');
+  assert.ok(!('body' in requests[0])&&!('idempotencyKey' in requests[0])&&!('validationToken' in requests[0]));
+  assert.match(java,/path = "\/health\/ready"/);
+  assert.match(java,/connection\.setRequestMethod\("HEALTH"\.equals\(operation\) \? "GET" : operation\)/);
+  assert.match(checkoutSource,/data-availability-health/);
+});
+test('el backend no listo se reporta sin crear validaciones',async()=>{
+ const {api}=client(req=>({requestId:req.requestId,status:503,data:{status:'unavailable'}}));
+ assert.deepEqual(await api.checkConnection(),{online:false,status:503});
+});
+test('HTTP 404 invalida el token perdido y permite nueva solicitud; 429 conserva idempotencia',async()=>{
+ const lost=client(req=>({requestId:req.requestId,status:404,data:{error:'Not found'}}));
+ const entry=lost.api.prepare(input());
+ await assert.rejects(()=>lost.api.execute(entry));
+ assert.equal(lost.api.read(),null);
+ const fresh=lost.api.prepare(input());
+ assert.notEqual(fresh.token,entry.token);
+ const throttled=client(req=>({requestId:req.requestId,status:429,data:{error:'Rate limited'}}));
+ const key=throttled.api.prepare(input()).idempotencyKey;
+ await assert.rejects(()=>throttled.api.execute(throttled.api.read()));
+ assert.equal(throttled.api.read().idempotencyKey,key);
+});
+test('rechaza estado inesperado o validationId distinto sin avanzar checkout',async()=>{
+ const idMismatch=client(req=>({requestId:req.requestId,status:202,
+  data:{validationId:'beab5c20-c77c-4076-b076-c15860f198e2',status:'WAITING_APPROVAL'}}));
+ const token=idMismatch.api.prepare(input());
+ token.validationId=validationId;
+ await assert.rejects(()=>idMismatch.api.execute(token),/incompleta o inconsistente/);
+ const status=client(req=>({requestId:req.requestId,status:200,
+  data:{validationId,status:'PAID'}}));
+ await assert.rejects(()=>status.api.execute(status.api.prepare(input())),/incompleta o inconsistente/);
+});
 test('prohíbe productos no UUID, duplicados, cantidades inválidas y no simula disponibilidad',()=>{
   const {api}=client();
   assert.throws(()=>api.prepare(input({items:[{productId:'p1',quantity:1}]})),/productos publicados/);
