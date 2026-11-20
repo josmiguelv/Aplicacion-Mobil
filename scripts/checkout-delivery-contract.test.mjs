@@ -242,3 +242,14 @@ test('pago, resumen y confirmación usan recotización y no cotizaciones antigua
  assert.match(source,/await fetchConfig\(\{strict:true\}\)/)
  assert.match(source,/if\(next==='confirm'\)\{screen\('summary'\);return false\}/)
 })
+
+test('cotizaciones públicas de delivery y recojo usan POST simple para evitar preflight',()=>{
+ const delivery=source.slice(source.indexOf('async function resolveDelivery('),source.indexOf('function resolveStoreDistances()'))
+ const checkout=source.slice(source.indexOf('async function revalidateCheckout('),source.indexOf('function startCheckout()'))
+ assert.match(delivery,/headers:\{'Content-Type':'text\/plain;charset=UTF-8'\}/)
+ assert.match(checkout,/headers:\{'Content-Type':'text\/plain;charset=UTF-8'\}/)
+ assert.match(delivery,/body:JSON\.stringify\(\{appId:APP_ID,mode:'delivery'/)
+ assert.match(checkout,/body:JSON\.stringify\(\{appId:APP_ID,mode:'pickup',storeId:st\.store\}\)/)
+ assert.doesNotMatch(delivery,/headers:\{'Content-Type':'application\/json'\}/)
+ assert.doesNotMatch(checkout,/headers:\{'Content-Type':'application\/json'\}/)
+})
