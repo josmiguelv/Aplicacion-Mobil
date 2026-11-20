@@ -369,7 +369,7 @@ public class MainActivity extends Activity {
                     if ("POST".equals(operation)) {
                         key = request.optString("idempotencyKey", "");
                         JSONObject payload = request.optJSONObject("body");
-                        if (!key.matches("[0-9a-fA-F]{8}-[0-9a-fA-F-]{27,36}") ||
+                        if (!key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
                             payload == null ||
                             !payload.optString("validationToken", "").matches("ordv1_[A-Za-z0-9_-]{43}"))
                             throw new IllegalArgumentException("Invalid POST");
