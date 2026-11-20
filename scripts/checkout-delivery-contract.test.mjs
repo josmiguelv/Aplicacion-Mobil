@@ -347,3 +347,13 @@ test('selector de local y continuar se bloquean mientras se consulta la disponib
  assert.match(source,/data-modal-pickstore="\$\{esc\(s\.id\)\}" \$\{checkoutRefreshPending\?'disabled':''\}/)
  assert.match(source,/data-start="1" \$\{checkoutRefreshPending\?'disabled':''\}/)
 })
+
+test('Pide y Retira muestra la hora de cierre publicada correctamente',()=>{
+ const context={esc:x=>String(x)}
+ vm.runInNewContext(extract('storeStatusHtml'),context)
+ const result=context.storeStatusHtml({hoursConfigured:true,isOpen:true,closesAt:'23:00'})
+ assert.match(result,/Abierto/)
+ assert.match(result,/Hasta las 23:00/)
+ assert.match(context.storeStatusHtml({hoursConfigured:true,isOpen:false,closesAt:null}),/Cerrado/)
+ assert.equal(context.storeStatusHtml({hoursConfigured:false,isOpen:false}), '')
+})
