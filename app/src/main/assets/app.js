@@ -234,7 +234,8 @@ function modeName(m){return ({delivery:'Pollo Delivery',pickup:'Pide y Retira'})
 const storeAllowed=(s,m)=>!!s&&s.active!==false&&(m==='delivery'?s.delivery_enabled!==false:m==='pickup'?s.pickup_enabled!==false:s.dine_in_enabled===true);
 function availableStores(m){return shops.filter(s=>s.active!==false)}
 function localIsClosed(s){return s.isDemo?!demoStoreClock(s).isOpen:s.hoursConfigured===true&&s.isOpen===false}
-function eligibleForPickup(s){return !!s&&s.active!==false&&s.pickup_enabled===true&&!localIsClosed(s)}
+function eligibleForPickup(s){return !!s&&s.active!==false&&s.pickup_enabled===true&&
+ (s.isDemo?!!demoStoreClock(s).isOpen:s.hoursConfigured===true&&s.isOpen===true)}
 function storeStatusHtml(s){
  if(s.hoursConfigured!==true)return '';
  const state=s.isOpen===true?'Abierto':'Cerrado';
@@ -1152,10 +1153,15 @@ async function revalidateCheckout(next){
   return true;
  }catch(err){
   checkoutReviewNote=err.message||'No se pudo comprobar la disponibilidad.';
-  // A failed fresh check must never be treated as a completed confirmation.
-  if(st.mode==='delivery'&&!deliveryQuoteValid())screen('deliveryAddress');
-  else if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store))))screen('locations');
-  else render();
+  // Fail closed: a previous estimate cannot remain valid when refreshing fails.
+  if(st.mode==='delivery'){
+   st.quote=null;st.store='';deliveryRequestError=checkoutReviewNote;save();
+   if(next==='cart')screen('cart');else screen('deliveryAddress');
+  }else{
+   // Pickup also needs a fresh, successful GET before the customer can proceed.
+   if(!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store))))screen('locations');
+   else render();
+  }
   return false;
  }finally{checkoutRefreshPending=false;render()}
 }
