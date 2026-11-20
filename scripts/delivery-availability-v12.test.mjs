@@ -27,7 +27,18 @@ const mockResolver=({stores,flag,fail=false})=>{
   st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',
   deliveryAvailability:{status:'IDLE',storeName:'',candidateNames:[],message:''},
   deliveryLocation:destination,fulfillmentModal:null,checkoutPending:true,
-  requestBackendOrderAvailability:async()=>{events.push('API');context.deliveryAvailability={status:'WAITING_APPROVAL',storeName:'',candidateNames:[],message:'Aprobación pendiente'};return false;},
+  requestBackendOrderAvailability:async()=>{
+   events.push('API');
+   if(fail)throw Error('SIN_COBERTURA');
+   if(stores[0].consultOrderAvailability===null)throw Error('CONFIG_INCOMPLETA');
+   if((flag===undefined?stores[0].consultOrderAvailability:flag)===false){
+    st.store=stores[0].id;st.quote={deliveryFeePen:1,serverValidated:true,quoteOrigin:'ADMIN_API'};
+    context.deliveryAvailability={status:'READY',storeName:stores[0].name,candidateNames:[],message:''};
+    return true;
+   }
+   context.deliveryAvailability={status:'WAITING_APPROVAL',storeName:'',candidateNames:[],message:'Aprobación pendiente'};
+   return false;
+  },
   render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
   deliveryAddressKey:(a,b)=>a+'|'+b,
   hasDeliveryDestination:()=>true,
@@ -75,14 +86,16 @@ test('true deja pendiente TU VERSO, no crea precio y no salta al local false',as
  assert.deepEqual(Array.from(context.deliveryAvailability.candidateNames),[],'backend no revela candidatos hasta decidir sede')
  assert.deepEqual(events,['availability','GET','API'])
 })
-test('false calcula la tarifa estimada solo para la primera sede elegible',async()=>{
+test('false también se cotiza con backend y no llama a cálculo local',async()=>{
  const {context,st,events}=mockResolver({stores:[candidate('Tallanes',false)]})
  assert.equal(await context.resolveDelivery(),true)
  assert.equal(st.store,'Tallanes')
  assert.equal(st.quote.deliveryFeePen,1)
+ assert.equal(st.quote.serverValidated,true)
+ assert.equal(st.quote.quoteOrigin,'ADMIN_API')
  assert.equal(context.deliveryAvailability.status,'READY')
- assert.deepEqual(events,['availability','GET','QUOTE'])
- assert.equal(context.checkoutPending,true,'El checkout no avanza antes de pulsar continuar')
+ assert.deepEqual(events,['availability','GET','API'])
+ assert.equal(context.checkoutPending,true)
 })
 test('regla ausente bloquea checkout y no usa tarifa anterior',async()=>{
  const {context,st,events}=mockResolver({stores:[candidate('sin-config',null)]})
@@ -90,7 +103,7 @@ test('regla ausente bloquea checkout y no usa tarifa anterior',async()=>{
  assert.equal(await context.resolveDelivery(),false)
  assert.equal(context.deliveryAvailability.status,'ERROR')
  assert.equal(st.store,'');assert.equal(st.quote,null)
- assert.deepEqual(events,['availability','GET'])
+ assert.deepEqual(events,['availability','GET','API'])
 })
 test('error de cobertura no se confunde con rechazo de sede y conserva la dirección',async()=>{
  const {context,st}=mockResolver({stores:[candidate('Nogales')],fail:true})
