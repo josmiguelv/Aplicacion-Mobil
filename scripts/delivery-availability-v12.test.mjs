@@ -27,7 +27,7 @@ const mockResolver=({stores,flag,fail=false})=>{
   st,deliveryRequestPending:false,deliveryRequestError:'',
   deliveryAvailability:{status:'IDLE',storeName:'',candidateNames:[],message:''},
   deliveryLocation:destination,fulfillmentModal:null,checkoutPending:true,
-  render:()=>{},save:()=>{},screen:x=>events.push(x),
+  render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
   deliveryAddressKey:(a,b)=>a+'|'+b,
   hasDeliveryDestination:()=>true,
   fetchConfig:async()=>{events.push('GET')},
