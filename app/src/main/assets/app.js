@@ -673,7 +673,7 @@ function fulfillmentOverlay(){
    <label class="b3-address-check"><input type="checkbox" id="delivery-save-address"> Guardar esta dirección para próximos pedidos</label>
    <div class="b3-modal-info">La cobertura y el costo de reparto deben verificarse con la web administrativa. No se asignará una tienda sin validación.</div>
    ${deliveryRequestError?`<div class="notice" role="alert">${esc(deliveryRequestError)}</div>`:""}
-   <button type="button" class="primary full" data-modal-save-delivery="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Verificando cobertura...":"Confirmar dirección"}</button>
+   <button type="button" class="primary full" data-modal-save-delivery="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Buscando sedes...":"Consultar disponibilidad"}</button>
  </div>`;
  const pickupPanel=`<div class="b3-modal-fields">
    <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual</button>
@@ -1069,7 +1069,7 @@ function address(){return `<div class="page form b3-address-page">${heading('Dir
  <label>Referencia (opcional)<input id="reference" maxlength="180" value="${esc(st.profile.reference||'')}"></label>
  <label class="b3-address-check"><input type="checkbox" id="delivery-save-address"> Guardar para próximos pedidos</label>
  ${deliveryRequestError?`<div class="notice" role="alert">${esc(deliveryRequestError)}</div>`:""}
- <button class="primary full" data-address-next="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Verificando cobertura...":"Confirmar dirección"}</button></div>`}
+ <button class="primary full" data-address-next="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Buscando sedes...":"Consultar disponibilidad"}</button></div>`}
 function maybeSaveDeliveryAddress(){
  if(!document.getElementById('delivery-save-address')?.checked)return;
  const street=v('address'),district=v('district'),reference=v('reference');
@@ -1351,7 +1351,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
     flight.oncancel=()=>flyer.remove();
   });
 }
-function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});save();toast('Agregado a tu pedido');return true}
+function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Agregado a tu pedido');return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
 root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 if(b.dataset.orderOpen){
@@ -1449,7 +1449,7 @@ if(b.hasAttribute('data-address-save')){
 if(b.hasAttribute('data-modal-save-delivery')){
  if(deliveryRequestPending)return;
  if(v('address').length<6||v('district').length<2)return toast('Completa la dirección y el distrito');
- st.mode='delivery';st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.quote=null;st.store='';maybeSaveDeliveryAddress();
+ st.mode='delivery';st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');invalidateDeliverySelection();maybeSaveDeliveryAddress();
  save();void resolveDelivery();return;
 }
 if(b.dataset.modalPickstore){void confirmStore('pickup',b.dataset.modalPickstore);return;}
@@ -1472,7 +1472,7 @@ if(b.dataset.screen){
  screen(b.dataset.screen);return;
 }
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
-if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
+if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
 if(b.dataset.store){void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
@@ -1492,9 +1492,14 @@ if(b.dataset.qty){st.qty=Math.max(1,Math.min(30,st.qty+Number(b.dataset.qty)));r
 if(b.hasAttribute('data-add')){const photo=root.querySelector('.detail-photo img');const source=photo||b;const r=source.getBoundingClientRect();const fromRect={left:r.left,top:r.top,width:r.width,height:r.height};const imageSrc=photo?.currentSrc||photo?.src||'';const qty=st.qty;if(addToCart(st.selected,qty)){nav('carta');animateAddedProduct(fromRect,imageSrc,qty)}else toast('Producto no disponible para esta demo');return}
 if(b.dataset.filter){st.category=b.dataset.filter;render();return}
 if(b.dataset.carousel!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('hero',Number(b.dataset.carousel));return}if(b.dataset.promo!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('promo',Number(b.dataset.promo));return}if(b.dataset.local!==undefined){st.local=Number(b.dataset.local);render();return}
-if(b.dataset.cartdelta){let [id,delta]=b.dataset.cartdelta.split('|');let c=st.cart.find(x=>x.id===id);if(c){c.qty+=Number(delta);st.cart=st.cart.filter(x=>x.qty>0);save();render()}return}
-if(b.dataset.remove){st.cart=st.cart.filter(x=>x.id!==b.dataset.remove);save();render();return}
-if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.quote=null;st.store='';st.mode='delivery';maybeSaveDeliveryAddress();save();void resolveDelivery();return}
+if(b.dataset.cartdelta){let [id,delta]=b.dataset.cartdelta.split('|');let c=st.cart.find(x=>x.id===id);if(c){c.qty+=Number(delta);st.cart=st.cart.filter(x=>x.qty>0);invalidateDeliverySelection();save();render()}return}
+if(b.dataset.remove){st.cart=st.cart.filter(x=>x.id!==b.dataset.remove);invalidateDeliverySelection();save();render();return}
+if(b.hasAttribute('data-availability-continue')){
+ if(deliveryRequestPending||deliveryAvailability.status!=='READY'||!deliveryQuoteValid())return toast('Primero necesitamos confirmar una sede disponible.');
+ if(checkoutPending){checkoutPending=false;screen('identity')}else screen('cart');return;
+}
+if(b.hasAttribute('data-availability-retry')){if(!deliveryRequestPending)void resolveDelivery();return}
+if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.mode='delivery';invalidateDeliverySelection();maybeSaveDeliveryAddress();save();void resolveDelivery();return}
 if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2)return toast('Ingresa tus nombres y apellidos');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
 if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();void revalidateCheckout('payment');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
