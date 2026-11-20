@@ -68,16 +68,16 @@ Las respuestas HTTP 200/202 se procesan sin inferir aceptación; 400/401/404/409
 
 El administrador se ha indicado en esta URL HTTPS temporal:
 
-`https://happiness-oakland-close-silk.trycloudflare.com`
+`https://live-proved-lot-theatre.trycloudflare.com`
 
 La rama Android ahora utiliza esa dirección predeterminada en `app/build.gradle` tanto para `b3_api_base` (catálogo y validación de pedidos) como para `b3_notifications_api_base` (avisos publicados). Ambas pueden sustituirse **en compilación** con el parámetro `-PB3_API_BASE` sin cambiar el código. Esta dirección **no** es el dominio definitivo de producción.
 
-**Estado de comprobación:** al registrar el endpoint, las pruebas externas no pudieron resolver el nombre DNS, por lo que no es posible certificar conectividad real ni estado del backend con este enlace. La URL proporcionada es configuración, no evidencia de servicio activo.
+**Estado de comprobación:** la dirección fue actualizada el 20/11/2026. La presencia de la URL en Android no demuestra que el túnel esté encendido ni que el backend o TU VERSO respondan. Verificar por las rutas GET de solo lectura antes de iniciar una validación real.
 
 Verificar desde la misma computadora y desde el teléfono de pruebas, con el túnel encendido:
 
 ```powershell
-$api = "https://happiness-oakland-close-silk.trycloudflare.com"
+$api = "https://live-proved-lot-theatre.trycloudflare.com"
 Invoke-RestMethod "$api/health/live"
 Invoke-RestMethod "$api/health/ready"
 Invoke-RestMethod "$api/api/v1/mobile/config?appId=com.integrab2g.pollosb3"
@@ -94,7 +94,7 @@ git pull --ff-only origin feat/pollos-b3-v12-order-availability-api-20261120
 node --check app/src/main/assets/app.js
 node --check app/src/main/assets/order-availability.js
 node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs scripts/order-availability-api.test.mjs scripts/order-availability-flow.test.mjs
-.\gradlew.bat :app:assembleDebug -PB3_API_BASE=https://happiness-oakland-close-silk.trycloudflare.com
+.\gradlew.bat :app:assembleDebug -PB3_API_BASE=https://live-proved-lot-theatre.trycloudflare.com
 ```
 
 No ejecutar la app en producción con un túnel temporal o URL ilustrativa. La API del Administrador debe estar levantada y accesible desde Android, no solo desde `localhost` del equipo de desarrollo.
