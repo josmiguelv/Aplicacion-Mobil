@@ -384,6 +384,9 @@ public class MainActivity extends Activity {
                             !token.matches("ordv1_[A-Za-z0-9_-]{43}"))
                             throw new IllegalArgumentException("Invalid GET");
                         path = "/api/v1/mobile/orders/availability/" + id;
+                    } else if ("HEALTH".equals(operation)) {
+                        // Diagnostic GET only: no request, agent interaction or sensitive token is sent.
+                        path = "/health/ready";
                     } else {
                         throw new IllegalArgumentException("Unsupported operation");
                     }
@@ -394,7 +397,7 @@ public class MainActivity extends Activity {
                         connection.setInstanceFollowRedirects(false);
                         connection.setConnectTimeout(12000);
                         connection.setReadTimeout(15000);
-                        connection.setRequestMethod(operation);
+                        connection.setRequestMethod("HEALTH".equals(operation) ? "GET" : operation);
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
                         if ("POST".equals(operation)) {
