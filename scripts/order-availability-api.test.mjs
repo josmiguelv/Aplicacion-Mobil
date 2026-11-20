@@ -172,6 +172,70 @@ test('prohíbe productos no UUID, duplicados, cantidades inválidas y no simula 
   assert.match(checkoutSource,/No decision endpoint, never unlock checkout on PENDING/);
   assert.match(checkoutSource,/UNAVAILABLE/);
 });
+test('GET por sede consulta capacidad sin pedir carrito ni crear interacción',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const c=client(req=>({requestId:req.requestId,status:200,
+  data:{storeId,status:'AVAILABLE',available:true,reservation:false}}));
+ const result=await c.api.checkAgentAvailability({appId:'com.integrab2g.pollosb3',storeId});
+ assert.equal(result.available,true);
+ assert.equal(c.requests[0].operation,'AGENT_AVAILABILITY');
+ assert.equal(c.requests[0].storeId,storeId);
+ assert.ok(!('body' in c.requests[0])&&!('validationToken' in c.requests[0]));
+ assert.match(java,/agent-availability\\?appId=/);
+});
+test('UNAVAILABLE HTTP 200 no se interpreta como capacidad',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const c=client(req=>({requestId:req.requestId,status:200,
+  data:{storeId,status:'UNAVAILABLE',available:false,reservation:false}}));
+ const result=await c.api.checkAgentAvailability({appId:'com.integrab2g.pollosb3',storeId});
+ assert.equal(result.available,false);
+});
+test('no acepta capacidad de otra sede ni disponibilidad inconsistente',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const c=client(req=>({requestId:req.requestId,status:200,
+  data:{storeId:'aa123456-1234-4234-8234-123456789012',
+   status:'AVAILABLE',available:true,reservation:false}}));
+ await assert.rejects(()=>c.api.checkAgentAvailability({appId:'com.integrab2g.pollosb3',storeId}),/no corresponde/);
+});
+test('cotización independiente no crea interacción, valida revisión y local',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const c=client(req=>({requestId:req.requestId,status:200,
+  data:{revision:18,storeId,mode:'delivery',deliveryFeePen:4.5,paymentMethods:['yape']}}));
+ const data=await c.api.quoteDelivery({appId:'com.integrab2g.pollosb3',address:'Av. Ejemplo 123',
+  district:'Santa Anita',useGps:false});
+ assert.equal(data.storeId,storeId);
+ assert.deepEqual(c.requests.map(x=>x.operation),['DELIVERY_QUOTE']);
+ assert.equal(c.requests[0].body.mode,'delivery');
+ assert.ok(!('items' in c.requests[0].body));
+});
+test('creación PENDING reutiliza clave e impide un segundo formulario',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const c=client(req=>({requestId:req.requestId,status:201,
+  data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:deterministic'}}));
+ const input={appId:'com.integrab2g.pollosb3',storeId,quoteRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'};
+ const entry=c.api.prepareInteraction(input);
+ assert.equal(c.api.prepareInteraction(input).idempotencyKey,entry.idempotencyKey);
+ assert.equal((await c.api.createInteraction(entry)).status,'PENDING');
+ assert.equal((await c.api.createInteraction(entry)).status,'PENDING');
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE']);
+ assert.equal(c.requests[0].idempotencyKey,entry.idempotencyKey);
+ assert.equal(c.requests[0].body.quoteRevision,18);
+ assert.equal(c.api.readInteraction().interactionId,interactionId);
+ assert.throws(()=>c.api.prepareInteraction({...input,quoteRevision:19}),/solicitud de atención iniciada/);
+});
+test('error 503 conserva idempotencia para reintento, nunca aprueba por timeout',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const c=client(req=>({requestId:req.requestId,status:503,data:{error:'unavailable'}}));
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,quoteRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
+ await assert.rejects(()=>c.api.createInteraction(entry),/no pudo comunicarse/);
+ assert.equal(c.api.readInteraction().status,'SUBMITTING');
+ assert.equal(c.api.readInteraction().idempotencyKey,entry.idempotencyKey);
+ await assert.rejects(()=>c.api.createInteraction(c.api.readInteraction()));
+ assert.equal(c.requests[0].idempotencyKey,c.requests[1].idempotencyKey);
+});
 test('puente Android exclusivo para HTTPS rutas permitidas; scripts en orden',()=>{
   assert.ok(html.indexOf('order-availability.js')>0&&html.indexOf('order-availability.js')<html.indexOf('app.js'));
   assert.match(java,/@JavascriptInterface public void orderAvailabilityRequest\(String requestJson\)/);
