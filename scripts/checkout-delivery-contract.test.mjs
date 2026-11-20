@@ -327,3 +327,23 @@ test('si falla un GET previo al pago de recojo vuelve a la selección y bloquea 
  assert.deepEqual(calls,['locations'])
  assert.match(context.checkoutReviewNote,/No se pudo actualizar/)
 })
+
+test('se advierte antes del pago cuando una sede de recojo no tiene pagos publicados',()=>{
+ const selected={id:'nogales',active:true,pickup_enabled:true,hoursConfigured:true,isOpen:true,paymentMethods:{pickup:[]}}
+ const context={st:{configReady:true},eligibleForPickup:()=>true}
+ vm.runInNewContext(extract('pickupPaymentConfigured'),context)
+ vm.runInNewContext(extract('pickupPaymentWarning'),context)
+ assert.equal(context.pickupPaymentConfigured(selected),false)
+ assert.match(context.pickupPaymentWarning(selected),/no tiene medios de pago habilitados/)
+ selected.paymentMethods.pickup=['yape']
+ assert.equal(context.pickupPaymentConfigured(selected),true)
+ assert.equal(context.pickupPaymentWarning(selected),'')
+ assert.match(source,/pickupPaymentWarning\(s\)/)
+ assert.match(source,/data-modal-pickstore=/)
+ assert.match(source,/data-pickstore=/)
+})
+test('selector de local y continuar se bloquean mientras se consulta la disponibilidad',()=>{
+ assert.match(source,/data-pickstore="\$\{esc\(s\.id\)\}" \$\{checkoutRefreshPending\?'disabled':''\}/)
+ assert.match(source,/data-modal-pickstore="\$\{esc\(s\.id\)\}" \$\{checkoutRefreshPending\?'disabled':''\}/)
+ assert.match(source,/data-start="1" \$\{checkoutRefreshPending\?'disabled':''\}/)
+})
