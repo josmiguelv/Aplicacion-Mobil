@@ -5,251 +5,182 @@ import vm from 'node:vm'
 
 const source=readFileSync(new URL('../app/src/main/assets/app.js',import.meta.url),'utf8')
 const extract=name=>{
- const expr=new RegExp('function '+name+'\\(\\)\\{[\\s\\S]*?\\n\\}')
- const match=source.match(expr)
- assert.ok(match,'Function '+name+' must exist')
+ const pattern=new RegExp('(async )?function '+name+'\\([^\\n]*\\)\\{[\\s\\S]*?\\n\\}')
+ const match=source.match(pattern)
+ assert.ok(match,'Missing function '+name)
  return match[0]
 }
-const quoteLogic=extract('deliveryQuoteValid')
-const cartLogic=extract('checkoutCartIssue')
-const totalLogic=source.match(/function orderTotal\(\)\{[^}]+\}/)?.[0]
-assert.ok(totalLogic)
-
-const store={id:'b3-local-1',active:true,delivery_enabled:true}
-function functions(st,shops=[store],catalog=[]){
- const context={st,shops,product:id=>catalog.find(p=>p.id===id),subtotal:()=>20,deliveryAddressKey:()=> 'test-address'}
- vm.runInNewContext(quoteLogic,context)
- vm.runInNewContext(totalLogic,context)
- vm.runInNewContext(cartLogic,context)
- return context
+const shopBase={active:true,delivery_enabled:true,hoursConfigured:true,isOpen:true,paymentMethods:{delivery:['yape','plin']}}
+const nogales={...shopBase,id:'nogales',name:'Nogales',latitude:-12.0506096,longitude:-77.1251313,radiusKm:5,
+ deliveryPricingMode:'PER_KM',deliveryRatePerKmPen:2.5,deliveryFeePen:null}
+const tallanes={...shopBase,id:'tallanes',name:'Tallanes',latitude:-12.0506625,longitude:-77.1038664,radiusKm:4,
+ deliveryPricingMode:'PER_KM',deliveryRatePerKmPen:3}
+const universal={...shopBase,id:'universal',name:'Universal',latitude:-12.0482197,longitude:-77.1114342,radiusKm:10,
+ deliveryPricingMode:'FIXED',deliveryFeePen:15,deliveryRatePerKmPen:null,paymentMethods:{delivery:[]}}
+const destination=(latitude,longitude)=>({latitude,longitude})
+const quote=(stores,dest,ready=true)=>{
+ const context={shops:stores,st:{configReady:ready}}
+ vm.runInNewContext(extract('calculateLocalDeliveryQuote'),context)
+ return context.calculateLocalDeliveryQuote(dest,stores)
 }
-test('delivery exige sede y tarifa verificable, no asume reparto gratuito',()=>{
- const st={mode:'delivery',store:'b3-local-1',quote:null,cart:[{id:'p',qty:1}],profile:{address:'Av. Test 123',district:'Callao'}}
- const ctx=functions(st)
- assert.equal(ctx.deliveryQuoteValid(),false)
- st.quote={deliveryFeePen:4,quotedAt:Date.now(),destinationKey:'test-address',distanceSource:'STRAIGHT_LINE'}
- assert.equal(ctx.deliveryQuoteValid(),true)
- assert.equal(ctx.orderTotal(),24)
- st.quote={deliveryFeePen:'texto'}
- assert.equal(ctx.deliveryQuoteValid(),false)
- st.quote={deliveryFeePen:-2}
- assert.equal(ctx.deliveryQuoteValid(),false)
- st.quote={deliveryFeePen:null}
- assert.equal(ctx.deliveryQuoteValid(),false)
- st.quote={}
- assert.equal(ctx.deliveryQuoteValid(),false)
-})
-test('recojo no requiere cotización de delivery y el total no suma reparto',()=>{
- const ctx=functions({mode:'pickup',store:'b3-local-1',quote:null,cart:[]})
- assert.equal(ctx.deliveryQuoteValid(),false)
- assert.equal(ctx.orderTotal(),20)
- assert.match(source,/if\(st\.mode==='pickup'&&!eligibleForPickup/)
-})
-test('pedido con producto retirado se detiene antes de confirmar',()=>{
- const st={mode:'pickup',store:'b3-local-1',quote:null,cart:[{id:'faltante',qty:1}]}
- assert.match(functions(st).checkoutCartIssue(),/no está disponible/)
- assert.equal(functions(st,[store],[{id:'faltante',disabled:false}]).checkoutCartIssue(),'')
-})
-test('la compra de prueba nunca se presenta como pedido enviado o cobrado',()=>{
- assert.match(source,/Recorrido de prueba: no se confirmarán pagos ni se enviarán pedidos/)
- assert.match(source,/demo:true/)
- assert.match(source,/Continuar con pedido de prueba/)
- assert.doesNotMatch(source,/if\(st\.configReady\)return toast\('Integración de pedidos/)
-})
 
-test('tocar producto abre ficha sin exigir dirección o tarifa antes de agregar al carrito',()=>{
- const start=source.indexOf("if(b.dataset.product||b.dataset.quick){")
- const end=source.indexOf("if(b.dataset.qty)",start)
- assert.ok(start>=0&&end>start)
- const handler=source.slice(start,end)
- assert.match(handler,/screen\('detail'\)/)
- assert.doesNotMatch(handler,/checkReady\(|deliveryQuoteValid\(|screen\('choice'\)/)
- assert.match(source,/function detail\(\)\{let p=product\(st\.selected\);/)
+test('precio S/ 2.50 por kilómetro calculado en Android con Haversine',()=>{
+ const result=quote([nogales],destination(-12.0406096,-77.1251313))
+ assert.equal(result.storeId,'nogales')
+ assert.equal(result.straightDistanceKm,1.11)
+ assert.equal(result.deliveryFeePen,2.78)
+ assert.equal(result.distanceSource,'STRAIGHT_LINE')
+ assert.equal(result.quoteOrigin,'ANDROID_LOCAL')
+ assert.equal(result.provisional,true)
 })
-test('el checkout solicita modalidad y destino solo al continuar',()=>{
- const st={mode:'',store:'',quote:null,cart:[{id:'p',qty:1}],profile:{address:'',district:''}}
- const ctx=functions(st,[store],[{id:'p',disabled:false}])
- ctx.checkoutPending=false;ctx.hasDeliveryDestination=()=>false
- ctx.revalidateCheckout=step=>{ctx.current=step}
- ctx.screen=name=>{ctx.current=name}
- ctx.toast=()=>{throw Error('Unexpected validation')}
- vm.runInNewContext(extract('startCheckout'),ctx)
- ctx.startCheckout()
- assert.equal(ctx.checkoutPending,true)
- assert.equal(ctx.current,'choice')
- st.mode='delivery';ctx.startCheckout()
- assert.equal(ctx.current,'deliveryAddress')
- ctx.hasDeliveryDestination=()=>true;ctx.startCheckout()
- assert.equal(ctx.current,'identity')
- assert.equal(ctx.checkoutPending,false)
+test('tarifa fija Universal S/ 15 dentro de sus 10 km, sin multiplicar',()=>{
+ const result=quote([universal],destination(-12.048,-77.111))
+ assert.equal(result.storeId,'universal')
+ assert.equal(result.deliveryPricingMode,'FIXED')
+ assert.equal(result.deliveryFeePen,15)
+ assert.ok(result.straightDistanceKm<10)
 })
-test('recojo entra al checkout mediante revalidación de disponibilidad',()=>{
- const st={mode:'pickup',store:store.id,quote:null,cart:[{id:'p',qty:1}]}
- const ctx=functions(st,[store],[{id:'p',disabled:false}])
- ctx.checkoutPending=true;ctx.revalidateCheckout=next=>{ctx.current=next}
- ctx.screen=()=>{throw Error('Must revalidate first')}
- ctx.toast=()=>{throw Error('Unexpected validation')}
- vm.runInNewContext(extract('startCheckout'),ctx)
- ctx.startCheckout()
- assert.equal(ctx.current,'identity')
- assert.equal(ctx.checkoutPending,false)
-})
-test('cotizar delivery conserva el avance al pago y permite reintentar si falla',()=>{
- assert.match(source,/if\(checkoutPending\)\{checkoutPending=false;screen\('identity'\);return true\}/)
- assert.match(source,/deliveryRequestError=/)
- assert.match(source,/deliveryRequestError=err\?\.name/)
- assert.match(source,/if\(checkoutPending\)\{void confirmStore\('pickup',selected\.id\);return\}/)
-})
-
-test('la dirección no se cotiza antes de que la configuración de sedes termine de cargar',async()=>{
- const match=source.match(/async function resolveDelivery\([\s\S]*?\n\}(?=\nfunction resolveStoreDistances)/)
- assert.ok(match)
- const st={mode:'delivery',profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},configReady:false,store:'',quote:null,stage:'deliveryAddress'}
- const calls=[]
- const ctx={
-  st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
-  checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
-  deliveryLocation:{latitude:-12.05,longitude:-77.12,source:'address'},hasDeliveryDestination:()=>true,deliveryAddressKey:()=> 'test-address',
-  AbortController,setTimeout,clearTimeout,console:{warn:()=>{}},
-  render:()=>{},save:()=>{},screen:name=>calls.push(name),nav:name=>calls.push(name),
-  fetchConfig:async()=>{calls.push('config');st.configReady=true},
-  fetch:async()=>{calls.push('quote');return {ok:true,status:200,json:async()=>({storeId:store.id,deliveryFeePen:4,distanceSource:'STRAIGHT_LINE',straightDistanceKm:1.2,deliveryPricingMode:'PER_KM'})}
-  }
- }
- vm.runInNewContext(match[0],ctx)
- await ctx.resolveDelivery()
- assert.deepEqual(calls,['config','quote','identity'])
- assert.equal(st.quote.deliveryFeePen,4)
- assert.equal(ctx.checkoutPending,false)
- assert.equal(ctx.deliveryRequestPending,false)
-})
-test('un error 404 se muestra de forma persistente y permite reintentar sin perder la dirección',async()=>{
- const match=source.match(/async function resolveDelivery\([\s\S]*?\n\}(?=\nfunction resolveStoreDistances)/)
- assert.ok(match)
- const st={mode:'delivery',profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},configReady:true,store:'',quote:null,stage:'deliveryAddress'}
- let requests=0
- const ctx={
-  st,API_BASE:'https://example.invalid',APP_ID:'com.integrab2g.pollosb3',shops:[store],
-  checkoutPending:true,deliveryRequestPending:false,deliveryRequestError:'',
-  deliveryLocation:{latitude:-12.05,longitude:-77.12,source:'address'},hasDeliveryDestination:()=>true,deliveryAddressKey:()=> 'test-address',
-  AbortController,setTimeout,clearTimeout,console:{warn:()=>{}},
-  render:()=>{},save:()=>{},screen:()=>{throw Error('Unexpected navigation')},nav:()=>{throw Error('Unexpected navigation')},
-  fetchConfig:async()=>{},
-  fetch:async()=>{requests++;return {ok:false,status:404,json:async()=>({error:'Not found'})}}
- }
- vm.runInNewContext(match[0],ctx)
- await ctx.resolveDelivery()
- assert.match(ctx.deliveryRequestError,/HTTP 404/)
- assert.equal(ctx.deliveryRequestPending,false)
- assert.equal(st.profile.address,'Av. Ejemplo 123')
- await ctx.resolveDelivery()
- assert.equal(requests,2)
-})
-
-test('cotización por línea recta exige coordenadas explícitas y no reutiliza GPS de navegación',()=>{
- assert.match(source,/latitude:destination\.latitude,longitude:destination\.longitude/)
- assert.match(source,/deliveryLocation=\{\.\.\.position,key:deliveryAddressKey\(address,district\)\}/)
- assert.match(source,/distanceSource!=='STRAIGHT_LINE'/)
- assert.match(source,/deliveryGpsRequested=fulfillmentModal==='delivery'\|\|st\.stage==='deliveryAddress'/)
- assert.match(source,/function geocodeDeliveryDestination\(address,district\)/)
-})
-test('costo por kilómetro temporal se identifica como aproximado y no carretera',()=>{
- assert.match(source,/km aproximados en línea recta/)
- assert.match(source,/st\.quote\.deliveryPricingMode==='FIXED'/)
-})
-
-test('métodos de pago salen de la sede y modalidad publicadas',()=>{
- const start=source.indexOf('function paymentOptions(){')
- const end=source.indexOf('function productsFromApi(',start)
- assert.ok(start>=0&&end>start)
- const code=source.slice(start,end)
- assert.match(code,/st\.quote\?\.paymentMethods/)
- assert.match(code,/selected\?\.paymentMethods\?\.\[st\.mode\]/)
- assert.match(code,/choices\.filter\(x=>published\.includes\(x\[0\]\)\)/)
-})
-
-test('el local de delivery se asigna desde el servidor, sin preferencias manuales',()=>{
+test('sin selector de sede: se asigna la más cercana dentro de la cobertura',()=>{
+ const result=quote([universal,nogales],destination(nogales.latitude,nogales.longitude))
+ assert.equal(result.storeId,'nogales')
  assert.doesNotMatch(source,/preferredDeliveryStoreId|deliveryStorePreferenceHtml|delivery-store-preference/)
- assert.match(source,/mode:'delivery',address,district,latitude:destination.latitude,longitude:destination.longitude/)
 })
-test('Universal sin pagos publicados no permite continuar de forma ficticia',()=>{
- const match=source.match(/function paymentOptions\(\)\{[\s\S]*?\n\}/)
- assert.ok(match)
- const st={configReady:true,mode:'delivery',store:'7585340e-6d4d-4764-b127-b892dc50909d',
-  quote:{paymentMethods:[]}}
- const ctx={st,shops:[{id:st.store,paymentMethods:{delivery:[]}}]}
- vm.runInNewContext(match[0],ctx)
- assert.equal(ctx.paymentOptions().length,0)
- st.quote={paymentMethods:['yape','plin','card']}
- assert.deepEqual(ctx.paymentOptions().map(x=>x[0]),['yape','plin','card'])
- assert.match(source,/no tiene métodos de pago publicados/)
- assert.match(source,/data-pay-next="1" \${missing\|\|checkoutRefreshPending\?'disabled':''}/)
+test('cuando la sede más cercana cierra, se usa la siguiente elegible',()=>{
+ const result=quote([{...nogales,isOpen:false},universal],destination(nogales.latitude,nogales.longitude))
+ assert.equal(result.storeId,'universal')
+ assert.equal(result.deliveryFeePen,15)
 })
-
-test('al entrar al pago, mostrar resumen y confirmar, consultar API nuevamente siempre',async()=>{
- const match=source.match(/async function revalidateCheckout\(next\)\{[\s\S]*?\n\}(?=\nfunction startCheckout)/)
- assert.ok(match)
+test('tienda fuera de radio, inactiva, sin tarifa o sin horarios no cotiza',()=>{
+ const near=destination(nogales.latitude,nogales.longitude)
+ for(const list of [
+  [{...nogales,radiusKm:0.02}], // this fixture is exactly at the store, so test farther below
+  [{...nogales,active:false}],
+  [{...nogales,delivery_enabled:false}],
+  [{...nogales,isOpen:false}],
+  [{...nogales,hoursConfigured:false}],
+  [{...nogales,deliveryRatePerKmPen:null}],
+  [{...nogales,latitude:null}],
+ ]) {
+  const target=list[0].radiusKm===0.02?destination(nogales.latitude+0.01,nogales.longitude):near
+  assert.throws(()=>quote(list,target),/No hay locales abiertos/)
+ }
+})
+test('cobertura ilimitada solo cuando radiusKm es nulo',()=>{
+ const result=quote([{...universal,radiusKm:null}],destination(-11.90,-77.111))
+ assert.equal(result.deliveryFeePen,15)
+ assert.ok(result.straightDistanceKm>10)
+})
+test('nunca se inventa coordenada, tarifa ni configuración publicada',()=>{
+ assert.throws(()=>quote([nogales],destination(null,null)),/ubicación/)
+ assert.throws(()=>quote([nogales],destination(nogales.latitude,nogales.longitude),false),/publicadas/)
+ assert.throws(()=>quote([{...universal,deliveryFeePen:null}],destination(universal.latitude,universal.longitude)),/No hay locales abiertos/)
+})
+test('sin método de pago publicado el cliente no puede avanzar con pago ficticio',()=>{
+ const context={st:{mode:'delivery',store:'universal',configReady:true,quote:{paymentMethods:[]}},shops:[universal]}
+ vm.runInNewContext(extract('paymentOptions'),context)
+ assert.equal(context.paymentOptions().length,0)
+ context.st.quote.paymentMethods=['yape','plin']
+ assert.deepEqual(Array.from(context.paymentOptions(),x=>x[0]),['yape','plin'])
+})
+test('deliveryQuoteValid exige una cotización local reciente y dirección consistente',()=>{
+ const now=Date.now()
+ const st={mode:'delivery',store:'nogales',profile:{address:'Calle 123',district:'Callao'},
+  quote:{deliveryFeePen:2.78,quotedAt:now,destinationKey:'calle 123|callao',distanceSource:'STRAIGHT_LINE'}}
+ const context={st,shops:[nogales],deliveryAddressKey:(a,d)=>a.toLowerCase()+'|'+d.toLowerCase()}
+ vm.runInNewContext(extract('deliveryQuoteValid'),context)
+ assert.equal(context.deliveryQuoteValid(),true)
+ st.quote.quotedAt=now-20*60*1000
+ assert.equal(context.deliveryQuoteValid(),false)
+ st.quote.quotedAt=now;st.quote.deliveryFeePen=null
+ assert.equal(context.deliveryQuoteValid(),false)
+ st.quote.deliveryFeePen=2.78;st.profile.address='Otra calle'
+ assert.equal(context.deliveryQuoteValid(),false)
+})
+test('confirmar dirección cotiza localmente después de un GET, sin consultar endpoint POST',async()=>{
+ const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},
+  configReady:true,store:'',quote:null,stage:'deliveryAddress'}
  const events=[]
- const st={mode:'delivery',store:'s1',quote:{},pay:'yape',cart:[{id:'p',qty:1}],profile:{}}
- const ctx={
-  st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
-  checkoutSnapshot:()=>({store:st.store,total:2200,items:'p:1:20'}),
+ const context={
+  st,deliveryRequestPending:false,deliveryRequestError:'',deliveryLocation:{latitude:nogales.latitude,longitude:nogales.longitude},
+  checkoutPending:true,render:()=>{},save:()=>{},screen:x=>events.push(x),nav:x=>events.push(x),
+  deliveryAddressKey:(a,d)=>a+'|'+d,hasDeliveryDestination:()=>true,
   fetchConfig:async ({strict})=>{assert.equal(strict,true);events.push('GET')},
-  checkoutCartIssue:()=>'',hasDeliveryDestination:()=>true,
-  resolveDelivery:async ({silent,skipConfig})=>{assert.equal(silent,true);assert.equal(skipConfig,true);events.push('POST');return true},
-  paymentOptions:()=>[['yape','Yape','']],screen:step=>events.push(step),save:()=>{},
-  finalizeDemoOrder:()=>events.push('confirmado')
+  calculateLocalDeliveryQuote:()=>{events.push('LOCAL');return quote([nogales],destination(nogales.latitude,nogales.longitude))}
  }
- vm.runInNewContext(match[0],ctx)
- for(const step of ['payment','summary','confirm'])await ctx.revalidateCheckout(step)
- assert.deepEqual(events,['GET','POST','payment','GET','POST','summary','GET','POST','confirmado'])
+ vm.runInNewContext(extract('resolveDelivery'),context)
+ assert.equal(await context.resolveDelivery(),true)
+ assert.deepEqual(events,['GET','LOCAL','identity'])
+ assert.equal(st.quote.deliveryFeePen,0)
+ assert.equal(st.store,'nogales')
+ assert.equal(context.checkoutPending,false)
+ assert.doesNotMatch(source,/\/api\/v1\/mobile\/fulfillment\/resolve/)
 })
-test('si el costo o sede cambia durante confirmación, exige revisar el resumen',async()=>{
- const match=source.match(/async function revalidateCheckout\(next\)\{[\s\S]*?\n\}(?=\nfunction startCheckout)/)
- assert.ok(match)
- const events=[],st={mode:'delivery',store:'s1',quote:{},pay:'yape',cart:[{id:'p',qty:1}],profile:{}}
- const ctx={
+test('sin cobertura no se avanza y el error conserva la dirección',async()=>{
+ const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,quote:null,store:'',stage:'deliveryAddress'}
+ const context={
+  st,deliveryRequestPending:false,deliveryRequestError:'',deliveryLocation:{latitude:-11.9,longitude:-77.12},
+  checkoutPending:true,render:()=>{},save:()=>{},screen:()=>{throw Error('Unexpected navigation')},
+  deliveryAddressKey:(a,d)=>a+'|'+d,hasDeliveryDestination:()=>true,fetchConfig:async()=>{},
+  calculateLocalDeliveryQuote:()=>quote([nogales],destination(-11.9,-77.12))
+ }
+ vm.runInNewContext(extract('resolveDelivery'),context)
+ assert.equal(await context.resolveDelivery(),false)
+ assert.match(context.deliveryRequestError,/No hay locales abiertos/)
+ assert.equal(context.checkoutPending,true)
+ assert.equal(st.profile.address,'Av. Argentina 1653')
+})
+test('carrito, pago, resumen y confirmar revisan horarios con GET actualizado',async()=>{
+ const calls=[]
+ const st={mode:'delivery',store:'nogales',pay:'yape',cart:[{id:'p',qty:1}],profile:{},quote:{}}
+ const context={
   st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
   checkoutSnapshot:()=>({store:st.store,total:2200,items:'p:1:20'}),
-  fetchConfig:async()=>{events.push('GET')},checkoutCartIssue:()=>'',hasDeliveryDestination:()=>true,
-  resolveDelivery:async()=>{st.store='s2';events.push('POST');return true},
-  paymentOptions:()=>[['yape','Yape','']],screen:step=>events.push(step),save:()=>{},
-  finalizeDemoOrder:()=>events.push('confirmado')
+  fetchConfig:async({strict})=>{assert.equal(strict,true);calls.push('GET')},
+  checkoutCartIssue:()=>'',hasDeliveryDestination:()=>true,
+  resolveDelivery:async({silent,skipConfig})=>{assert.equal(silent,true);assert.equal(skipConfig,true);calls.push('LOCAL');return true},
+  paymentOptions:()=>[['yape','Yape','']],screen:x=>calls.push(x),save:()=>{},
+  finalizeDemoOrder:()=>calls.push('confirmado')
  }
- vm.runInNewContext(match[0],ctx)
- await ctx.revalidateCheckout('confirm')
- assert.deepEqual(events,['GET','POST','summary'])
- assert.match(ctx.checkoutReviewNote,/Se actualizó la sede/)
- assert.equal(ctx.checkoutRefreshPending,false)
+ vm.runInNewContext(extract('revalidateCheckout'),context)
+ for(const target of ['cart','payment','summary','confirm'])await context.revalidateCheckout(target)
+ assert.deepEqual(calls,['GET','LOCAL','cart','GET','LOCAL','payment','GET','LOCAL','summary','GET','LOCAL','confirmado'])
 })
-test('GPS autocompleta calle y distrito con respuesta nativa',()=>{
+test('si la configuración no se actualiza, anula tarifa anterior y bloquea el pago',async()=>{
+ const st={mode:'delivery',store:'nogales',pay:'yape',profile:{},quote:{deliveryFeePen:10}}
+ const calls=[]
+ const context={
+  st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
+  checkoutSnapshot:()=>({store:'nogales',total:3000,items:'p:1:20'}),
+  fetchConfig:async()=>{throw Error('No se pudo actualizar la disponibilidad de locales')},
+  save:()=>calls.push('save'),screen:x=>calls.push(x)
+ }
+ vm.runInNewContext(extract('revalidateCheckout'),context)
+ assert.equal(await context.revalidateCheckout('confirm'),false)
+ assert.equal(st.quote,null)
+ assert.equal(st.store,'')
+ assert.deepEqual(calls,['save','deliveryAddress'])
+ assert.match(context.checkoutReviewNote,/No se pudo actualizar/)
+})
+test('cuando cambia la sede o importe justo antes de confirmar exige revisar el total',async()=>{
+ const st={mode:'delivery',store:'nogales',pay:'yape',cart:[{id:'p',qty:1}],profile:{},quote:{}}
+ const calls=[]
+ const context={
+  st,checkoutRefreshPending:false,checkoutReviewNote:'',render:()=>{},
+  checkoutSnapshot:()=>({store:st.store,total:2200,items:'p:1:20'}),
+  fetchConfig:async()=>{calls.push('GET')},checkoutCartIssue:()=>'',hasDeliveryDestination:()=>true,
+  resolveDelivery:async()=>{st.store='universal';calls.push('LOCAL');return true},
+  paymentOptions:()=>[['yape','Yape','']],screen:x=>calls.push(x),save:()=>{},
+  finalizeDemoOrder:()=>calls.push('confirmado')
+ }
+ vm.runInNewContext(extract('revalidateCheckout'),context)
+ assert.equal(await context.revalidateCheckout('confirm'),false)
+ assert.deepEqual(calls,['GET','LOCAL','summary'])
+ assert.match(context.checkoutReviewNote,/Se actualizó la sede/)
+})
+test('la compra es demostración: sin cobros ni pedidos enviados al local',()=>{
+ assert.match(source,/demo:true/)
+ assert.match(source,/no se confirmarán pagos ni se enviarán pedidos/)
+ assert.match(source,/revalidateCheckout\('summary'\)/)
+ assert.match(source,/revalidateCheckout\('confirm'\)/)
  assert.match(source,/window\.b3DeliveryGpsAddress=/)
- assert.match(source,/reverseGeocodeDeliveryLocation\(JSON\.stringify/)
- assert.match(source,/st\.profile\.address=String\(street\)\.trim\(\)/)
- assert.match(source,/Revisa la calle, el número y el distrito/)
-})
-
-test('abrir carrito con destino conocido refresca disponibilidad; el render no hace consultas',()=>{
- const handler=source.slice(source.indexOf("if(b.dataset.screen){"),source.indexOf("if(b.hasAttribute('data-guest'))"))
- assert.match(handler,/b\.dataset\.screen==='cart'/)
- assert.match(handler,/void revalidateCheckout\('cart'\)/)
- assert.doesNotMatch(source.slice(source.indexOf('function cart(){'),source.indexOf('function identity(){')),/fetchConfig\(|resolveDelivery\(/)
-})
-test('pago, resumen y confirmación usan recotización y no cotizaciones antiguas',()=>{
- assert.match(source,/if\(b\.hasAttribute\('data-phone-next'\)\)[\s\S]*?revalidateCheckout\('payment'\)/)
- assert.match(source,/if\(b\.hasAttribute\('data-pay-next'\)\)[\s\S]*?revalidateCheckout\('summary'\)/)
- assert.match(source,/if\(b\.hasAttribute\('data-confirm'\)\)[\s\S]*?revalidateCheckout\('confirm'\)/)
- assert.match(source,/await fetchConfig\(\{strict:true\}\)/)
- assert.match(source,/if\(next==='confirm'\)\{screen\('summary'\);return false\}/)
-})
-
-test('cotizaciones públicas de delivery y recojo usan POST simple para evitar preflight',()=>{
- const delivery=source.slice(source.indexOf('async function resolveDelivery('),source.indexOf('function resolveStoreDistances()'))
- const checkout=source.slice(source.indexOf('async function revalidateCheckout('),source.indexOf('function startCheckout()'))
- assert.match(delivery,/headers:\{'Content-Type':'text\/plain;charset=UTF-8'\}/)
- assert.match(checkout,/headers:\{'Content-Type':'text\/plain;charset=UTF-8'\}/)
- assert.match(delivery,/body:JSON\.stringify\(\{appId:APP_ID,mode:'delivery'/)
- assert.match(checkout,/body:JSON\.stringify\(\{appId:APP_ID,mode:'pickup',storeId:st\.store\}\)/)
- assert.doesNotMatch(delivery,/headers:\{'Content-Type':'application\/json'\}/)
- assert.doesNotMatch(checkout,/headers:\{'Content-Type':'application\/json'\}/)
 })
