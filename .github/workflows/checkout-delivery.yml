@@ -1,10 +1,12 @@
 name: Pollos B3 checkout contract
 on:
+  pull_request:
   push:
-    branches: [feat/pollos-b3-v11-webview-fulfillment]
+    branches: [feat/pollos-b3-v11-webview-fulfillment, feat/pollos-b3-v12-delivery-availability-20261119]
     paths:
       - app/src/main/assets/app.js
       - scripts/checkout-delivery-contract.test.mjs
+      - scripts/delivery-availability-v12.test.mjs
       - .github/workflows/checkout-delivery.yml
 jobs:
   checkout-contract:
@@ -19,4 +21,4 @@ jobs:
       - name: Check app JavaScript syntax
         run: node --check app/src/main/assets/app.js
       - name: Check checkout and delivery contract
-        run: node --test scripts/checkout-delivery-contract.test.mjs
+        run: node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs
