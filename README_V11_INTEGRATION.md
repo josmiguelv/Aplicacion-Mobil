@@ -6,9 +6,19 @@ Partiendo del prototipo V10 de WebView, esta versión modifica **solo** los reco
 
 Selector debajo del buscador del Inicio y en la pantalla de elección: **Pollo Delivery y Pide y Retira**. El cliente puede cambiar el modo después. El cambio invalida la cotización, local y pago previos, y avisa que se deben verificar los importes.
 
-### Delivery
+### Delivery (cálculo provisional dentro de Android)
 
-Pide permiso de GPS **solo al pulsar Usar mi ubicación actual**. Si el GPS está apagado se muestra aviso. Se puede escribir dirección y referencia manualmente, pero una dirección sin punto georreferenciado no autoriza asignación automática en la API actual. Con coordenadas verificadas, el servidor selecciona local activo, con modalidad delivery, tarifa y radio de cobertura publicados. Actualmente la selección se basa en distancia geográfica; tiempos/rutas reales requieren proveedor de rutas posterior. No se inventa costo ni tienda.
+El cliente elige una dirección completa. Android usa el geocodificador del dispositivo para obtener las coordenadas de la dirección, o el GPS cuando el usuario pulsa «Usar mi ubicación actual como destino». El geocodificador puede no devolver número de puerta, por lo que la dirección debe revisarse y completarse antes de continuar.
+
+Android solicita **GET /api/v1/mobile/config?appId=...** para obtener locales, coordenadas, tarifas, radios de cobertura y horarios actuales publicados. A partir de esos datos, calcula con Haversine la **distancia en línea recta** a cada sede abierta, activa y habilitada para delivery. Excluye las que no tienen configuración válida o están fuera del radio; la sede elegible más cercana se asigna automáticamente, **sin selector manual**.
+
+- `PER_KM`: kilómetros en línea recta × tarifa publicada, redondeado a céntimos.
+- `FIXED`: importe fijo publicado, sin multiplicar por kilómetros. La cobertura se valida igualmente.
+- `radiusKm = null`: cobertura sin límite publicado; una cifra indica el radio máximo.
+
+**No se consulta `POST /api/v1/mobile/fulfillment/resolve`** en esta fase de prueba. La app actualiza el GET y calcula otra vez al abrir el carrito con destino, avanzar hacia el pago, ver el resumen y confirmar el pedido de prueba. Si una consulta falla, invalida la cotización anterior; si cambian la sede, los productos o el total, exige revisar el nuevo importe.
+
+Los resultados son **estimados**, no kilómetros por carretera. **Un cliente Android no puede ser autoridad de precios o cobertura en producción**: al implementar pedidos y cobros reales, un servidor debe recalcular y validar el total, la disponibilidad y la tarifa antes de aceptar o cobrar un pedido. No se han creado pedidos ni cobros reales.
 
 ### Pide y Retira
 
@@ -16,9 +26,9 @@ Se muestran locales activos publicados, incluidos los cerrados por horario. Loca
 
 ## Integración
 
-La API pública se configura al compilar Android con la propiedad Gradle `B3_API_BASE`, por ejemplo: `gradle :app:assembleDebug -PB3_API_BASE=https://api.ejemplo.com`. Esta URL es ilustrativa; no hay servicio desplegado en ese dominio. La WebView lee la URL HTTPS mediante `AndroidBridge.getApiBase()` sin introducir credenciales en el APK. Se consultan `GET /api/v1/mobile/config?appId=...` y `POST /api/v1/mobile/fulfillment/resolve`. El identificador Android se registra en la web con la empresa correspondiente. Sin backend sigue disponible la **demostración**, claramente indicada.
+La API pública se configura al compilar Android con la propiedad Gradle `B3_API_BASE`, por ejemplo: `gradle :app:assembleDebug -PB3_API_BASE=https://api.ejemplo.com`. Esta URL es ilustrativa; no hay servicio desplegado en ese dominio. La WebView lee la URL HTTPS mediante `AndroidBridge.getApiBase()` sin introducir credenciales en el APK. La app consulta `GET /api/v1/mobile/config?appId=...` y calcula el delivery provisionalmente en el dispositivo, sin POST de fulfillment. El identificador Android se registra en la web con la empresa correspondiente. Sin backend sigue disponible la **demostración**, claramente indicada.
 
-**Pagos reales y envío de pedidos no implementados**. Cuando hay una configuración publicada, el botón de confirmación **no crea órdenes** para evitar pedidos fantasma; los métodos habilitados solo sirven para validar el flujo hasta la pantalla de resumen.
+**Pagos reales y envío de pedidos no implementados**. Cuando hay una configuración publicada, el botón de confirmación **no crea órdenes** para evitar pedidos fantasma; solo se muestran los métodos de pago publicados para la sede; la confirmación genera una simulación local, no un pedido comercial.
 
 Antes de pruebas comerciales: configurar app+tenant, subir carta real, habilitar locales y modalidades, verificar coordenadas/cobertura/tarifas, publicar métodos de pago, probar GPS y red, y conectar pasarela y API de pedidos.
 
