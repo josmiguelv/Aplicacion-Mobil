@@ -3,6 +3,7 @@ on:
   push:
     branches: [feat/pollos-b3-v12-delivery-availability-20261119, feat/pollos-b3-v12-order-availability-api-20261120]
     paths:
+      - app/build.gradle
       - app/src/main/assets/app.js
       - app/src/main/assets/index.html
       - app/src/main/assets/order-availability.js
