@@ -507,9 +507,15 @@ async function checkDeliveryBackendHealth(){
  deliveryHealthPending=true;deliveryHealthMessage='';render();
  try{
   const result=await window.B3OrderAvailability.checkConnection();
+  const status=Number(result.status);
   deliveryHealthMessage=result.online?
-   'El servidor del Administrador responde correctamente. Revisa la configuración del catálogo o de la sede si la validación sigue fallando.':
-   'El servidor no confirmó que esté listo. Comprueba que el túnel HTTPS esté activo y el backend tenga acceso a su base de datos.';
+   'El Administrador está disponible y su base de datos respondió correctamente. Esto no confirma que TU VERSO tenga solicitudes habilitadas.':
+   result.liveOnline && status===503?
+   'El Administrador está encendido (GET /health/live: HTTP 200), pero su base de datos no está lista (GET /health/ready: HTTP 503). Verifica PostgreSQL del Administrador.':
+   result.liveOnline?
+   'El Administrador responde (GET /health/live: HTTP 200), pero su comprobación de disponibilidad falló (GET /health/ready: HTTP '+status+'). Revisa el backend.':
+   'El túnel no confirmó el servicio esperado (GET /health/ready: HTTP '+status+
+   '; GET /health/live: '+(result.liveStatus==null?'sin respuesta JSON':('HTTP '+result.liveStatus))+'). Comprueba que la URL y el puerto del Administrador sean correctos.';
  }catch{
   deliveryHealthMessage='No pudimos contactar al Administrador. Comprueba la conexión de internet y que el túnel HTTPS siga activo.';
  }finally{deliveryHealthPending=false;render();}
