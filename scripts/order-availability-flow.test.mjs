@@ -29,7 +29,7 @@ function simulation({available=true,returnedQuote=quote,pending=false,otherStore
   createInteraction:async ()=>{events.push('CREATE');return {status:'PENDING',storeId,interactionId:otherId}}
  };
  const context={
-  st,window:{B3OrderAvailability:api},APP_ID:'com.integrab2g.pollosb3',
+  st,shops:[candidate,...otherStores],window:{B3OrderAvailability:api},APP_ID:'com.integrab2g.pollosb3',
   deliveryValidationGeneration:1,publishedRevision:18,
   deliveryAvailability:{status:'CHECKING'},deliveryLocation:{
    latitude:-12.05,longitude:-77.12,source:'address'},
