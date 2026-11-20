@@ -7,7 +7,7 @@ on:
       - app/src/main/assets/index.html
       - app/src/main/assets/order-availability.js
       - app/src/main/java/com/integrab2g/pollosb3/MainActivity.java
-      - scripts/order-availability-api.test.mjs scripts/order-availability-flow.test.mjs
+      - scripts/order-availability-api.test.mjs
       - scripts/order-availability-flow.test.mjs
       - app/src/main/assets/styles.css
       - scripts/checkout-delivery-contract.test.mjs
@@ -42,7 +42,7 @@ jobs:
         run: |
           node --check app/src/main/assets/app.js
           node --check app/src/main/assets/order-availability.js
-          node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs scripts/order-availability-api.test.mjs
+          node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs scripts/order-availability-api.test.mjs scripts/order-availability-flow.test.mjs
       - name: Compile Android APK debug
         run: gradle --no-daemon :app:assembleDebug
       - name: Attach APK
