@@ -310,8 +310,8 @@ async function fetchConfig({strict=false}={}){
   storeGeocoding=false;
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
-  if(revisionChanged){deliveryValidationGeneration++;st.quote=null;st.store='';clearDeliveryAvailability()}
-  if(st.store&&!shops.some(x=>String(x.id)===String(st.store))){st.quote=null;st.store='';clearDeliveryAvailability()}
+  if(revisionChanged){deliveryValidationGeneration++;window.B3OrderAvailability?.clear();st.quote=null;st.store='';clearDeliveryAvailability()}
+  if(st.store&&!shops.some(x=>String(x.id)===String(st.store))){deliveryValidationGeneration++;window.B3OrderAvailability?.clear();st.quote=null;st.store='';clearDeliveryAvailability()}
   catalogRequestFinished=true;
   save();if(st.stage!=='splash')render();return true;
  }catch(err){
@@ -400,11 +400,11 @@ function storeAvailabilitySetting(store){
 }
 function clearDeliveryAvailability(){
  deliveryAvailability={status:'IDLE',storeName:'',candidateNames:[],message:''};
- window.B3OrderAvailability?.clear();
 }
 function invalidateDeliverySelection(){
  if(st.mode!=='delivery')return;
  deliveryValidationGeneration++;deliveryRequestPending=false;
+ window.B3OrderAvailability?.clear();
  st.quote=null;st.store='';clearDeliveryAvailability();
 }
 function deliveryQuoteValid(){
@@ -482,11 +482,11 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   if(result.status==='READY_FOR_PAYMENT'){applyBackendQuote(result,entry,address,district);return true;}
   if(result.status==='UNAVAILABLE'){
    deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
-    message:'Ninguna sede puede atender la solicitud en este momento.'};return false;
+    message:'Ninguna sede puede atender la solicitud en este momento.'};window.B3OrderAvailability.clear();return false;
   }
   if(result.status==='VALIDATION_ERROR'||result.status==='CANCELLED'){
    deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
-    message:'No fue posible completar la validación. Revisa la dirección o vuelve a intentar.'};return false;
+    message:'No fue posible completar la validación. Revisa la dirección o vuelve a intentar.'};window.B3OrderAvailability.clear();return false;
   }
   if(!(result.status in explanations))throw Error('Estado de validación desconocido.');
   deliveryAvailability={status:result.status,storeName:'',candidateNames:[],message:explanations[result.status]};
@@ -1507,7 +1507,7 @@ if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
 if(b.dataset.modalMode){
  const next=b.dataset.modalMode;
  if(next!=='delivery'&&next!=='pickup')return;
- if(st.mode!==next){st.mode=next;st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)st.notice='Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.'}
+ if(st.mode!==next){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.mode=next;st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)st.notice='Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.'}
  fulfillmentModal=next;render();if(next==='pickup'&&API_BASE)void fetchConfig();return;
 }
 if(b.hasAttribute('data-profile-save')){saveProfile();return}
@@ -1557,7 +1557,7 @@ if(b.dataset.screen){
  screen(b.dataset.screen);return;
 }
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
-if(b.dataset.mode){if(st.mode!==b.dataset.mode){st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
+if(b.dataset.mode){if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
 if(b.dataset.store){void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
