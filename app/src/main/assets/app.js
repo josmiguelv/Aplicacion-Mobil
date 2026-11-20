@@ -1063,8 +1063,8 @@ function availability(){
  const required=!checking&&status==='APPROVAL_REQUIRED';
  const failed=!checking&&!waiting&&(status==='ERROR'||status==='UNAVAILABLE');
  const names=deliveryAvailability.candidateNames||[];
- const title=checking?'Buscando una sede para ti':waiting?'Esperando confirmación de la sede':ready?'Tenemos una sede disponible':status==='UNAVAILABLE'?'No hay sedes disponibles':required?'Tu pedido necesita confirmación':'No pudimos completar la consulta';
- const detail=checking?'Revisamos los locales abiertos, habilitados para delivery y con cobertura en tu dirección.'
+ const title=checking?'Buscando una sede para ti':waiting?(status==='CREATE_UNCERTAIN'?'Registrando solicitud de atención':'Esperando confirmación de la sede'):ready?'Tenemos una sede disponible':status==='UNAVAILABLE'?'No hay sedes disponibles':required?'Tu pedido necesita confirmación':'No pudimos completar la consulta';
+ const detail=checking?deliveryAvailability.message||'Consultamos la capacidad del asesor y la tarifa del local elegido.'
   :waiting?deliveryAvailability.message
   :ready?'La sede respondió. Revisa el total y las formas de pago antes de continuar.'
   :required?'La primera sede elegible requiere una respuesta real del equipo antes de confirmar tu pedido.'
@@ -1098,10 +1098,10 @@ function availability(){
   ${waiting?`<div class="b3-availability-message" role="status"><p>${esc(deliveryAvailability.message)}</p></div>`:''}
   ${ready?`<div class="b3-availability-selected">${ic('store',22)}<span><strong>${esc(st.quote.storeName||'Sede disponible')}</strong><small>${st.quote.serverValidated?'Sede y tarifa verificadas por el servidor': 'Delivery referencial · '+Number(st.quote.straightDistanceKm).toFixed(2)+' km en línea recta'}</small></span></div>
    <button class="primary full" data-availability-continue="1">Continuar con mi pedido ${ic('chev',18)}</button>`:''}
-  ${!deliveryRequestPending&&!ready?'<button class="primary full" data-availability-retry="1">Volver a comprobar</button>':''}
+  ${!deliveryRequestPending&&!ready&&!waiting?'<button class="primary full" data-availability-retry="1">Volver a comprobar</button>':''}
   ${deliveryRequestPending?'<div class="b3-availability-wait">'+(waiting?'Esperando la decisión del asesor…':'Consultando locales disponibles…')+'</div>':''}
   <button class="outline full" data-screen="deliveryAddress">Modificar dirección de entrega</button>
-  <p class="smallprint">No se enviarán pedidos ni se realizarán cobros reales en esta versión de prueba.</p>
+  <p class="smallprint">Se puede enviar una interacción de atención a TU VERSO. No se crea un pedido definitivo ni se realizan cobros; PENDING no significa aprobación.</p>
  </div>`;
 }
 function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
