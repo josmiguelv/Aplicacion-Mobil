@@ -108,8 +108,22 @@ test('salud del backend usa únicamente GET de lectura sin crear interacción ni
   assert.equal(requests[0].operation,'HEALTH');
   assert.ok(!('body' in requests[0])&&!('idempotencyKey' in requests[0])&&!('validationToken' in requests[0]));
   assert.match(java,/path = "\/health\/ready"/);
-  assert.match(java,/connection\.setRequestMethod\("HEALTH"\.equals\(operation\) \? "GET" : operation\)/);
+  assert.match(java,/connection\.setRequestMethod\("HEALTH"\.equals\(operation\) \|\| "HEALTH_LIVE"\.equals\(operation\) \? "GET" : operation\)/);
+  assert.match(java,/path = "\/health\/live"/);
+  assert.match(java,/else if \("GET"\.equals\(operation\)\) \{/);
   assert.match(checkoutSource,/data-availability-health/);
+});
+test('readiness 503 pero liveness 200 distingue la base caída del túnel y no envía credenciales',async()=>{
+ const {api,requests}=client(req=>req.operation==='HEALTH'?
+  {requestId:req.requestId,status:503,data:{status:'unavailable'}}:
+  {requestId:req.requestId,status:200,data:{status:'ok'}});
+ const status=await api.checkConnection();
+ assert.equal(status.online,false);
+ assert.equal(status.status,503);
+ assert.equal(status.liveOnline,true);
+ assert.equal(status.liveStatus,200);
+ assert.deepEqual(requests.map(req=>req.operation),['HEALTH','HEALTH_LIVE']);
+ assert.ok(requests.every(req=>!('body' in req)&&!('validationToken' in req)&&!('idempotencyKey' in req)));
 });
 test('el backend no listo se reporta sin crear validaciones',async()=>{
  const {api}=client(req=>({requestId:req.requestId,status:503,data:{status:'unavailable'}}));
