@@ -463,40 +463,80 @@ function applyBackendQuote(result,entry,address,district){
  deliveryAvailability={status:'READY',storeName:st.quote.storeName,candidateNames:[],message:''};save();
 }
 async function requestBackendOrderAvailability({address,district,run,silent}){
- if(!window.B3OrderAvailability)throw Error('La versión de Android no incluye el conector seguro de pedidos.');
- const loc=hasDeliveryDestination(address,district)?deliveryLocation:null;
- const entry=window.B3OrderAvailability.prepare({appId:APP_ID,items:publishedOrderItems(),
-   address,district,revision:publishedRevision,
-   latitude:loc?.latitude,longitude:loc?.longitude,useGps:loc?.source==='gps'});
- const active=()=>run===deliveryValidationGeneration&&st.mode==='delivery'&&
-   st.profile.address===address&&st.profile.district===district&&(silent||st.stage==='availability');
- const explanations={
-  CHECKING_STORES:'Estamos comprobando la capacidad de atención de las sedes.',
-  WAITING_APPROVAL:'Un asesor está revisando tu solicitud; todavía no es un pedido confirmado.',
-  CREATE_UNCERTAIN:'Estamos verificando el registro anterior para evitar solicitudes duplicadas.'};
- for(let attempt=0;attempt<18;attempt++){
-  if(!active())return false;
-  const result=await window.B3OrderAvailability.execute(entry);
-  if(!active())return false;
-  if(result.status==='READY_FOR_PAYMENT'){applyBackendQuote(result,entry,address,district);return true;}
-  if(result.status==='UNAVAILABLE'){
-   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
-    message:'Ninguna sede puede atender la solicitud en este momento.'};window.B3OrderAvailability.clear();return false;
-  }
-  if(result.status==='VALIDATION_ERROR'||result.status==='CANCELLED'){
-   deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
-    message:'No fue posible completar la validación. Revisa la dirección o vuelve a intentar.'};window.B3OrderAvailability.clear();return false;
-  }
-  if(!(result.status in explanations))throw Error('Estado de validación desconocido.');
-  deliveryAvailability={status:result.status,storeName:'',candidateNames:[],message:explanations[result.status]};
-  if(!silent)render();
-  if(attempt===17){
-   deliveryAvailability.message='La solicitud sigue pendiente. Pulsa Volver a comprobar para recuperar la misma validación sin duplicarla.';
-   return false;
-  }
-  await new Promise(resolve=>setTimeout(resolve,Math.min(10000,2500+attempt*650)));
+ const api=window.B3OrderAvailability;
+ if(!api?.checkAgentAvailability||!api?.quoteDelivery||!api?.createInteraction)
+  throw Error('Actualiza Android para usar las APIs independientes de TU VERSO.');
+ const existing=api.readInteraction?.();
+ // A created interaction cannot be read or cancelled from this mobile API version.
+ // Never duplicate an existing pending advisor request.
+ if(existing?.status==='PENDING'){
+  const store=shops.find(s=>s.id===existing.body?.storeId);
+  deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'Sede seleccionada',
+   candidateNames:[],message:'Ya se envió una interacción a TU VERSO y sigue pendiente de confirmación. La API móvil aún no permite leer la respuesta del asesor; no enviaremos otra.'};
+  return false;
  }
- return false;
+ const active=()=>run===deliveryValidationGeneration&&st.mode==='delivery'&&
+  st.profile.address===address&&st.profile.district===district&&(silent||st.stage==='availability');
+ let loc=hasDeliveryDestination(address,district)?deliveryLocation:null;
+ if(!loc){
+  loc=await geocodeDeliveryDestination(address,district);
+  if(!active())return false;
+  deliveryLocation={...loc,key:deliveryAddressKey(address,district)};
+ }
+ const candidates=eligibleDeliveryCandidates(loc),items=publishedOrderItems();
+ let selected=null;
+ for(const {store} of candidates){
+  if(!active())return false;
+  if(storeAvailabilitySetting(store)!==true)
+   throw Error('La sede '+store.name+' no tiene publicada la opción Consultar disponibilidad del pedido.');
+  deliveryAvailability={status:'CHECKING_STORES',storeName:store.name,candidateNames:[],
+   message:'Consultando agentes disponibles de '+store.name+' en TU VERSO.'};
+  if(!silent)render();
+  const check=await api.checkAgentAvailability({appId:APP_ID,storeId:store.id});
+  if(!active())return false;
+  if(check.available){selected=store;break;}
+ }
+ if(!selected){
+  deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
+   message:'No hay agentes con capacidad disponible en las sedes elegibles.'};
+  return false;
+ }
+ deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
+  message:'Consultando tarifa de reparto para '+selected.name+'.'};
+ if(!silent)render();
+ const quote=await api.quoteDelivery({appId:APP_ID,address,district,
+  latitude:loc.latitude,longitude:loc.longitude,useGps:loc.source==='gps'});
+ if(!active())return false;
+ // The existing delivery resolver may return another store; never cross-route an interaction.
+ if(quote.storeId!==selected.id)
+  throw Error('El Administrador cotizó una sede diferente de '+selected.name+'. Por seguridad no se creó ninguna interacción; necesitamos una cotización para la sede seleccionada.');
+ if(publishedRevision!==quote.revision)
+  throw Error('El catálogo cambió. Actualiza la carta antes de solicitar atención.');
+ const fee=Number(quote.deliveryFeePen),dist=quote.routeDistanceKm==null?null:Number(quote.routeDistanceKm);
+ if(!Number.isFinite(fee)||fee<0||!Array.isArray(quote.paymentMethods))
+  throw Error('La cotización del Administrador está incompleta.');
+ st.store=selected.id;
+ st.quote={storeId:selected.id,storeName:selected.name,deliveryFeePen:fee,
+  estimatedSubtotalPen:subtotal(),estimatedTotalPen:Math.round((subtotal()+fee)*100)/100,
+  paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
+  routeDistanceKm:Number.isFinite(dist)&&dist>=0?dist:null,
+  distanceSource:'SERVER_ROUTE',quoteOrigin:'ADMIN_API_PRE_APPROVAL',
+  serverValidated:false,provisional:true,quoteRevision:quote.revision,
+  quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
+ save();
+ const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,quoteRevision:quote.revision,
+  items,address,district});
+ if(!active())return false;
+ deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
+  message:'Creando interacción con TU VERSO. Esto no confirma el pedido.'};
+ if(!silent)render();
+ const response=await api.createInteraction(entry);
+ if(!active())return false;
+ if(response.status!=='PENDING')throw Error('TU VERSO no confirmó la solicitud pendiente.');
+ deliveryAvailability={status:'WAITING_APPROVAL',storeName:selected.name,candidateNames:[],
+  message:'Se creó la interacción de TU VERSO y está pendiente de decisión. Esto no confirma ni cobra el pedido. Falta una API pública para recuperar la respuesta del asesor.'};
+ save();
+ return false; // No decision endpoint, never unlock checkout on PENDING.
 }
 async function checkDeliveryBackendHealth(){
  if(deliveryHealthPending)return;
@@ -538,8 +578,8 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   if(st.mode!=='delivery'||st.profile.address!==address||st.profile.district!==district||
    (!silent&&st.stage!=='availability'))return false;
   // The Administrator, not Android, decides every eligible store and road-based fee.
-  // Its per-store consultOrderAvailability flag controls whether TU VERSO is contacted.
-  // Both false and true always use the same server-authoritative validation contract.
+  // Independent contract: only a matching store may create an interaction.
+  // Pending interactions cannot be treated as approved payments.
   const ready=await requestBackendOrderAvailability({address,district,run,silent});
   if(run!==deliveryValidationGeneration)return false;
   if(!ready&&silent)screen('availability');
