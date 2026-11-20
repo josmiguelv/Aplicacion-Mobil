@@ -1473,7 +1473,7 @@ if(b.hasAttribute('data-review-send')){
  reviewSheetOrderId=null;save();render();toast('Opinión guardada localmente; no enviada a Pollos B3');return;
 }
 if(b.hasAttribute('data-privacy-law')){openPrivacyLaw();return}
-if(b.hasAttribute('data-privacy-clear')){if(!window.confirm('¿Borrar definitivamente los datos guardados en este dispositivo? Se eliminarán perfil, direcciones, carrito y datos de prueba.'))return;localStorage.removeItem(K);location.reload();return}
+if(b.hasAttribute('data-privacy-clear')){if(!window.confirm('¿Borrar definitivamente los datos guardados en este dispositivo? Se eliminarán perfil, direcciones, carrito y datos de prueba.'))return;window.B3OrderAvailability?.eraseLocalIdentity();localStorage.removeItem(K);location.reload();return}
 if(b.hasAttribute('data-book-open')){openComplaintsUrl(false);return}
 if(b.hasAttribute('data-book-guidance')){openComplaintsUrl(true);return}
 if(b.dataset.vacancy){selectedVacancyId=b.dataset.vacancy;screen('vacancyDetail');return}
