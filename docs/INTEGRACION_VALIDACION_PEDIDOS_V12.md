@@ -99,6 +99,18 @@ node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availab
 
 No ejecutar la app en producción con un túnel temporal o URL ilustrativa. La API del Administrador debe estar levantada y accesible desde Android, no solo desde `localhost` del equipo de desarrollo.
 
+### Diagnóstico de conectividad integrado en la app móvil
+
+En la pantalla **Consultar disponibilidad**, si ocurre un error técnico se puede pulsar **Verificar conexión con el servidor**. Esa acción usa el puente nativo Android para realizar exclusivamente `GET /health/ready` al origen HTTPS predeterminado en la compilación; **no ejecuta POST**, no genera solicitudes en TU VERSO y no incluye tokens del comprador.
+
+- `200` con `status: ready`: el Administrador responde, sin demostrar que el tenant, las sedes o TU VERSO estén correctamente configurados.
+- `503` o respuesta diferente: el Administrador no confirma su disponibilidad.
+- Error de conexión: puede ser falla de Internet, túnel temporal caducado o backend inaccesible.
+
+Cuando la API devuelve `401`, `404` o `409`, Android descarta el token de validación que ya no puede recuperar y permite una nueva solicitud. En respuestas temporales (`429`, `5xx`, timeout o fallo de red), conserva la identidad e idempotencia de la solicitud existente para evitar duplicados.
+
+**Límite de la información enviada al asesor:** el contrato móvil admite identificadores publicados de productos, cantidades y dirección de entrega. El Administrador construye el resumen que recibe TU VERSO con productos y subtotal; **no hay un campo API para enviar un formulario arbitrario, ni se transmite DNI o teléfono a la interacción S2S**. Mostrar la solicitud en la bandeja del asesor y comprobar su respuesta requiere certificación fuera del repositorio Android. No se modificaron otros proyectos para este diagnóstico.
+
 ## 8. Pruebas E2E pendientes para habilitar producción
 
 - Tenant y app ID vinculados, catálogo publicado, disponibilidad configurada por sede.
