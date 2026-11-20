@@ -64,7 +64,28 @@ Las respuestas HTTP 200/202 se procesan sin inferir aceptación; 400/401/404/409
 7. No se certificó E2E real contra un Administrador migrado ni TU VERSO; las pruebas disponibles son sintéticas y de compilación.
 8. La URL Cloudflare de ejemplo incluida antes en la configuración Gradle no constituye un backend de producción; configurar una URL HTTPS real antes de instalar para pruebas conectadas.
 
-## 6. Compilar y probar (PowerShell, repositorio de la app móvil)
+## 6. Endpoint temporal de pruebas — 20/11/2026
+
+El administrador se ha indicado en esta URL HTTPS temporal:
+
+`https://happiness-oakland-close-silk.trycloudflare.com`
+
+La rama Android ahora utiliza esa dirección predeterminada en `app/build.gradle` tanto para `b3_api_base` (catálogo y validación de pedidos) como para `b3_notifications_api_base` (avisos publicados). Ambas pueden sustituirse **en compilación** con el parámetro `-PB3_API_BASE` sin cambiar el código. Esta dirección **no** es el dominio definitivo de producción.
+
+**Estado de comprobación:** al registrar el endpoint, las pruebas externas no pudieron resolver el nombre DNS, por lo que no es posible certificar conectividad real ni estado del backend con este enlace. La URL proporcionada es configuración, no evidencia de servicio activo.
+
+Verificar desde la misma computadora y desde el teléfono de pruebas, con el túnel encendido:
+
+```powershell
+$api = "https://happiness-oakland-close-silk.trycloudflare.com"
+Invoke-RestMethod "$api/health/live"
+Invoke-RestMethod "$api/health/ready"
+Invoke-RestMethod "$api/api/v1/mobile/config?appId=com.integrab2g.pollosb3"
+```
+
+**No enviar un POST de validación real para comprobar conectividad:** la llamada crea una operación y, si la sede lo requiere, puede iniciar una interacción de atención. Para pruebas de conexión usar solamente los GET anteriores.
+
+## 7. Compilar y probar (PowerShell, repositorio de la app móvil)
 
 ```powershell
 git fetch origin
@@ -73,12 +94,12 @@ git pull --ff-only origin feat/pollos-b3-v12-order-availability-api-20261120
 node --check app/src/main/assets/app.js
 node --check app/src/main/assets/order-availability.js
 node --test scripts/checkout-delivery-contract.test.mjs scripts/delivery-availability-v12.test.mjs scripts/order-availability-api.test.mjs scripts/order-availability-flow.test.mjs
-.\gradlew.bat :app:assembleDebug -PB3_API_BASE=https://TU_BACKEND_ADMIN_HTTPS
+.\gradlew.bat :app:assembleDebug -PB3_API_BASE=https://happiness-oakland-close-silk.trycloudflare.com
 ```
 
 No ejecutar la app en producción con un túnel temporal o URL ilustrativa. La API del Administrador debe estar levantada y accesible desde Android, no solo desde `localhost` del equipo de desarrollo.
 
-## 7. Pruebas E2E pendientes para habilitar producción
+## 8. Pruebas E2E pendientes para habilitar producción
 
 - Tenant y app ID vinculados, catálogo publicado, disponibilidad configurada por sede.
 - Local con consulta deshabilitada: respuesta `READY_FOR_PAYMENT` sin interacción TU VERSO.
@@ -90,6 +111,6 @@ No ejecutar la app en producción con un túnel temporal o URL ilustrativa. La A
 - Pruebas físicas Android 24–35 (permisos, reanudación, doble toque, navegación).
 - Backend adicional para creación de pedido definitivo, pagos y estados del pedido: fuera del contrato de disponibilidad actual.
 
-## 8. Control de cambios
+## 9. Control de cambios
 
 La implementación se desarrolla en rama separada basada en `6b30ef7468194075e4580223e267c15bcd5d7552`. No se cambia ninguna base de datos, infraestructura, rama `main` ni ningún otro repositorio. La aprobación y despliegue dependen de revisión y pruebas finales.
