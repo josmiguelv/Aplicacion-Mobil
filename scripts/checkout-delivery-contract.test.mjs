@@ -99,7 +99,7 @@ test('deliveryQuoteValid exige una cotización local reciente y dirección consi
 })
 test('dirección abre disponibilidad y cotiza solo si la sede no requiere aprobación',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,store:'',quote:null,stage:'deliveryAddress'};
- const events=[],context={st,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
+ const events=[],context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
   deliveryLocation:{latitude:nogales.latitude,longitude:nogales.longitude},fulfillmentModal:null,checkoutPending:true,
   render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},deliveryAddressKey:(a,d)=>a+'|'+d,
   hasDeliveryDestination:()=>true,fetchConfig:async()=>{events.push('GET')},
@@ -116,7 +116,7 @@ test('dirección abre disponibilidad y cotiza solo si la sede no requiere aproba
 });
 test('sin cobertura mantiene dirección y muestra error en la nueva pantalla',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,quote:null,store:'',stage:'deliveryAddress'};
- const events=[],context={st,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
+ const events=[],context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
   deliveryLocation:{latitude:-11.9,longitude:-77.12},render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
   deliveryAddressKey:(a,d)=>a+'|'+d,hasDeliveryDestination:()=>true,fetchConfig:async()=>{},
   eligibleDeliveryCandidates:()=>{throw Error('Fuera del radio de cobertura')}
