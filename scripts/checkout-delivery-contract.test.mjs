@@ -10,7 +10,7 @@ const extract=name=>{
  assert.ok(match,'Missing function '+name)
  return match[0]
 }
-const shopBase={active:true,delivery_enabled:true,hoursConfigured:true,isOpen:true,paymentMethods:{delivery:['yape','plin']}}
+const shopBase={active:true,delivery_enabled:true,hoursConfigured:true,isOpen:true,consultOrderAvailability:false,paymentMethods:{delivery:['yape','plin']}}
 const nogales={...shopBase,id:'nogales',name:'Nogales',latitude:-12.0506096,longitude:-77.1251313,radiusKm:5,
  deliveryPricingMode:'PER_KM',deliveryRatePerKmPen:2.5,deliveryFeePen:null}
 const tallanes={...shopBase,id:'tallanes',name:'Tallanes',latitude:-12.0506625,longitude:-77.1038664,radiusKm:4,
@@ -20,7 +20,7 @@ const universal={...shopBase,id:'universal',name:'Universal',latitude:-12.048219
 const destination=(latitude,longitude)=>({latitude,longitude})
 const quote=(stores,dest,ready=true)=>{
  const context={shops:stores,st:{configReady:ready}}
- vm.runInNewContext(extract('calculateLocalDeliveryQuote'),context)
+ for(const name of ['eligibleDeliveryCandidates','quoteForDeliveryCandidate','calculateLocalDeliveryQuote'])vm.runInNewContext(extract(name),context)
  return context.calculateLocalDeliveryQuote(dest,stores)
 }
 
@@ -87,6 +87,7 @@ test('deliveryQuoteValid exige una cotización local reciente y dirección consi
  const st={mode:'delivery',store:'nogales',profile:{address:'Calle 123',district:'Callao'},
   quote:{deliveryFeePen:2.78,quotedAt:now,destinationKey:'calle 123|callao',distanceSource:'STRAIGHT_LINE'}}
  const context={st,shops:[nogales],deliveryAddressKey:(a,d)=>a.toLowerCase()+'|'+d.toLowerCase()}
+ vm.runInNewContext(extract('storeAvailabilitySetting'),context)
  vm.runInNewContext(extract('deliveryQuoteValid'),context)
  assert.equal(context.deliveryQuoteValid(),true)
  st.quote.quotedAt=now-20*60*1000
@@ -96,39 +97,37 @@ test('deliveryQuoteValid exige una cotización local reciente y dirección consi
  st.quote.deliveryFeePen=2.78;st.profile.address='Otra calle'
  assert.equal(context.deliveryQuoteValid(),false)
 })
-test('confirmar dirección cotiza localmente después de un GET, sin consultar endpoint POST',async()=>{
- const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},
-  configReady:true,store:'',quote:null,stage:'deliveryAddress'}
- const events=[]
- const context={
-  st,deliveryRequestPending:false,deliveryRequestError:'',deliveryLocation:{latitude:nogales.latitude,longitude:nogales.longitude},
-  checkoutPending:true,render:()=>{},save:()=>{},screen:x=>events.push(x),nav:x=>events.push(x),
-  deliveryAddressKey:(a,d)=>a+'|'+d,hasDeliveryDestination:()=>true,
-  fetchConfig:async ({strict})=>{assert.equal(strict,true);events.push('GET')},
-  calculateLocalDeliveryQuote:()=>{events.push('LOCAL');return quote([nogales],destination(nogales.latitude,nogales.longitude))}
- }
- vm.runInNewContext(extract('resolveDelivery'),context)
- assert.equal(await context.resolveDelivery(),true)
- assert.deepEqual(events,['GET','LOCAL','identity'])
- assert.equal(st.quote.deliveryFeePen,0)
- assert.equal(st.store,'nogales')
- assert.equal(context.checkoutPending,false)
- assert.doesNotMatch(source,/\/api\/v1\/mobile\/fulfillment\/resolve/)
-})
-test('sin cobertura no se avanza y el error conserva la dirección',async()=>{
- const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,quote:null,store:'',stage:'deliveryAddress'}
- const context={
-  st,deliveryRequestPending:false,deliveryRequestError:'',deliveryLocation:{latitude:-11.9,longitude:-77.12},
-  checkoutPending:true,render:()=>{},save:()=>{},screen:()=>{throw Error('Unexpected navigation')},
+test('dirección abre disponibilidad y cotiza solo si la sede no requiere aprobación',async()=>{
+ const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,store:'',quote:null,stage:'deliveryAddress'};
+ const events=[],context={st,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
+  deliveryLocation:{latitude:nogales.latitude,longitude:nogales.longitude},fulfillmentModal:null,checkoutPending:true,
+  render:()=>{},save:()=>{},screen:x=>events.push(x),deliveryAddressKey:(a,d)=>a+'|'+d,
+  hasDeliveryDestination:()=>true,fetchConfig:async()=>{events.push('GET')},
+  eligibleDeliveryCandidates:()=>{events.push('FILTER');return [{store:nogales}]},storeAvailabilitySetting:()=>false,
+  quoteForDeliveryCandidate:()=>{events.push('QUOTE');return {storeId:'nogales',storeName:'Nogales',deliveryFeePen:2.5}}
+ };
+ vm.runInNewContext(extract('resolveDelivery'),context);
+ assert.equal(await context.resolveDelivery(),true);
+ assert.deepEqual(events,['availability','GET','FILTER','QUOTE']);
+ assert.equal(st.quote.deliveryFeePen,2.5);
+ assert.equal(st.store,'nogales');
+ assert.equal(context.deliveryAvailability.status,'READY');
+ assert.equal(context.checkoutPending,true);
+});
+test('sin cobertura mantiene dirección y muestra error en la nueva pantalla',async()=>{
+ const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,quote:null,store:'',stage:'deliveryAddress'};
+ const events=[],context={st,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
+  deliveryLocation:{latitude:-11.9,longitude:-77.12},render:()=>{},save:()=>{},screen:x=>events.push(x),
   deliveryAddressKey:(a,d)=>a+'|'+d,hasDeliveryDestination:()=>true,fetchConfig:async()=>{},
-  calculateLocalDeliveryQuote:()=>quote([nogales],destination(-11.9,-77.12))
- }
- vm.runInNewContext(extract('resolveDelivery'),context)
- assert.equal(await context.resolveDelivery(),false)
- assert.match(context.deliveryRequestError,/No hay locales|fuera del radio|no tienen coordenadas o tarifas/)
- assert.equal(context.checkoutPending,true)
- assert.equal(st.profile.address,'Av. Argentina 1653')
-})
+  eligibleDeliveryCandidates:()=>{throw Error('Fuera del radio de cobertura')}
+ };
+ vm.runInNewContext(extract('resolveDelivery'),context);
+ assert.equal(await context.resolveDelivery(),false);
+ assert.deepEqual(events,['availability']);
+ assert.equal(context.deliveryAvailability.status,'ERROR');
+ assert.match(context.deliveryRequestError,/Fuera del radio/);
+ assert.equal(st.profile.address,'Av. Argentina 1653');
+});
 test('carrito, pago, resumen y confirmar revisan horarios con GET actualizado',async()=>{
  const calls=[]
  const st={mode:'delivery',store:'nogales',pay:'yape',cart:[{id:'p',qty:1}],profile:{},quote:{}}
