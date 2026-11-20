@@ -108,7 +108,10 @@ test('salud del backend usa únicamente GET de lectura sin crear interacción ni
   assert.equal(requests[0].operation,'HEALTH');
   assert.ok(!('body' in requests[0])&&!('idempotencyKey' in requests[0])&&!('validationToken' in requests[0]));
   assert.match(java,/path = "\/health\/ready"/);
-  assert.match(java,/connection\.setRequestMethod\("HEALTH"\.equals\(operation\) \|\| "HEALTH_LIVE"\.equals\(operation\) \? "GET" : operation\)/);
+  assert.match(java,/connection\\.setRequestMethod\\(httpMethod\\)/);
+  assert.match(java,/"AGENT_AVAILABILITY"\\.equals\\(operation\\)/);
+  assert.match(java,/"DELIVERY_QUOTE"\\.equals\\(operation\\)/);
+  assert.match(java,/"INTERACTION_CREATE"\\.equals\\(operation\\)/);
   assert.match(java,/path = "\/health\/live"/);
   assert.match(java,/else if \("GET"\.equals\(operation\)\) \{/);
   assert.match(checkoutSource,/data-availability-health/);
@@ -161,10 +164,12 @@ test('prohíbe productos no UUID, duplicados, cantidades inválidas y no simula 
   assert.match(checkoutSource,/function publishedOrderItems\(\)/);
   assert.match(checkoutSource,/const ready=await requestBackendOrderAvailability/);
   assert.match(checkoutSource,/await requestBackendOrderAvailability/);
-  assert.match(checkoutSource,/Both false and true always use the same server-authoritative validation contract/);
+  assert.match(checkoutSource,/api\\.checkAgentAvailability/);
+  assert.match(checkoutSource,/api\\.quoteDelivery/);
+  assert.match(checkoutSource,/api\\.createInteraction/);
   assert.doesNotMatch(checkoutSource,/const quote=quoteForDeliveryCandidate\(first\);/);
   assert.match(checkoutSource,/serverValidated:true/);
-  assert.match(checkoutSource,/READY_FOR_PAYMENT/);
+  assert.match(checkoutSource,/No decision endpoint, never unlock checkout on PENDING/);
   assert.match(checkoutSource,/UNAVAILABLE/);
 });
 test('puente Android exclusivo para HTTPS rutas permitidas; scripts en orden',()=>{
