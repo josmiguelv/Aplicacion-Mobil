@@ -108,10 +108,10 @@ test('salud del backend usa únicamente GET de lectura sin crear interacción ni
   assert.equal(requests[0].operation,'HEALTH');
   assert.ok(!('body' in requests[0])&&!('idempotencyKey' in requests[0])&&!('validationToken' in requests[0]));
   assert.match(java,/path = "\/health\/ready"/);
-  assert.match(java,/connection\\.setRequestMethod\\(httpMethod\\)/);
-  assert.match(java,/"AGENT_AVAILABILITY"\\.equals\\(operation\\)/);
-  assert.match(java,/"DELIVERY_QUOTE"\\.equals\\(operation\\)/);
-  assert.match(java,/"INTERACTION_CREATE"\\.equals\\(operation\\)/);
+  assert.match(java,/connection\.setRequestMethod\(httpMethod\)/);
+  assert.match(java,/"AGENT_AVAILABILITY"\.equals\(operation\)/);
+  assert.match(java,/"DELIVERY_QUOTE"\.equals\(operation\)/);
+  assert.match(java,/"INTERACTION_CREATE"\.equals\(operation\)/);
   assert.match(java,/path = "\/health\/live"/);
   assert.match(java,/else if \("GET"\.equals\(operation\)\) \{/);
   assert.match(checkoutSource,/data-availability-health/);
@@ -164,9 +164,9 @@ test('prohíbe productos no UUID, duplicados, cantidades inválidas y no simula 
   assert.match(checkoutSource,/function publishedOrderItems\(\)/);
   assert.match(checkoutSource,/const ready=await requestBackendOrderAvailability/);
   assert.match(checkoutSource,/await requestBackendOrderAvailability/);
-  assert.match(checkoutSource,/api\\.checkAgentAvailability/);
-  assert.match(checkoutSource,/api\\.quoteDelivery/);
-  assert.match(checkoutSource,/api\\.createInteraction/);
+  assert.match(checkoutSource,/api\.checkAgentAvailability/);
+  assert.match(checkoutSource,/api\.quoteDelivery/);
+  assert.match(checkoutSource,/api\.createInteraction/);
   assert.doesNotMatch(checkoutSource,/const quote=quoteForDeliveryCandidate\(first\);/);
   assert.match(checkoutSource,/serverValidated:true/);
   assert.match(checkoutSource,/No decision endpoint, never unlock checkout on PENDING/);
@@ -181,7 +181,7 @@ test('GET por sede consulta capacidad sin pedir carrito ni crear interacción',a
  assert.equal(c.requests[0].operation,'AGENT_AVAILABILITY');
  assert.equal(c.requests[0].storeId,storeId);
  assert.ok(!('body' in c.requests[0])&&!('validationToken' in c.requests[0]));
- assert.match(java,/agent-availability\\?appId=/);
+ assert.match(java,/agent-availability\?appId=/);
 });
 test('UNAVAILABLE HTTP 200 no se interpreta como capacidad',async()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
