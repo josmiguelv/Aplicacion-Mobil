@@ -72,7 +72,7 @@ test('true deja pendiente TU VERSO, no crea precio y no salta al local false',as
  assert.equal(st.quote,null)
  assert.equal(st.store,'')
  assert.equal(context.deliveryAvailability.status,'WAITING_APPROVAL')
- assert.deepEqual(Array.from(context.deliveryAvailability.candidateNames),['Nogales','Tallanes'])
+ assert.deepEqual(Array.from(context.deliveryAvailability.candidateNames),[],'backend no revela candidatos hasta decidir sede')
  assert.deepEqual(events,['availability','GET','API'])
 })
 test('false calcula la tarifa estimada solo para la primera sede elegible',async()=>{
