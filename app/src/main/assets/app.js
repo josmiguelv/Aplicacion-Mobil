@@ -333,12 +333,20 @@ function calculateLocalDeliveryQuote(destination,storeList=shops){
     latitude<-90||latitude>90||longitude<-180||longitude>180)
   throw Error('No se pudo verificar la ubicación de entrega. Comprueba la dirección o usa GPS.');
  if(!st.configReady)throw Error('Primero necesitamos consultar los locales y tarifas publicadas.');
+ // Availability is different from being administratively active. In particular,
+ // delivery_enabled:true does not override today's published closed hours.
+ const enabled=storeList.filter(store=>store&&store.active===true&&store.delivery_enabled===true);
+ if(!enabled.length)throw Error('No hay locales habilitados para delivery en la publicación actual.');
+ const open=enabled.filter(store=>store.hoursConfigured===true&&store.isOpen===true);
+ if(!open.length){
+  if(enabled.length===1&&enabled[0].hoursConfigured===true&&enabled[0].isOpen===false)
+   throw Error(String(enabled[0].name||'El local publicado')+' está cerrado en este momento. No hay otros locales abiertos publicados para delivery.');
+  throw Error('No hay locales con horario abierto confirmado para delivery en este momento.');
+ }
  const radians=x=>x*Math.PI/180;
  const candidates=[];
- for(const store of storeList){
-  // The published API includes live isOpen; never assume "missing" means open.
-  if(!store||store.active!==true||store.delivery_enabled!==true||
-     store.hoursConfigured!==true||store.isOpen!==true)continue;
+ let configured=0;
+ for(const store of open){
   if(store.latitude==null||store.longitude==null)continue;
   const lat=Number(store.latitude),lng=Number(store.longitude);
   if(!Number.isFinite(lat)||!Number.isFinite(lng)||
@@ -353,6 +361,7 @@ function calculateLocalDeliveryQuote(destination,storeList=shops){
   if(amountRaw==null||amountRaw==='')continue;
   const amount=Number(amountRaw);
   if(!Number.isFinite(amount)||amount<0)continue;
+  configured++;
   const dLat=radians(lat-latitude),dLng=radians(lng-longitude);
   const a=Math.sin(dLat/2)**2+
     Math.cos(radians(latitude))*Math.cos(radians(lat))*Math.sin(dLng/2)**2;
@@ -361,7 +370,10 @@ function calculateLocalDeliveryQuote(destination,storeList=shops){
   candidates.push({store,km,mode,amount});
  }
  candidates.sort((a,b)=>a.km-b.km||String(a.store.id).localeCompare(String(b.store.id)));
- if(!candidates.length)throw Error('No hay locales abiertos con delivery, tarifa y cobertura para esta dirección.');
+ if(!candidates.length){
+  if(!configured)throw Error('Los locales abiertos para delivery no tienen coordenadas o tarifas válidas publicadas.');
+  throw Error('La dirección está fuera del radio de cobertura de los locales abiertos para delivery.');
+ }
  const selected=candidates[0];
  const fee=selected.mode==='FIXED'?selected.amount:
   Math.round((selected.km*selected.amount+Number.EPSILON)*100)/100;
