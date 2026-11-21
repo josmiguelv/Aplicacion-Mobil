@@ -414,6 +414,14 @@ function deliveryQuoteValid(){
  if(st.quote.deliveryFeePen==null||!Number.isFinite(fee)||fee<0||
     st.quote.destinationKey!==deliveryAddressKey(st.profile.address,st.profile.district)||
     !Number.isFinite(st.quote.quotedAt)||Date.now()-st.quote.quotedAt>=900000)return false;
+ if(st.quote.quoteOrigin==='ADMIN_API_ACCEPTED'){
+  const entry=window.B3OrderAvailability?.readInteraction?.();
+  return entry?.status==='ACCEPTED'&&entry.body?.storeId===st.store&&
+    st.quote.storeId===st.store&&st.quote.quoteRevision===publishedRevision&&
+    st.quote.distanceSource==='SERVER_ROUTE'&&
+    st.quote.cartSignature===currentCartSignature()&&
+    shops.some(x=>x.id===st.store&&x.active===true&&x.delivery_enabled===true);
+ }
  if(st.quote.serverValidated===true){
   const total=Number(st.quote.serverTotalPen),serverSubtotal=Number(st.quote.serverSubtotalPen);
   return st.quote.distanceSource==='SERVER_ROUTE'&&Number.isFinite(total)&&
@@ -1201,7 +1209,7 @@ function availability(){
    <button class="primary full" data-availability-continue="1">Continuar con mi pedido ${ic('chev',18)}</button>`:''}
   ${!deliveryRequestPending&&!ready&&!waiting?'<button class="primary full" data-availability-retry="1">Volver a comprobar</button>':''}
   ${deliveryRequestPending?'<div class="b3-availability-wait">'+(waiting?'Esperando la decisión del asesor…':'Consultando locales disponibles…')+'</div>':''}
-  <button class="outline full" data-screen="deliveryAddress">Modificar dirección de entrega</button>
+  ${!waiting?'<button class="outline full" data-screen="deliveryAddress">Modificar dirección de entrega</button>':''}
   <p class="smallprint">Se puede enviar una interacción de atención a TU VERSO. No se crea un pedido definitivo ni se realizan cobros; PENDING no significa aprobación.</p>
  </div>`;
 }
@@ -1236,7 +1244,7 @@ function summary(){
  <button class="primary full" data-confirm="1" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando disponibilidad...':'Registrar pedido de prueba'}</button></div>`;
 }
 function success(){let o=st.orders[0];return `<div class="success"><div class="success-mark">${ic('check',54)}</div><h1>¡Pedido de prueba registrado!</h1><p>Este pedido se guardó en tu teléfono. <b>No fue enviado a Pollos B3 ni cobrado.</b></p><div class="success-box"><b>${esc(o?.id||'')}</b><span>${cash(o?.total||0)}</span><small>Simulación local</small></div><button class="primary full" data-tab="pedidos">Ver mis pedidos</button><button class="outline full" data-tab="inicio">Volver al inicio</button></div>`}
-function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3','app')}<div class="chat-info">${ic('chat')}<span>Chat de demostración · TU VERSO aún no conectado</span></div><div class="chat-messages"><div class="message agent">¡Hola! Esta es una vista previa del chat. Cuando se integre TU VERSO, aquí podrás conversar con un agente de Pollos B3.</div>${st.chat.map(m=>`<div class="message customer">${esc(m)}</div>`).join('')}</div><form id="chat-form" class="chat-compose"><input id="chat-message" placeholder="Escribe un mensaje de prueba..." aria-label="Mensaje de prueba"><button type="submit">${ic('chev')}</button></form></div>`}
+function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3','app')}<div class="chat-info">${ic('chat')}<span>Chat exclusivo para pedidos pagados</span></div><div class="chat-messages"><div class="message agent">El chat estará disponible cuando tu pedido tenga un pago confirmado y la atención siga abierta. Durante la compra no es necesario enviar mensajes.</div></div><form id="chat-form" class="chat-compose"><input id="chat-message" placeholder="Mensajes deshabilitados hasta confirmar el pago" aria-label="Mensajes deshabilitados" disabled><button type="submit" disabled aria-label="Enviar mensaje deshabilitado">${ic('chev')}</button></form></div>`}
 function about(){return `<div class="page about b3-about-new">${heading('Sobre la app','app')}
  <div class="about-copy"><h2>Pollos B3</h2><p>La aplicación móvil para conocer la carta, consultar locales y preparar pedidos de Delivery o recojo.</p>
  <div class="b3-about-facts"><div><strong>Aplicación</strong><span>Pollos B3 · Android</span></div><div><strong>Versión</strong><span>1.0.0 (piloto)</span></div><div><strong>Estado</strong><span>Pedidos y pagos reales aún no habilitados</span></div></div>
@@ -1745,7 +1753,7 @@ if(b.dataset.openmaps){if(window.AndroidBridge?.openMaps)window.AndroidBridge.op
 if(b.hasAttribute('data-clear')){if(!window.confirm('¿Eliminar los datos locales de demostración?'))return;localStorage.removeItem(K);location.reload();return}
 });
 root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target.matches('.hero-card[role=button],.promo-card[role=button]'))){e.preventDefault();e.target.click()}});
-root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();const m=v('chat-message');if(m){st.chat.push(m.slice(0,500));save();render()}}});
+root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();toast('El chat se habilitará después de confirmar el pago.')}});
 root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){
  deliveryGpsPending=false; // Do not overwrite customer edits with a delayed GPS reverse-geocoding callback.
  deliveryLocation=null;invalidateDeliverySelection();
