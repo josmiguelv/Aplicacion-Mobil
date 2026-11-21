@@ -102,3 +102,10 @@ El flujo de Android ahora es **sede elegible y capacidad → interacción PENDIN
 - Un cliente puede reanudar una interacción pendiente tras reiniciar la app, con la misma clave; no se garantiza todavía coordinación multi-dispositivo ni orquestación SQL duradera de búsqueda de sedes.
 - **Dependencias:** primera respuesta textual del agente mientras está `PENDING` en TU VERSO (aún no soportada por el contrato inspeccionado); Google Routes y conexión S2S real; confirmación/cobro, seguimiento del pedido, mensajería bidireccional y cierre con etiqueta fuera de esta fase.
 - Todo cambio está aislado en rama; sin despliegue productivo ni cobro.
+
+
+### Prueba de pedido por texto (21/11/2026)
+
+Android recoge los datos de contacto (nombres, apellidos, teléfono peruano) **antes** de iniciar la consulta de sedes por delivery, y agrega `customer` a la solicitud de interacción: dirección, distrito, referencia opcional y modalidad. No crea `summary`, no envía precios sin validación ni llama directamente a TU VERSO: el Administrador verifica catálogo y contacto y envía el texto dentro de la conversación móvil mediante S2S.
+
+La prueba utiliza la dirección HTTPS temporal del Administrador `https://ratios-represents-signals-allergy.trycloudflare.com/` configurada como `b3_api_base` en Gradle. Puede sustituirse en compilación mediante `-PB3_API_BASE=https://NUEVA_URL_HTTPS` si el túnel cambia. No almacenar tokens S2S en Android. Comprobar `/health/ready` antes de las pruebas; un 200/ready solo verifica el Administrador, no certifica TU VERSO. El agente recibe mensaje INBOUND con texto; confirmar visualmente la presentación real en su bandeja. Sin pagos reales, sin botones ni formulario de TU VERSO.
