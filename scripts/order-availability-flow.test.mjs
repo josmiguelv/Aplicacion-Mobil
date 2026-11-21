@@ -18,7 +18,8 @@ const stores=[
 ]
 const items=[{productId,quantity:1}]
 function simulation({available=true,decisions=[],allStores=stores,wrongQuote=false}={}){
- const st={mode:'delivery',profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},
+ const st={mode:'delivery',profile:{first:'Ana',last:'Quispe',phone:'912345678',
+  address:'Av. Ejemplo 123',district:'Santa Anita',reference:'Puerta lateral'},
   store:'',quote:null,stage:'availability',pay:''}
  const events=[],rejects=new Map()
  let current=null
@@ -29,7 +30,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   checkAgentAvailability:async({storeId})=>{events.push('CHECK:'+storeId);return {available}},
   prepareInteraction:input=>{
    events.push('PREPARE:'+input.storeId)
-   current={body:{appId:input.appId,storeId:input.storeId,catalogRevision:input.catalogRevision,items:input.items},
+   current={body:{appId:input.appId,storeId:input.storeId,catalogRevision:input.catalogRevision,items:input.items,customer:input.customer},
     status:'PREPARED',fingerprint:JSON.stringify(input),idempotencyKey:'a1e616af-8c52-4776-b3b1-b446fc9b74a9'}
    return current
   },
@@ -65,7 +66,8 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   clearTimeout:()=>{},setTimeout:()=>1,
   clearDeliveryAvailability:()=>{}
  }
- const functions=['currentCartSignature','requestSeriesKey','interactionMatchesCart',
+ const functions=['currentCartSignature','deliveryContactReady','deliveryRequestCustomer',
+ 'requestSeriesKey','interactionMatchesCart',
  'stopAgentDecisionPoll','scheduleAgentDecisionPoll','completeAcceptedQuote',
  'pollAgentDecision','requestBackendOrderAvailability']
  vm.runInNewContext('let agentDecisionTimer=null,agentDecisionPolling=false;\n'+
