@@ -119,6 +119,16 @@ test('cotización de una sede diferente bloquea la continuación al pago',async(
  assert.equal(s.context.deliveryAvailability.status,'ERROR')
  assert.match(s.context.deliveryAvailability.message,/no corresponde/)
 })
+test('el estado EXPIRED nunca puede avanzar al pago aunque exista un texto antiguo de aceptado',async()=>{
+ const s=simulation({decisions:['ACCEPTED']})
+ await s.start()
+ const original=s.api.pollInteraction
+ s.api.pollInteraction=async()=>{const response=await original();return {...response,clientStatus:'EXPIRED'}}
+ await s.poll()
+ assert.equal(s.st.stage,'availability')
+ assert.equal(s.context.deliveryAvailability.status,'ERROR')
+ assert.deepEqual(s.events.filter(x=>x.startsWith('QUOTE:')),[])
+})
 test('la pantalla de espera no requiere continuar y chat permanece bloqueado',()=>{
  assert.match(source,/function prepaymentReview\(\)/)
  assert.match(source,/data-prepay-payment/)
