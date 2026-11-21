@@ -521,7 +521,8 @@ function scheduleAgentDecisionPoll(delay=3200){
  stopAgentDecisionPoll();
  if(st.stage!=='availability'||agentDecisionPolling)return;
  const entry=window.B3OrderAvailability?.readInteraction?.();
- if(!['PENDING','ACCEPTED'].includes(entry?.status)||!entry.interactionId)return;
+ if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
+ if(entry.status!=='SUBMITTING'&&!entry.interactionId)return;
  agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},delay);
 }
 async function completeAcceptedQuote(entry){
@@ -557,11 +558,21 @@ async function completeAcceptedQuote(entry){
 }
 async function pollAgentDecision(){
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
- if(agentDecisionPolling||st.stage!=='availability'||!entry?.interactionId||
-    !['PENDING','ACCEPTED'].includes(entry.status))return;
+ if(agentDecisionPolling||st.stage!=='availability'||
+    !['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status)||
+    (entry.status!=='SUBMITTING'&&!entry.interactionId))return;
  agentDecisionPolling=true;
  let retryMs=3200;
  try{
+  if(entry.status==='SUBMITTING'&&!entry.interactionId){
+   // The create may already have reached the assigned agent; recover only
+   // its acknowledgement with the same stored idempotency key.
+   deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
+    message:'Recuperando confirmación de la solicitud enviada. No se creará una nueva.'};
+   render();
+   await api.createInteraction(entry);
+   if(st.stage!=='availability')return;
+  }
   if(entry.body?.customer&&entry.messageDelivered!==true){
    deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
     message:'La interacción existe. Confirmando el envío del texto al asesor, sin duplicarla.'};
@@ -596,17 +607,19 @@ async function pollAgentDecision(){
   render();
  }catch(error){
   const latest=api?.readInteraction?.();
-  const pending=['PENDING','ACCEPTED'].includes(latest?.status);
-  const sending=pending&&latest.body?.customer&&latest.messageDelivered!==true;
+  const pending=['PENDING','ACCEPTED','SUBMITTING'].includes(latest?.status);
+  const recovering=pending&&!latest?.interactionId;
+  const sending=pending&&latest?.interactionId&&latest.body?.customer&&latest.messageDelivered!==true;
   retryMs=8000;
-  deliveryAvailability={status:sending?'CREATE_UNCERTAIN':pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
-   message:sending?'La interacción existe, pero todavía no se confirmó el texto. Reintentaremos con la misma clave.':
+  deliveryAvailability={status:recovering||sending?'CREATE_UNCERTAIN':pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
+   message:recovering?'Recuperando la confirmación de la interacción enviada, con la misma clave.':
+    sending?'La interacción existe, pero todavía no se confirmó el texto. Reintentaremos con la misma clave.':
     pending?'La consulta al local tuvo una interrupción. Reintentaremos sin duplicar tu solicitud.':
      error.message||'No se pudo actualizar el pedido. No continuaremos al pago.'};
   render();
  }finally{
   agentDecisionPolling=false;
-  if(st.stage==='availability'&&['PENDING','ACCEPTED'].includes(api?.readInteraction?.()?.status)&&
+  if(st.stage==='availability'&&['PENDING','ACCEPTED','SUBMITTING'].includes(api?.readInteraction?.()?.status)&&
      ['WAITING_APPROVAL','CREATE_UNCERTAIN'].includes(deliveryAvailability.status))
    scheduleAgentDecisionPoll(retryMs);
  }
@@ -619,7 +632,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  const active=()=>run===deliveryValidationGeneration&&st.mode==='delivery'&&
   st.profile.address===address&&st.profile.district===district&&(silent||st.stage==='availability');
  const prior=api.readInteraction?.();
- if(prior&&['PENDING','ACCEPTED'].includes(prior.status)){
+ if(prior&&['PENDING','ACCEPTED','SUBMITTING'].includes(prior.status)){
   if(!interactionMatchesCart(prior,address,district))
    throw Error('Existe una solicitud anterior con productos diferentes. Cancélala antes de empezar otra.');
   const store=shops.find(s=>s.id===prior.body.storeId);
@@ -668,7 +681,18 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
   message:'Enviando la solicitud. Continuaremos automáticamente cuando el local responda.'};
  render();
- const response=await api.createInteraction(entry);
+ let response;
+ try{response=await api.createInteraction(entry)}
+ catch(error){
+  // A 503 or lost HTTP acknowledgement cannot prove the conversation was not created.
+  if(error?.httpStatus===503||error?.httpStatus===429||
+     ['TIMEOUT','CONNECTION_FAILED'].includes(error?.code)){
+   deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
+    message:'La solicitud fue enviada. Verificando su confirmación sin duplicarla.'};
+   save();render();scheduleAgentDecisionPoll(8000);return false;
+  }
+  throw error;
+ }
  if(!active())return false;
  if(response.status!=='PENDING')throw Error('No se confirmó la solicitud pendiente.');
  // The interactionId was saved before attempting the second HTTP request.
@@ -1553,7 +1577,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(st.stage==='availability'&&window.B3OrderAvailability?.readInteraction?.()?.status==='PENDING'&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
+function render(){if(st.stage==='availability'&&['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
  return {store:String(st.store||''),total:Math.round(orderTotal()*100),
