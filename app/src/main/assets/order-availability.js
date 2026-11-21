@@ -323,7 +323,7 @@
   // Pollos B3 mobile owns agent-text decisions and how the order proceeds.
   // Use complete, exact approval/rejection words; never infer from INBOUND text.
   function interpretAgentDecision(agentMessages) {
-    for(const message of [...agentMessages].reverse()) {
+    for(const message of agentMessages) {
       const text=message.text.trim().toLocaleLowerCase('es-PE').replace(/[.!]+$/,'').trim();
       if(['acepto','aceptado','aceptada'].includes(text))
         return {decision:'ACCEPTED',agentMessageId:message.id};
