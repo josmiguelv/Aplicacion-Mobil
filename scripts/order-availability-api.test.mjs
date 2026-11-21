@@ -259,7 +259,7 @@ test('Android includes entered contact and delivery address, never untrusted pri
  const args={appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
   items:[{productId,quantity:1}],address:contact.address,district:contact.district,customer:contact};
  const entry=c.api.prepareInteraction(args);
- assert.deepEqual(entry.body.customer,contact);
+ assert.equal(JSON.stringify(entry.body.customer),JSON.stringify(contact));
  assert.ok(!('summary' in entry.body)&&!('total' in entry.body));
  await c.api.createInteraction(entry);
  assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE']);
