@@ -367,7 +367,8 @@ test('la app interpreta texto exacto, primera decisión definitiva y estados rem
    decision:'REJECTED',clientStatus:'REJECTED'},
   {status:'REJECTED',messages:[message('Acepto')],decision:'REJECTED',clientStatus:'REJECTED'},
   {status:'EXPIRED',messages:[message('Acepto')],decision:null,clientStatus:'EXPIRED'},
-  {status:'ACCEPTED',messages:[],decision:'ACCEPTED',clientStatus:'ACCEPTED'},
+  {status:'ACCEPTED',messages:[],decision:null,clientStatus:'PENDING'},
+  {status:'ACCEPTED',messages:[message('Acepto')],decision:'ACCEPTED',clientStatus:'ACCEPTED'},
   {status:'CANCELLED',messages:[message('Acepto')],decision:null,clientStatus:'CANCELLED'}
  ];
  for(const sample of samples){
@@ -382,6 +383,31 @@ test('la app interpreta texto exacto, primera decisión definitiva y estados rem
   assert.equal(result.decision,sample.decision,JSON.stringify(sample));
   assert.equal(result.clientStatus,sample.clientStatus,JSON.stringify(sample));
  }
+});
+
+test('aceptación automática de interacción no aprueba un pedido sin texto del asesor',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ let polls=0;
+ const c=client(req=>{
+  if(req.operation==='INTERACTION_CREATE')
+   return {requestId:req.requestId,status:201,data:{interactionId,storeId,status:'ACCEPTED',externalReference:'mobile:ref'}};
+  polls++;
+  return {requestId:req.requestId,status:200,data:{interactionId,storeId,status:'ACCEPTED',
+   messagesAvailable:polls>1,agentMessages:polls>1?
+    [{id:'1e96145a-90e3-4836-9e69-399312c89b11',text:'aceptado',createdAt:'2026-11-21T18:30:00Z'}]:[]}};
+ });
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
+ await c.api.createInteraction(entry);
+ const first=await c.api.pollInteraction(entry);
+ assert.equal(first.decision,null);
+ assert.equal(first.clientStatus,'PENDING');
+ const second=await c.api.pollInteraction(entry);
+ assert.equal(second.decision,'ACCEPTED');
+ assert.equal(second.clientStatus,'ACCEPTED');
+ assert.deepEqual(c.requests.map(x=>x.operation),
+  ['INTERACTION_CREATE','INTERACTION_STATUS','INTERACTION_STATUS']);
 });
 test('la app rechaza conversaciones falsas y respuestas malformadas',async()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c',interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
