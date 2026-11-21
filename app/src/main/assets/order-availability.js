@@ -291,10 +291,10 @@
     if(data.interactionId!==entry.interactionId||data.storeId!==entry.body.storeId||
        ![null,'ACCEPTED','REJECTED','CANCELLED'].includes(data.decision))
       throw Error('La respuesta del asesor no coincide con esta interacción.');
-    if(data.decision==='ACCEPTED')entry.status='ACCEPTED';
-    else if(data.decision==='REJECTED')entry.status='REJECTED';
+    if(data.status==='EXPIRED')entry.status='EXPIRED';
     else if(data.decision==='CANCELLED')entry.status='CANCELLED';
-    else if(data.status==='EXPIRED')entry.status='EXPIRED';
+    else if(data.decision==='ACCEPTED'&&['PENDING','ACCEPTED'].includes(data.status))entry.status='ACCEPTED';
+    else if(data.decision==='REJECTED')entry.status='REJECTED';
     persistInteraction(entry);
     return {...data,clientStatus:entry.status};
   }
