@@ -250,6 +250,36 @@ test('error 503 conserva idempotencia para reintento, nunca aprueba por timeout'
  await assert.rejects(()=>c.api.createInteraction(c.api.readInteraction()));
  assert.equal(c.requests[0].idempotencyKey,c.requests[1].idempotencyKey);
 });
+test('Android includes entered contact and delivery address, never untrusted prices or arbitrary message text',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c',interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const c=client(req=>({requestId:req.requestId,status:201,data:{status:'PENDING',
+  storeId,interactionId,externalReference:'mobile:deterministic'}}));
+ const contact={firstName:'Ana',lastName:'Quispe',phone:'912345678',address:'Av. Ejemplo 123',
+  district:'Santa Anita',reference:'Porton lateral',mode:'delivery'};
+ const args={appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:contact.address,district:contact.district,customer:contact};
+ const entry=c.api.prepareInteraction(args);
+ assert.deepEqual(entry.body.customer,contact);
+ assert.ok(!('summary' in entry.body)&&!('total' in entry.body));
+ await c.api.createInteraction(entry);
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE']);
+ assert.equal(c.requests[0].body.customer.phone,'912345678');
+ assert.equal(c.requests[0].body.customer.reference,'Porton lateral');
+ assert.equal(c.api.readInteraction().idempotencyKey,entry.idempotencyKey);
+});
+test('contact validation rejects fake phone, embedded control chars and inconsistent address',()=>{
+ const id='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const base={appId:'com.integrab2g.pollosb3',storeId:id,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'};
+ const contact={firstName:'Ana',lastName:'Quispe',phone:'912345678',
+  address:base.address,district:base.district,reference:'',mode:'delivery'};
+ for(const bad of [{...contact,phone:'12345'},{...contact,address:'Av. Falsa 123'},
+  {...contact,mode:'pickup'},{...contact,reference:'X'.repeat(181)},
+  {...contact,firstName:'Ana'+String.fromCharCode(10)+'aceptado'}]){
+  const c=client()
+  assert.throws(()=>c.api.prepareInteraction({...base,customer:bad}))
+ }
+});
 test('lectura y decisión por texto requieren la misma clave de interacción',async()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
  const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
