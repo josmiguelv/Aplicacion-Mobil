@@ -530,6 +530,7 @@ async function completeAcceptedQuote(entry){
  if(!interactionMatchesCart(entry,address,district))
   throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
  if(entry.status!=='ACCEPTED')throw Error('Todavía no existe una aceptación válida del agente.');
+ if(entry.body?.customer&&entry.messageDelivered!==true)throw Error('El envío del texto de esta solicitud aún no está confirmado.');
  if(entry.body.catalogRevision!==publishedRevision)throw Error('El catálogo cambió después de la aceptación. Debes cancelar y solicitar una nueva confirmación.');
  const selected=shops.find(s=>s.id===entry.body.storeId);
  if(!selected)throw Error('La sede que aceptó ya no aparece en el catálogo publicado.');
@@ -561,6 +562,13 @@ async function pollAgentDecision(){
  agentDecisionPolling=true;
  let retryMs=3200;
  try{
+  if(entry.body?.customer&&entry.messageDelivered!==true){
+   deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
+    message:'La interacción existe. Confirmando el envío del texto al asesor, sin duplicarla.'};
+   render();
+   await api.sendInteractionMessage(entry);
+   if(st.stage!=='availability')return;
+  }
   if(entry.status==='ACCEPTED'){await completeAcceptedQuote(entry);return}
   const result=await api.pollInteraction(entry);
   if(st.stage!=='availability')return;
@@ -588,22 +596,27 @@ async function pollAgentDecision(){
    message:'Esperando confirmación del local. Continuaremos automáticamente cuando responda.'};
   render();
  }catch(error){
-  const pending=api?.readInteraction?.()?.status==='PENDING';
+  const latest=api?.readInteraction?.();
+  const pending=latest?.status==='PENDING';
+  const sending=pending&&latest.body?.customer&&latest.messageDelivered!==true;
   retryMs=8000;
-  deliveryAvailability={status:pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
-   message:pending?'La consulta al local tuvo una interrupción. Reintentaremos automáticamente, sin duplicar tu solicitud.':
-    error.message||'No se pudo actualizar el estado del pedido. No continuaremos al pago.'};
+  deliveryAvailability={status:sending?'CREATE_UNCERTAIN':pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
+   message:sending?'La interacción existe, pero todavía no se confirmó el texto. Reintentaremos con la misma clave.':
+    pending?'La consulta al local tuvo una interrupción. Reintentaremos sin duplicar tu solicitud.':
+     error.message||'No se pudo actualizar el pedido. No continuaremos al pago.'};
   render();
  }finally{
   agentDecisionPolling=false;
   if(st.stage==='availability'&&api?.readInteraction?.()?.status==='PENDING'&&
-     deliveryAvailability.status==='WAITING_APPROVAL')scheduleAgentDecisionPoll(retryMs);
+     ['WAITING_APPROVAL','CREATE_UNCERTAIN'].includes(deliveryAvailability.status))
+   scheduleAgentDecisionPoll(retryMs);
  }
 }
 async function requestBackendOrderAvailability({address,district,run,silent}){
  const api=window.B3OrderAvailability;
  if(!api?.checkAgentAvailability||!api?.quoteDelivery||!api?.createInteraction||
-    !api?.pollInteraction)throw Error('Actualiza Android para usar el seguimiento de TU VERSO.');
+    !api?.sendInteractionMessage||!api?.pollInteraction)
+  throw Error('Actualiza Android para utilizar el envío independiente del mensaje.');
  const active=()=>run===deliveryValidationGeneration&&st.mode==='delivery'&&
   st.profile.address===address&&st.profile.district===district&&(silent||st.stage==='availability');
  const prior=api.readInteraction?.();
@@ -611,8 +624,10 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   if(!interactionMatchesCart(prior,address,district))
    throw Error('Existe una solicitud anterior con productos diferentes. Cancélala antes de empezar otra.');
   const store=shops.find(s=>s.id===prior.body.storeId);
-  deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'Sede seleccionada',
-   candidateNames:[],message:'Esperando respuesta del local. Continuaremos automáticamente.'};
+  deliveryAvailability={status:prior.messageDelivered===false?'CREATE_UNCERTAIN':'WAITING_APPROVAL',
+   storeName:store?.name||'Sede seleccionada',candidateNames:[],
+   message:prior.messageDelivered===false?'La solicitud ya existe. Confirmando el texto al asesor.':
+    'Esperando respuesta del local. Continuaremos automáticamente.'};
   st.store=prior.body.storeId;save();render();
   if(prior.status==='ACCEPTED')await completeAcceptedQuote(prior);
   else scheduleAgentDecisionPoll(1000);
@@ -656,6 +671,20 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  const response=await api.createInteraction(entry);
  if(!active())return false;
  if(response.status!=='PENDING')throw Error('No se confirmó la solicitud pendiente.');
+ // The interactionId was saved before attempting the second HTTP request.
+ deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
+  message:'Solicitud creada. Enviando detalle al asesor de '+selected.name+'.'};
+ save();render();
+ if(entry.body?.customer&&entry.messageDelivered!==true){
+  try{await api.sendInteractionMessage(entry)}
+  catch(_){
+   // No new interaction is created. The same message is retried idempotently.
+   deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
+    message:'Solicitud creada. Confirmando entrega del texto al asesor. Reintentaremos sin duplicar.'};
+   save();render();scheduleAgentDecisionPoll(8000);return false;
+  }
+ }
+ if(!active())return false;
  deliveryAvailability={status:'WAITING_APPROVAL',storeName:selected.name,candidateNames:[],
   message:'Esperando confirmación de '+selected.name+'. No necesitas pulsar ningún botón.'};
  save();render();scheduleAgentDecisionPoll(1000);
