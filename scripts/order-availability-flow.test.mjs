@@ -17,7 +17,7 @@ const stores=[
  {id:storeB,name:'Sede de prueba B',active:true,delivery_enabled:true,consultOrderAvailability:true}
 ]
 const items=[{productId,quantity:1}]
-function simulation({available=true,decisions=[],allStores=stores,wrongQuote=false}={}){
+function simulation({available=true,decisions=[],allStores=stores,wrongQuote=false,sendFailures=0}={}){
  const st={mode:'delivery',profile:{first:'Ana',last:'Quispe',phone:'912345678',
   address:'Av. Ejemplo 123',district:'Santa Anita',reference:'Puerta lateral'},
   store:'',quote:null,stage:'availability',pay:''}
@@ -37,7 +37,14 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   createInteraction:async()=>{
    events.push('CREATE:'+current.body.storeId)
    current.status='PENDING';current.interactionId='a2e616af-8c52-4776-b3b1-b446fc9b74a9'
+   current.messageDelivered=false
    return {status:'PENDING',storeId:current.body.storeId,interactionId:current.interactionId}
+  },
+  sendInteractionMessage:async()=>{
+   events.push('SEND:'+current.body.storeId)
+   if(sendFailures>0){sendFailures--;throw Error('HTTP 503 al confirmar el texto')}
+   current.messageDelivered=true
+   return {interactionId:current.interactionId,delivered:true}
   },
   pollInteraction:async()=>{
    const decision=decisions.shift()||null
@@ -80,12 +87,38 @@ test('crea interacción antes de la cotización y espera sin habilitar pago',asy
  const s=simulation({decisions:[null]})
  await s.start()
  assert.deepEqual(s.events.filter(x=>!x.startsWith('SCREEN:')),
- ['CHECK:'+storeA,'PREPARE:'+storeA,'CREATE:'+storeA])
+ ['CHECK:'+storeA,'PREPARE:'+storeA,'CREATE:'+storeA,'SEND:'+storeA])
  assert.equal(s.st.quote,null)
  assert.equal(s.context.deliveryAvailability.status,'WAITING_APPROVAL')
  await s.poll()
  assert.equal(s.st.stage,'availability')
  assert.ok(!s.events.some(x=>x.startsWith('QUOTE:')))
+})
+test('HTTP 503 después de crear conserva el interactionId y reintenta solo texto',async()=>{
+ const s=simulation({decisions:['ACCEPTED'],sendFailures:1})
+ await s.start()
+ assert.equal(s.st.stage,'availability')
+ assert.equal(s.context.deliveryAvailability.status,'CREATE_UNCERTAIN')
+ assert.equal(s.api.readInteraction().status,'PENDING')
+ assert.equal(s.api.readInteraction().messageDelivered,false)
+ const id=s.api.readInteraction().interactionId
+ assert.equal(s.events.filter(x=>x.startsWith('CREATE:')).length,1)
+ await s.poll()
+ assert.equal(s.api.readInteraction().interactionId,id)
+ assert.equal(s.events.filter(x=>x.startsWith('CREATE:')).length,1)
+ assert.equal(s.events.filter(x=>x.startsWith('SEND:')).length,2)
+ assert.equal(s.st.stage,'prepaymentReview')
+})
+test('la espera del agente no tiene plazo comercial local',async()=>{
+ const s=simulation({decisions:Array(50).fill(null)})
+ await s.start()
+ for(let i=0;i<50;i++)await s.poll()
+ assert.equal(s.api.readInteraction().status,'PENDING')
+ assert.equal(s.st.stage,'availability')
+ assert.equal(s.context.deliveryAvailability.status,'WAITING_APPROVAL')
+ assert.equal(s.events.filter(x=>x.startsWith('CREATE:')).length,1)
+ assert.equal(s.events.filter(x=>x.startsWith('SEND:')).length,1)
+ assert.equal(s.events.filter(x=>x.startsWith('QUOTE:')).length,0)
 })
 test('aceptado cotiza únicamente la sede original y avanza automáticamente a revisión',async()=>{
  const s=simulation({decisions:['ACCEPTED']})
