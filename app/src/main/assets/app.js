@@ -607,7 +607,8 @@ async function pollAgentDecision(){
   render();
  }catch(error){
   const latest=api?.readInteraction?.();
-  const pending=['PENDING','ACCEPTED','SUBMITTING'].includes(latest?.status);
+  // After an explicit agent decision, validation/quote errors must remain errors.
+  const pending=['PENDING','SUBMITTING'].includes(latest?.status);
   const recovering=pending&&!latest?.interactionId;
   const sending=pending&&latest?.interactionId&&latest.body?.customer&&latest.messageDelivered!==true;
   retryMs=8000;
