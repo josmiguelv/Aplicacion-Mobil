@@ -222,16 +222,38 @@
   function persistInteraction(entry) {
     root.localStorage.setItem(INTERACTION_KEY,JSON.stringify(entry));return entry;
   }
-  function prepareInteraction({appId,storeId,catalogRevision,items,address,district}) {
+  function prepareInteraction({appId,storeId,catalogRevision,items,address,district,customer}) {
     if(typeof appId!=='string'||!UUID.test(storeId)||
       !Number.isSafeInteger(catalogRevision)||catalogRevision<1||
       !Array.isArray(items)||items.length<1||items.length>50||
       !items.every(i=>i&&UUID.test(i.productId)&&Number.isInteger(i.quantity)&&
         i.quantity>=1&&i.quantity<=99))
       throw Error('La solicitud de atención no tiene sede, revisión o productos publicados válidos.');
+    // Only an explicitly completed delivery contact is added; existing clients remain compatible.
+    let safeCustomer;
+    if(customer!==undefined){
+      const field=(value,min,max)=>typeof value==='string'&&value.trim().length>=min&&
+        value.length<=max&&!/[\x00-\x1f]/.test(value);
+      if(!customer||typeof customer!=='object'||Array.isArray(customer)||
+        Object.keys(customer).some(k=>!['firstName','lastName','phone','address','district','reference','mode'].includes(k))||
+        customer.mode!=='delivery'||!field(customer.firstName,2,60)||!field(customer.lastName,2,60)||
+        typeof customer.phone!=='string'||!/^9[0-9]{8}$/.test(customer.phone)||
+        !field(customer.address,6,180)||!field(customer.district,2,80)||
+        (customer.reference!==undefined&&
+         (typeof customer.reference!=='string'||customer.reference.length>180||
+          /[\x00-\x1f]/.test(customer.reference))))
+        throw Error('Completa nombres, apellidos, celular y dirección antes de enviar el pedido.');
+      safeCustomer={firstName:customer.firstName.trim(),lastName:customer.lastName.trim(),
+        phone:customer.phone,address:customer.address.trim(),district:customer.district.trim(),
+        reference:String(customer.reference||'').trim(),mode:'delivery'};
+      if(safeCustomer.address!==String(address||'').trim()||
+        safeCustomer.district!==String(district||'').trim())
+        throw Error('La dirección de la solicitud no coincide con la confirmada.');
+    }
     const body={appId,storeId,catalogRevision,customerExternalId:externalCustomerId(),
       items:items.map(i=>({productId:i.productId,quantity:i.quantity}))
         .sort((a,b)=>a.productId.localeCompare(b.productId))};
+    if(safeCustomer)body.customer=safeCustomer;
     const fingerprint=JSON.stringify({...body,address:String(address||'').trim(),
       district:String(district||'').trim()});
     const prior=readInteraction();
