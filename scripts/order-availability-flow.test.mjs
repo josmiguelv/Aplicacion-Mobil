@@ -29,7 +29,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   checkAgentAvailability:async({storeId})=>{events.push('CHECK:'+storeId);return {available}},
   prepareInteraction:input=>{
    events.push('PREPARE:'+input.storeId)
-   current={body:{appId:input.appId,storeId:input.storeId,items:input.items},
+   current={body:{appId:input.appId,storeId:input.storeId,catalogRevision:input.catalogRevision,items:input.items},
     status:'PREPARED',fingerprint:JSON.stringify(input),idempotencyKey:'a1e616af-8c52-4776-b3b1-b446fc9b74a9'}
    return current
   },
