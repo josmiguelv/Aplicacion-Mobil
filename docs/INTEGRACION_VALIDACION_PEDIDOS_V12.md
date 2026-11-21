@@ -88,3 +88,17 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`. La rama incorpora un workflow 
 ## 6. Certificación pendiente
 
 Las pruebas incluidas utilizan respuestas sintéticas de las nuevas APIs y aseguran el orden de llamadas, ausencia de interacciones cuando no hay capacidad, detección de sede distinta, cambios de revisión y conservación de idempotencia. **No constituyen evidencia E2E** de interacción recibida por TU VERSO ni aceptación real del asesor. No se han generado pedidos comerciales ni cobros.
+
+
+## Fase previa al pago — rama feat/b3-prepayment-flow-20261120
+
+El flujo de Android ahora es **sede elegible y capacidad → interacción PENDING → texto del agente → cotización de la sede aceptada → resumen de productos/delivery → pantalla de métodos de pago**. Un rechazo por texto `rechazado` o `rechazada` agrega la sede a una exclusión temporal y consulta automáticamente la siguiente sede elegible; agotadas las sedes, muestra una respuesta de no disponibilidad sin cobrar.
+
+- El reconocimiento de decisión se realiza con `GET /api/v1/mobile/interactions/{interactionId}/status` autenticado con clave aleatoria propia de ese intento, vía puente HTTPS nativo.
+- Android espera sin botón de continuación. Ante `aceptado`, solicita cotización con `storeId` exacto, y abre la pantalla `prepaymentReview` con subtotal de catálogo y tarifa del Administrador.
+- `Elegir método de pago` muestra solamente los métodos publicados por la sede y modalidad; no avanza a cobro, simulaciones de pago ni crea un pedido definitivo.
+- `Agregar o cambiar productos` notifica cancelación al agente mediante la API del Administrador, bloquea alteraciones del carrito hasta recibir acuse y devuelve a la carta. La siguiente solicitud obtiene un `interactionId` nuevo.
+- Se conserva el botón y pantalla de chat existentes, con campo de texto y botón enviar deshabilitados. No hay mensajes ficticios almacenados como conversaciones reales.
+- Un cliente puede reanudar una interacción pendiente tras reiniciar la app, con la misma clave; no se garantiza todavía coordinación multi-dispositivo ni orquestación SQL duradera de búsqueda de sedes.
+- **Dependencias:** primera respuesta textual del agente mientras está `PENDING` en TU VERSO (aún no soportada por el contrato inspeccionado); Google Routes y conexión S2S real; confirmación/cobro, seguimiento del pedido, mensajería bidireccional y cierre con etiqueta fuera de esta fase.
+- Todo cambio está aislado en rama; sin despliegue productivo ni cobro.
