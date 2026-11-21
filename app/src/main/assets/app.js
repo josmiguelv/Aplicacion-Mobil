@@ -569,7 +569,6 @@ async function pollAgentDecision(){
    await api.sendInteractionMessage(entry);
    if(st.stage!=='availability')return;
   }
-  if(entry.status==='ACCEPTED'){await completeAcceptedQuote(entry);return}
   const result=await api.pollInteraction(entry);
   if(st.stage!=='availability')return;
   const store=shops.find(s=>s.id===entry.body.storeId);
