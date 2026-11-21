@@ -301,6 +301,18 @@
     root.localStorage.setItem(SERIES_KEY,JSON.stringify({fingerprint,stores,createdAt:Date.now()}));
     return stores;
   }
+  // Pollos B3 mobile owns agent-text decisions and how the order proceeds.
+  // Use complete, exact approval/rejection words; never infer from INBOUND text.
+  function interpretAgentDecision(agentMessages) {
+    for(const message of agentMessages) {
+      const text=message.text.trim().toLocaleLowerCase('es-PE').replace(/[.!]+$/,'').trim();
+      if(['acepto','aceptado','aceptada'].includes(text))
+        return {decision:'ACCEPTED',agentMessageId:message.id};
+      if(['rechazado','rechazada'].includes(text))
+        return {decision:'REJECTED',agentMessageId:message.id};
+    }
+    return {decision:null,agentMessageId:null};
+  }
   async function pollInteraction(entry){
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey))
       throw Error('No existe interacción para consultar.');
@@ -311,14 +323,27 @@
       throw responseError(response,'No se pudo consultar la decisión del asesor');
     const data=response.data||{};
     if(data.interactionId!==entry.interactionId||data.storeId!==entry.body.storeId||
-       ![null,'ACCEPTED','REJECTED','CANCELLED'].includes(data.decision))
+       !['PENDING','ACCEPTED','REJECTED','EXPIRED','CANCELLED'].includes(data.status)||
+       !Array.isArray(data.agentMessages)||data.agentMessages.length>100||
+       data.agentMessages.some(m=>!m||!UUID.test(m.id)||typeof m.text!=='string'||
+         m.text.length>8000||typeof m.createdAt!=='string'))
       throw Error('La respuesta del asesor no coincide con esta interacción.');
+    // A formal TU VERSO status takes precedence over chat text, especially rejection/expiry.
+    let decision=null,agentMessageId=null;
     if(data.status==='EXPIRED')entry.status='EXPIRED';
-    else if(data.decision==='CANCELLED')entry.status='CANCELLED';
-    else if(data.decision==='ACCEPTED'&&['PENDING','ACCEPTED'].includes(data.status))entry.status='ACCEPTED';
-    else if(data.decision==='REJECTED')entry.status='REJECTED';
+    else if(data.status==='CANCELLED')entry.status='CANCELLED';
+    else if(data.status==='ACCEPTED'){entry.status='ACCEPTED';decision='ACCEPTED';}
+    else if(data.status==='REJECTED'){entry.status='REJECTED';decision='REJECTED';}
+    else {
+      const agent=interpretAgentDecision(data.agentMessages);
+      decision=agent.decision;agentMessageId=agent.agentMessageId;
+      if(decision==='ACCEPTED')entry.status='ACCEPTED';
+      else if(decision==='REJECTED')entry.status='REJECTED';
+      else entry.status='PENDING';
+    }
     persistInteraction(entry);
-    return {...data,clientStatus:entry.status};
+    return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
+      decision,agentMessageId,clientStatus:entry.status};
   }
   async function cancelInteraction(entry){
     if(!entry||!UUID.test(entry.idempotencyKey))throw Error('No hay solicitud que cancelar.');
