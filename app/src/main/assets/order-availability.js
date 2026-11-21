@@ -323,7 +323,7 @@
   // Pollos B3 mobile owns agent-text decisions and how the order proceeds.
   // Use complete, exact approval/rejection words; never infer from INBOUND text.
   function interpretAgentDecision(agentMessages) {
-    for(const message of agentMessages) {
+    for(const message of [...agentMessages].reverse()) {
       const text=message.text.trim().toLocaleLowerCase('es-PE').replace(/[.!]+$/,'').trim();
       if(['acepto','aceptado','aceptada'].includes(text))
         return {decision:'ACCEPTED',agentMessageId:message.id};
@@ -351,7 +351,12 @@
     let decision=null,agentMessageId=null;
     if(data.status==='EXPIRED')entry.status='EXPIRED';
     else if(data.status==='CANCELLED')entry.status='CANCELLED';
-    else if(data.status==='ACCEPTED'){entry.status='ACCEPTED';decision='ACCEPTED';}
+    else if(data.status==='ACCEPTED'){
+      // This is interaction acceptance/assignment, not approval of the order.
+      const agent=interpretAgentDecision(data.agentMessages);
+      decision=agent.decision;agentMessageId=agent.agentMessageId;
+      entry.status=decision||'PENDING';
+    }
     else if(data.status==='REJECTED'){entry.status='REJECTED';decision='REJECTED';}
     else {
       const agent=interpretAgentDecision(data.agentMessages);
