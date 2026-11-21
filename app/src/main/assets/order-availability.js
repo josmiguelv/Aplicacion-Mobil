@@ -104,7 +104,7 @@
         const error = Error('La consulta tardó demasiado. Puedes volver a comprobar sin duplicar tu solicitud.');
         error.code = 'TIMEOUT';
         reject(error);
-      }, 25000);
+      }, action.operation==='INTERACTION_MESSAGE'?35000:25000);
       requests.set(requestId,{resolve,reject,timer});
       try {
         root.AndroidBridge.orderAvailabilityRequest(JSON.stringify({...action,requestId}));
@@ -279,11 +279,30 @@
       throw responseError(response,'No se pudo crear la interacción');
     }
     const data=response.data||{};
-    if(!UUID.test(data.interactionId)||data.status!=='PENDING'||
+    if(!UUID.test(data.interactionId)||!['PENDING','ACCEPTED','REJECTED','EXPIRED'].includes(data.status)||
       data.storeId!==entry.body.storeId||
       typeof data.externalReference!=='string'||!data.externalReference.startsWith('mobile:'))
       throw Error('La respuesta de TU VERSO no confirmó una interacción pendiente válida.');
+    // Persist the server-confirmed interaction before the separate message POST.
     entry.status='PENDING';entry.interactionId=data.interactionId;
+    entry.messageDelivered=!entry.body.customer;
+    persistInteraction(entry);
+    return {...data,status:'PENDING'};
+  }
+  async function sendInteractionMessage(entry) {
+    if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
+       !entry.body?.customer||!['PENDING','ACCEPTED'].includes(entry.status))
+      throw Error('No existe una interacción pendiente para enviar el texto.');
+    if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
+    const response=await nativeRequest({operation:'INTERACTION_MESSAGE',
+      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,body:entry.body});
+    if(Number(response.status)!==200)
+      throw responseError(response,'No se pudo confirmar el texto del pedido');
+    const data=response.data||{};
+    if(data.interactionId!==entry.interactionId||data.delivered!==true||
+       !UUID.test(data.messageId))
+      throw Error('El Administrador no confirmó el mensaje de esta interacción.');
+    entry.messageDelivered=true;
     persistInteraction(entry);
     return data;
   }
@@ -366,6 +385,6 @@
   }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
-    checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,readInteraction,
+    checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,rejectedStores,markRejectedStore,eraseLocalIdentity});
 })(window);
