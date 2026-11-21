@@ -1636,6 +1636,13 @@ function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchst
 root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-retry],[data-availability-continue],[data-availability-retry],[data-availability-health],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['PENDING','ACCEPTED'].includes(liveRequest?.status)&&
+   (b.hasAttribute('data-address-next')||b.hasAttribute('data-modal-save-delivery')||
+    b.hasAttribute('data-modal-mode')||b.hasAttribute('data-mode'))){
+ toast('Primero debes cancelar la solicitud actual para cambiar la dirección o modalidad.');
+ screen(liveRequest.status==='ACCEPTED'?'prepaymentReview':'availability');
+ return;
+}
+if(['PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-add')||b.hasAttribute('data-cartdelta')||b.hasAttribute('data-remove'))){
  toast('Primero debes cancelar la solicitud actual para cambiar los productos.');
  screen(liveRequest.status==='ACCEPTED'?'prepaymentReview':'availability');
