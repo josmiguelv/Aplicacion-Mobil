@@ -169,7 +169,7 @@ test('prohíbe productos no UUID, duplicados, cantidades inválidas y no simula 
   assert.match(checkoutSource,/api\.createInteraction/);
   assert.doesNotMatch(checkoutSource,/const quote=quoteForDeliveryCandidate\(first\);/);
   assert.match(checkoutSource,/serverValidated:true/);
-  assert.match(checkoutSource,/No decision endpoint, never unlock checkout on PENDING/);
+  assert.match(checkoutSource,/async function pollAgentDecision/);
   assert.match(checkoutSource,/UNAVAILABLE/);
 });
 test('GET por sede consulta capacidad sin pedir carrito ni crear interacción',async()=>{
@@ -213,7 +213,7 @@ test('creación PENDING reutiliza clave e impide un segundo formulario',async()=
  const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
  const c=client(req=>({requestId:req.requestId,status:201,
   data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:deterministic'}}));
- const input={appId:'com.integrab2g.pollosb3',storeId,quoteRevision:18,
+ const input={appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
   items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'};
  const entry=c.api.prepareInteraction(input);
  assert.equal(c.api.prepareInteraction(input).idempotencyKey,entry.idempotencyKey);
@@ -221,9 +221,9 @@ test('creación PENDING reutiliza clave e impide un segundo formulario',async()=
  assert.equal((await c.api.createInteraction(entry)).status,'PENDING');
  assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE']);
  assert.equal(c.requests[0].idempotencyKey,entry.idempotencyKey);
- assert.equal(c.requests[0].body.quoteRevision,18);
+ assert.equal(c.requests[0].body.catalogRevision,18);
  assert.equal(c.api.readInteraction().interactionId,interactionId);
- assert.throws(()=>c.api.prepareInteraction({...input,quoteRevision:19}),/solicitud de atención iniciada/);
+ assert.throws(()=>c.api.prepareInteraction({...input,catalogRevision:19}),/solicitud de atención iniciada/);
 });
 test('503 de cotización identifica fulfillment sin atribuirlo a TU VERSO',async()=>{
  const c=client(req=>({requestId:req.requestId,status:503,data:{error:'Operación temporalmente no disponible'}}));
@@ -242,13 +242,46 @@ test('503 de disponibilidad identifica la consulta y no inicia interacción',asy
 test('error 503 conserva idempotencia para reintento, nunca aprueba por timeout',async()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
  const c=client(req=>({requestId:req.requestId,status:503,data:{error:'unavailable'}}));
- const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,quoteRevision:18,
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
   items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
  await assert.rejects(()=>c.api.createInteraction(entry),/No se pudo crear la interacción \(HTTP 503\)/);
  assert.equal(c.api.readInteraction().status,'SUBMITTING');
  assert.equal(c.api.readInteraction().idempotencyKey,entry.idempotencyKey);
  await assert.rejects(()=>c.api.createInteraction(c.api.readInteraction()));
  assert.equal(c.requests[0].idempotencyKey,c.requests[1].idempotencyKey);
+});
+test('lectura y decisión por texto requieren la misma clave de interacción',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const c=client(req=>req.operation==='INTERACTION_CREATE'?
+  {requestId:req.requestId,status:201,data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ref'}}:
+  {requestId:req.requestId,status:200,data:{interactionId,storeId,status:'PENDING',decision:'ACCEPTED'}});
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
+ await c.api.createInteraction(entry);
+ const decision=await c.api.pollInteraction(entry);
+ assert.equal(decision.clientStatus,'ACCEPTED');
+ assert.equal(c.api.readInteraction().status,'ACCEPTED');
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_STATUS']);
+ assert.equal(c.requests[1].accessKey,entry.idempotencyKey);
+});
+test('cancelación notifica el carrito modificado sin generar un pago',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c',interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const c=client(req=>req.operation==='INTERACTION_CREATE'?
+  {requestId:req.requestId,status:201,data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ref'}}:
+  {requestId:req.requestId,status:200,data:{interactionId,status:'CANCELLED'}});
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
+ await c.api.createInteraction(entry);
+ const response=await c.api.cancelInteraction(entry);
+ assert.equal(response.status,'CANCELLED');
+ assert.equal(c.api.readInteraction().status,'CANCELLED');
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_CANCEL']);
+});
+test('cotizar para sede aceptada rechaza una tarifa de otra sede',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const c=client(req=>({requestId:req.requestId,status:200,data:{revision:18,storeId:'eeacc37f-7199-4b8f-bb1d-d1338e4f82f8',mode:'delivery',deliveryFeePen:5,paymentMethods:['yape']}}));
+ await assert.rejects(()=>c.api.quoteDelivery({appId:'com.integrab2g.pollosb3',storeId,address:'Av. Ejemplo 123',district:'Santa Anita'}),/cotización incompleta/);
 });
 test('puente Android exclusivo para HTTPS rutas permitidas; scripts en orden',()=>{
   assert.ok(html.indexOf('order-availability.js')>0&&html.indexOf('order-availability.js')<html.indexOf('app.js'));
