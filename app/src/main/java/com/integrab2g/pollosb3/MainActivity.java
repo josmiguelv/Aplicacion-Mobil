@@ -469,7 +469,9 @@ public class MainActivity extends Activity {
                     try {
                         connection.setInstanceFollowRedirects(false);
                         connection.setConnectTimeout(12000);
-                        connection.setReadTimeout(15000);
+                        // Message relay validates the remote interaction first, then sends text.
+                        // This timeout covers only transport, never waiting for an agent.
+                        connection.setReadTimeout("INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
                             "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
