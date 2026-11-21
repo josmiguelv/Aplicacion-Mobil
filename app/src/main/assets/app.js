@@ -550,6 +550,11 @@ async function pollAgentDecision(){
   const result=await api.pollInteraction(entry);
   if(st.stage!=='availability')return;
   const store=shops.find(s=>s.id===entry.body.storeId);
+  if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
+   deliveryAvailability={status:'ERROR',storeName:store?.name||'',candidateNames:[],
+    message:'La solicitud dejó de estar vigente. No se continuará al pago.'};
+   render();return;
+  }
   if(result.decision==='ACCEPTED'){
    await completeAcceptedQuote(api.readInteraction());return;
   }
@@ -563,11 +568,7 @@ async function pollAgentDecision(){
     run,silent:false});
    return;
   }
-  if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
-   deliveryAvailability={status:'ERROR',storeName:store?.name||'',candidateNames:[],
-    message:'La solicitud dejó de estar vigente. No se continuará al pago.'};
-   render();return;
-  }
+
   deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'',candidateNames:[],
    message:'Esperando confirmación del local. Continuaremos automáticamente cuando responda.'};
   render();
