@@ -51,6 +51,7 @@ const mockResolver=({stores,flag,fail=false})=>{
    deliveryPricingMode:'PER_KM',quoteOrigin:'ANDROID_LOCAL'
   }}
  }
+ context.deliveryContactReady=()=>true;
  vm.runInNewContext(extract('resolveDelivery'),context)
  return {context,st,events}
 }
