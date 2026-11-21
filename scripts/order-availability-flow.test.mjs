@@ -17,7 +17,7 @@ const stores=[
  {id:storeB,name:'Sede de prueba B',active:true,delivery_enabled:true,consultOrderAvailability:true}
 ]
 const items=[{productId,quantity:1}]
-function simulation({available=true,decisions=[],allStores=stores,wrongQuote=false,sendFailures=0}={}){
+function simulation({available=true,decisions=[],allStores=stores,wrongQuote=false,sendFailures=0,createFailures=0}={}){
  const st={mode:'delivery',profile:{first:'Ana',last:'Quispe',phone:'912345678',
   address:'Av. Ejemplo 123',district:'Santa Anita',reference:'Puerta lateral'},
   store:'',quote:null,stage:'availability',pay:''}
@@ -36,6 +36,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   },
   createInteraction:async()=>{
    events.push('CREATE:'+current.body.storeId)
+   if(createFailures>0){createFailures--;current.status='SUBMITTING';const error=Error('503');error.httpStatus=503;throw error}
    current.status='PENDING';current.interactionId='a2e616af-8c52-4776-b3b1-b446fc9b74a9'
    current.messageDelivered=false
    return {status:'PENDING',storeId:current.body.storeId,interactionId:current.interactionId}
@@ -109,6 +110,19 @@ test('HTTP 503 después de crear conserva el interactionId y reintenta solo text
  assert.equal(s.events.filter(x=>x.startsWith('SEND:')).length,2)
  assert.equal(s.st.stage,'prepaymentReview')
 })
+test('HTTP 503 en creación deja pendiente recuperación con misma clave, sin perder respuesta del agente',async()=>{
+ const s=simulation({createFailures:1,decisions:['ACCEPTED']});
+ await s.start();
+ assert.equal(s.context.deliveryAvailability.status,'CREATE_UNCERTAIN');
+ assert.equal(s.api.readInteraction().status,'SUBMITTING');
+ assert.equal(s.api.readInteraction().interactionId,undefined);
+ const key=s.api.readInteraction().idempotencyKey;
+ await s.poll();
+ assert.equal(s.api.readInteraction().idempotencyKey,key);
+ assert.equal(s.st.stage,'prepaymentReview');
+ assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA,'CREATE:'+storeA]);
+ assert.deepEqual(s.events.filter(x=>x.startsWith('QUOTE:')),['QUOTE:'+storeA]);
+});
 test('la espera del agente no tiene plazo comercial local',async()=>{
  const s=simulation({decisions:Array(50).fill(null)})
  await s.start()
