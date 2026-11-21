@@ -543,6 +543,7 @@ async function pollAgentDecision(){
  if(agentDecisionPolling||st.stage!=='availability'||!entry?.interactionId||
     !['PENDING','ACCEPTED'].includes(entry.status))return;
  agentDecisionPolling=true;
+ let retryMs=3200;
  try{
   if(entry.status==='ACCEPTED'){await completeAcceptedQuote(entry);return}
   const result=await api.pollInteraction(entry);
@@ -570,13 +571,16 @@ async function pollAgentDecision(){
    message:'Esperando confirmación del local. Continuaremos automáticamente cuando responda.'};
   render();
  }catch(error){
-  deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
-   message:error.message||'No se pudo actualizar el estado del pedido. Reintenta sin crear una nueva solicitud.'};
+  const pending=api?.readInteraction?.()?.status==='PENDING';
+  retryMs=8000;
+  deliveryAvailability={status:pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
+   message:pending?'La consulta al local tuvo una interrupción. Reintentaremos automáticamente, sin duplicar tu solicitud.':
+    error.message||'No se pudo actualizar el estado del pedido. No continuaremos al pago.'};
   render();
  }finally{
   agentDecisionPolling=false;
   if(st.stage==='availability'&&api?.readInteraction?.()?.status==='PENDING'&&
-     deliveryAvailability.status==='WAITING_APPROVAL')scheduleAgentDecisionPoll();
+     deliveryAvailability.status==='WAITING_APPROVAL')scheduleAgentDecisionPoll(retryMs);
  }
 }
 async function requestBackendOrderAvailability({address,district,run,silent}){
