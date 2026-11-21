@@ -428,7 +428,7 @@ function deliveryQuoteValid(){
     !Number.isFinite(st.quote.quotedAt)||Date.now()-st.quote.quotedAt>=900000)return false;
  if(st.quote.quoteOrigin==='ADMIN_API_ACCEPTED'){
   const entry=window.B3OrderAvailability?.readInteraction?.();
-  return entry?.status==='ACCEPTED'&&entry.body?.storeId===st.store&&
+  return entry?.status==='ACCEPTED'&&entry.body?.storeId===st.store&&entry.body?.catalogRevision===publishedRevision&&
     st.quote.storeId===st.store&&st.quote.quoteRevision===publishedRevision&&
     st.quote.distanceSource==='SERVER_ROUTE'&&
     st.quote.cartSignature===currentCartSignature()&&
@@ -515,6 +515,7 @@ async function completeAcceptedQuote(entry){
  if(!interactionMatchesCart(entry,address,district))
   throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
  if(entry.status!=='ACCEPTED')throw Error('Todavía no existe una aceptación válida del agente.');
+ if(entry.body.catalogRevision!==publishedRevision)throw Error('El catálogo cambió después de la aceptación. Debes cancelar y solicitar una nueva confirmación.');
  const selected=shops.find(s=>s.id===entry.body.storeId);
  if(!selected)throw Error('La sede que aceptó ya no aparece en el catálogo publicado.');
  deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
