@@ -267,6 +267,58 @@ test('Android includes entered contact and delivery address, never untrusted pri
  assert.equal(c.requests[0].body.customer.reference,'Porton lateral');
  assert.equal(c.api.readInteraction().idempotencyKey,entry.idempotencyKey);
 });
+test('Android devuelve interactionId inmediatamente y entrega texto sin otra creación',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c'
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3'
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11'
+ const contact={firstName:'Ana',lastName:'Quispe',phone:'912345678',address:'Av. Ejemplo 123',
+  district:'Santa Anita',reference:'Puerta',mode:'delivery'}
+ const c=client(req=>req.operation==='INTERACTION_CREATE'?
+  {requestId:req.requestId,status:201,data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ref'}}:
+  {requestId:req.requestId,status:200,data:{interactionId,delivered:true,messageId}})
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:contact.address,district:contact.district,customer:contact})
+ const created=await c.api.createInteraction(entry)
+ assert.equal(created.interactionId,interactionId)
+ assert.equal(c.api.readInteraction().interactionId,interactionId)
+ assert.equal(c.api.readInteraction().messageDelivered,false)
+ const sent=await c.api.sendInteractionMessage(entry)
+ assert.equal(sent.delivered,true)
+ assert.equal(c.api.readInteraction().messageDelivered,true)
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_MESSAGE'])
+ assert.equal(c.requests[1].accessKey,entry.idempotencyKey)
+ assert.equal(c.requests[1].interactionId,interactionId)
+ assert.ok(!('text' in c.requests[1].body))
+ await c.api.sendInteractionMessage(entry)
+ assert.equal(c.requests.length,2)
+})
+test('error temporal de envío del texto preserva interacción y reintenta sin recrear',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c'
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3'
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11'
+ const contact={firstName:'Ana',lastName:'Quispe',phone:'912345678',address:'Av. Ejemplo 123',
+  district:'Santa Anita',reference:'Puerta',mode:'delivery'}
+ let sent=0
+ const c=client(req=>{
+  if(req.operation==='INTERACTION_CREATE')
+   return {requestId:req.requestId,status:201,data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ref'}}
+  sent++
+  if(sent===1)return {requestId:req.requestId,status:503,data:{error:'temporal'}}
+  return {requestId:req.requestId,status:200,data:{interactionId,delivered:true,messageId}}
+ })
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:contact.address,district:contact.district,customer:contact})
+ await c.api.createInteraction(entry)
+ await assert.rejects(()=>c.api.sendInteractionMessage(entry),/No se pudo confirmar el texto del pedido/)
+ assert.equal(c.api.readInteraction().interactionId,interactionId)
+ assert.equal(c.api.readInteraction().messageDelivered,false)
+ await c.api.sendInteractionMessage(entry)
+ assert.equal(c.api.readInteraction().messageDelivered,true)
+ assert.deepEqual(c.requests.map(x=>x.operation),
+  ['INTERACTION_CREATE','INTERACTION_MESSAGE','INTERACTION_MESSAGE'])
+ assert.equal(c.requests[1].accessKey,c.requests[2].accessKey)
+ assert.equal(c.requests[1].interactionId,c.requests[2].interactionId)
+})
 test('contact validation rejects fake phone, embedded control chars and inconsistent address',()=>{
  const id='f163f181-2c7e-40ec-87af-68f4675d059c';
  const base={appId:'com.integrab2g.pollosb3',storeId:id,catalogRevision:18,
