@@ -88,3 +88,40 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`. La rama incorpora un workflow 
 ## 6. Certificación pendiente
 
 Las pruebas incluidas utilizan respuestas sintéticas de las nuevas APIs y aseguran el orden de llamadas, ausencia de interacciones cuando no hay capacidad, detección de sede distinta, cambios de revisión y conservación de idempotencia. **No constituyen evidencia E2E** de interacción recibida por TU VERSO ni aceptación real del asesor. No se han generado pedidos comerciales ni cobros.
+
+
+## Fase previa al pago — rama feat/b3-prepayment-flow-20261120
+
+El flujo de Android ahora es **sede elegible y capacidad → interacción PENDING → texto del agente → cotización de la sede aceptada → resumen de productos/delivery → pantalla de métodos de pago**. Un rechazo por texto `rechazado` o `rechazada` agrega la sede a una exclusión temporal y consulta automáticamente la siguiente sede elegible; agotadas las sedes, muestra una respuesta de no disponibilidad sin cobrar.
+
+- El reconocimiento de decisión se realiza con `GET /api/v1/mobile/interactions/{interactionId}/status` autenticado con clave aleatoria propia de ese intento, vía puente HTTPS nativo.
+- Android espera sin botón de continuación. Ante `aceptado`, solicita cotización con `storeId` exacto, y abre la pantalla `prepaymentReview` con subtotal de catálogo y tarifa del Administrador.
+- `Elegir método de pago` muestra solamente los métodos publicados por la sede y modalidad; no avanza a cobro, simulaciones de pago ni crea un pedido definitivo.
+- `Agregar o cambiar productos` notifica cancelación al agente mediante la API del Administrador, bloquea alteraciones del carrito hasta recibir acuse y devuelve a la carta. La siguiente solicitud obtiene un `interactionId` nuevo.
+- Se conserva el botón y pantalla de chat existentes, con campo de texto y botón enviar deshabilitados. No hay mensajes ficticios almacenados como conversaciones reales.
+- Un cliente puede reanudar una interacción pendiente tras reiniciar la app, con la misma clave; no se garantiza todavía coordinación multi-dispositivo ni orquestación SQL duradera de búsqueda de sedes.
+- **Dependencias:** primera respuesta textual del agente mientras está `PENDING` en TU VERSO (aún no soportada por el contrato inspeccionado); Google Routes y conexión S2S real; confirmación/cobro, seguimiento del pedido, mensajería bidireccional y cierre con etiqueta fuera de esta fase.
+- Todo cambio está aislado en rama; sin despliegue productivo ni cobro.
+
+
+### Prueba de pedido por texto (21/11/2026)
+
+Android recoge los datos de contacto (nombres, apellidos, teléfono peruano) **antes** de iniciar la consulta de sedes por delivery, y agrega `customer` a la solicitud de interacción: dirección, distrito, referencia opcional y modalidad. No crea `summary`, no envía precios sin validación ni llama directamente a TU VERSO: el Administrador verifica catálogo y contacto y envía el texto dentro de la conversación móvil mediante S2S.
+
+La prueba utiliza la dirección HTTPS temporal del Administrador `https://ratios-represents-signals-allergy.trycloudflare.com/` configurada como `b3_api_base` en Gradle. Puede sustituirse en compilación mediante `-PB3_API_BASE=https://NUEVA_URL_HTTPS` si el túnel cambia. No almacenar tokens S2S en Android. Comprobar `/health/ready` antes de las pruebas; un 200/ready solo verifica el Administrador, no certifica TU VERSO. El agente recibe mensaje INBOUND con texto; confirmar visualmente la presentación real en su bandeja. Sin pagos reales, sin botones ni formulario de TU VERSO.
+
+
+### Propiedad de la decisión del asesor: Android (21/11/2026)
+
+TU VERSO retorna su estado formal y mensajes al Administrador mediante el conector autorizado. El Administrador es únicamente puerta de enlace autenticada: la API `GET /api/v1/mobile/interactions/{id}/status` retorna `status` y `agentMessages` (`id`, `text`, `createdAt`), sin campo `decision`. Android consulta periódicamente, valida IDs y formatos, reconoce `Acepto`/`Aceptado`/`Aceptada` o `Rechazado`/`Rechazada` en textos completos de agente y decide cuándo cotizar la sede aceptada, consultar otra o esperar. El estado formal remoto prevalece sobre el texto (rechazada/expirada/cancelada nunca avanza por un «Acepto» antiguo).
+
+Este contrato no usa un push directo a Android: sin conexión persistente ni servicio push, la aplicación **consulta periódicamente** al Administrador. La actualización exige compilar APK nueva y actualizar Administrador local al mismo contrato; ningún cambio en TU VERSO. El aviso «No hay sedes disponibles» pertenece a la fase Android de cobertura, sedes habilitadas y comprobación de capacidad, no es evidencia de que la aprobación del asesor se haya procesado.
+
+
+### Espera de la respuesta del agente sin límite comercial local y recuperación del 503 (21/11/2026)
+
+Android realiza **dos HTTP independientes**: (1) `INTERACTION_CREATE` registra de manera persistente `interactionId` y clave de idempotencia, y (2) `INTERACTION_MESSAGE` envía el texto mediante la pasarela del Administrador. Si el segundo paso falla/da 503, Android muestra el estado `CREATE_UNCERTAIN` y reintenta **solo el envío del texto**, usando la clave de la interacción original, nunca creando otra solicitud. Al confirmarse el mensaje, la app comienza/continúa las lecturas `INTERACTION_STATUS` del asesor y avanza cuando TU VERSO emite estado formal o respuesta de mensaje reconocida por el cliente.
+
+**Los intervalos técnicos NO son límites de atención**: la consulta periódica está alrededor de 3,2 s en condiciones normales; ante fallo de red se reintenta más tarde (~8 s); los límites de conexión HTTP de JavaScript/Java/servidor abortan únicamente una llamada individual. La app no debe cerrar/expirar la interacción por 1 minuto ni por otro límite comercial arbitrario. La responsabilidad de reglas de timeout, reasignación y respuestas automáticas es exclusiva de TU VERSO, cuando esas reglas estén efectivamente configuradas. La consulta periódica ocurre con la aplicación en la pantalla de atención; al reabrir se restaura la interacción persistida y se reanuda el seguimiento. Se mantiene prohibido finalizar el pago sin aceptación y cotización válida.
+
+No se modificó TU VERSO. El cierre del socket HTTP al terminar cada petición es normal y no cierra la conversación persistida en TU VERSO.

@@ -104,7 +104,7 @@
         const error = Error('La consulta tardó demasiado. Puedes volver a comprobar sin duplicar tu solicitud.');
         error.code = 'TIMEOUT';
         reject(error);
-      }, 25000);
+      }, action.operation==='INTERACTION_MESSAGE'?35000:25000);
       requests.set(requestId,{resolve,reject,timer});
       try {
         root.AndroidBridge.orderAvailabilityRequest(JSON.stringify({...action,requestId}));
@@ -184,20 +184,25 @@
       throw Error('La disponibilidad de TU VERSO no corresponde a la sede solicitada.');
     return {storeId,status:data.status,available:data.available,checkedAt:data.checkedAt};
   }
-  async function quoteDelivery({appId,address,district,latitude,longitude,useGps}) {
+  async function quoteDelivery({appId,storeId,address,district,latitude,longitude,useGps}) {
     if(typeof appId!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,149}$/.test(appId))
       throw Error('Identificador de aplicación inválido.');
     if(typeof address!=='string'||address.trim().length<6||typeof district!=='string'||
        district.trim().length<2) throw Error('Confirma la dirección para cotizar delivery.');
     const body={appId,mode:'delivery',address:address.trim(),district:district.trim(),
       city:'Lima',country:'Perú',useGps:useGps===true};
+    if(storeId!==undefined){
+      if(!UUID.test(storeId))throw Error('La sede a cotizar no es válida.');
+      body.storeId=storeId;
+    }
     if(useGps===true&&Number.isFinite(latitude)&&Number.isFinite(longitude)){
       body.latitude=latitude;body.longitude=longitude;
     }
     const response=await nativeRequest({operation:'DELIVERY_QUOTE',body});
     if(Number(response.status)!==200)throw responseError(response,'No se pudo cotizar el delivery');
     const data=response.data||{};
-    if(!UUID.test(data.storeId)||!Number.isSafeInteger(data.revision)||data.revision<1||
+    if(!UUID.test(data.storeId)||(storeId&&data.storeId!==storeId)||
+       !Number.isSafeInteger(data.revision)||data.revision<1||
        data.mode!=='delivery'||!Number.isFinite(Number(data.deliveryFeePen))||
        data.deliveryFeePen==null||Number(data.deliveryFeePen)<0||
        !Array.isArray(data.paymentMethods))
@@ -209,7 +214,7 @@
       const entry=JSON.parse(root.localStorage.getItem(INTERACTION_KEY)||'null');
       if(!entry||!UUID.test(entry.idempotencyKey)||
         typeof entry.fingerprint!=='string'||!entry.body||
-        !['PREPARED','SUBMITTING','PENDING'].includes(entry.status)||
+        !['PREPARED','SUBMITTING','PENDING','ACCEPTED','REJECTED','CANCELLED','EXPIRED'].includes(entry.status)||
         (entry.interactionId&&!UUID.test(entry.interactionId)))return null;
       return entry;
     }catch(_){return null;}
@@ -217,21 +222,43 @@
   function persistInteraction(entry) {
     root.localStorage.setItem(INTERACTION_KEY,JSON.stringify(entry));return entry;
   }
-  function prepareInteraction({appId,storeId,quoteRevision,items,address,district}) {
+  function prepareInteraction({appId,storeId,catalogRevision,items,address,district,customer}) {
     if(typeof appId!=='string'||!UUID.test(storeId)||
-      !Number.isSafeInteger(quoteRevision)||quoteRevision<1||
+      !Number.isSafeInteger(catalogRevision)||catalogRevision<1||
       !Array.isArray(items)||items.length<1||items.length>50||
       !items.every(i=>i&&UUID.test(i.productId)&&Number.isInteger(i.quantity)&&
         i.quantity>=1&&i.quantity<=99))
       throw Error('La solicitud de atención no tiene sede, revisión o productos publicados válidos.');
-    const body={appId,storeId,quoteRevision,customerExternalId:externalCustomerId(),
+    // Only an explicitly completed delivery contact is added; existing clients remain compatible.
+    let safeCustomer;
+    if(customer!==undefined){
+      const field=(value,min,max)=>typeof value==='string'&&value.trim().length>=min&&
+        value.length<=max&&!/[\x00-\x1f]/.test(value);
+      if(!customer||typeof customer!=='object'||Array.isArray(customer)||
+        Object.keys(customer).some(k=>!['firstName','lastName','phone','address','district','reference','mode'].includes(k))||
+        customer.mode!=='delivery'||!field(customer.firstName,2,60)||!field(customer.lastName,2,60)||
+        typeof customer.phone!=='string'||!/^9[0-9]{8}$/.test(customer.phone)||
+        !field(customer.address,6,180)||!field(customer.district,2,80)||
+        (customer.reference!==undefined&&
+         (typeof customer.reference!=='string'||customer.reference.length>180||
+          /[\x00-\x1f]/.test(customer.reference))))
+        throw Error('Completa nombres, apellidos, celular y dirección antes de enviar el pedido.');
+      safeCustomer={firstName:customer.firstName.trim(),lastName:customer.lastName.trim(),
+        phone:customer.phone,address:customer.address.trim(),district:customer.district.trim(),
+        reference:String(customer.reference||'').trim(),mode:'delivery'};
+      if(safeCustomer.address!==String(address||'').trim()||
+        safeCustomer.district!==String(district||'').trim())
+        throw Error('La dirección de la solicitud no coincide con la confirmada.');
+    }
+    const body={appId,storeId,catalogRevision,customerExternalId:externalCustomerId(),
       items:items.map(i=>({productId:i.productId,quantity:i.quantity}))
         .sort((a,b)=>a.productId.localeCompare(b.productId))};
+    if(safeCustomer)body.customer=safeCustomer;
     const fingerprint=JSON.stringify({...body,address:String(address||'').trim(),
       district:String(district||'').trim()});
     const prior=readInteraction();
-    if(prior?.fingerprint===fingerprint)return prior;
-    if(prior&&prior.status!=='PREPARED')
+    if(prior?.fingerprint===fingerprint&&!['REJECTED','CANCELLED','EXPIRED'].includes(prior.status))return prior;
+    if(prior&&!['PREPARED','REJECTED','CANCELLED','EXPIRED'].includes(prior.status))
       throw Error('Ya existe una solicitud de atención iniciada. No enviaremos otro formulario mientras no se confirme su resolución.');
     return persistInteraction({fingerprint,body,idempotencyKey:uuid(),interactionId:null,
       status:'PREPARED',createdAt:Date.now()});
@@ -239,7 +266,7 @@
   async function createInteraction(entry) {
     if(!entry||!UUID.test(entry.idempotencyKey)||!entry.body)
       throw Error('No existe una solicitud de atención válida.');
-    if(entry.status==='PENDING'&&UUID.test(entry.interactionId))
+    if(['PENDING','ACCEPTED'].includes(entry.status)&&UUID.test(entry.interactionId))
       return {interactionId:entry.interactionId,status:'PENDING',storeId:entry.body.storeId};
     entry.status='SUBMITTING';
     persistInteraction(entry); // Persist before network I/O: reuse the same key after timeout.
@@ -252,20 +279,112 @@
       throw responseError(response,'No se pudo crear la interacción');
     }
     const data=response.data||{};
-    if(!UUID.test(data.interactionId)||data.status!=='PENDING'||
+    if(!UUID.test(data.interactionId)||!['PENDING','ACCEPTED','REJECTED','EXPIRED'].includes(data.status)||
       data.storeId!==entry.body.storeId||
       typeof data.externalReference!=='string'||!data.externalReference.startsWith('mobile:'))
       throw Error('La respuesta de TU VERSO no confirmó una interacción pendiente válida.');
+    // Persist the server-confirmed interaction before the separate message POST.
     entry.status='PENDING';entry.interactionId=data.interactionId;
+    entry.messageDelivered=!entry.body.customer;
+    persistInteraction(entry);
+    return {...data,status:'PENDING'};
+  }
+  async function sendInteractionMessage(entry) {
+    if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
+       !entry.body?.customer||!['PENDING','ACCEPTED'].includes(entry.status))
+      throw Error('No existe una interacción pendiente para enviar el texto.');
+    if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
+    const response=await nativeRequest({operation:'INTERACTION_MESSAGE',
+      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,body:entry.body});
+    if(Number(response.status)!==200)
+      throw responseError(response,'No se pudo confirmar el texto del pedido');
+    const data=response.data||{};
+    if(data.interactionId!==entry.interactionId||data.delivered!==true||
+       !UUID.test(data.messageId))
+      throw Error('El Administrador no confirmó el mensaje de esta interacción.');
+    entry.messageDelivered=true;
     persistInteraction(entry);
     return data;
+  }
+  const SERIES_KEY='b3-mobile-rejected-stores-v1';
+  function rejectedStores(fingerprint){
+    try{
+      const data=JSON.parse(root.localStorage.getItem(SERIES_KEY)||'null');
+      return data?.fingerprint===fingerprint&&Number.isFinite(data.createdAt)&&Date.now()-data.createdAt<300000&&Array.isArray(data.stores)?
+        data.stores.filter(UUID.test.bind(UUID)).slice(0,30):[];
+    }catch(_){return []}
+  }
+  function markRejectedStore(fingerprint,storeId){
+    if(!UUID.test(storeId))throw Error('Sede rechazada inválida');
+    const stores=[...new Set([...rejectedStores(fingerprint),storeId])].slice(0,30);
+    root.localStorage.setItem(SERIES_KEY,JSON.stringify({fingerprint,stores,createdAt:Date.now()}));
+    return stores;
+  }
+  // Pollos B3 mobile owns agent-text decisions and how the order proceeds.
+  // Use complete, exact approval/rejection words; never infer from INBOUND text.
+  function interpretAgentDecision(agentMessages) {
+    for(const message of agentMessages) {
+      const text=message.text.trim().toLocaleLowerCase('es-PE').replace(/[.!]+$/,'').trim();
+      if(['acepto','aceptado','aceptada'].includes(text))
+        return {decision:'ACCEPTED',agentMessageId:message.id};
+      if(['rechazado','rechazada'].includes(text))
+        return {decision:'REJECTED',agentMessageId:message.id};
+    }
+    return {decision:null,agentMessageId:null};
+  }
+  async function pollInteraction(entry){
+    if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey))
+      throw Error('No existe interacción para consultar.');
+    const response=await nativeRequest({operation:'INTERACTION_STATUS',
+      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
+      appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200)
+      throw responseError(response,'No se pudo consultar la decisión del asesor');
+    const data=response.data||{};
+    if(data.interactionId!==entry.interactionId||data.storeId!==entry.body.storeId||
+       !['PENDING','ACCEPTED','REJECTED','EXPIRED','CANCELLED'].includes(data.status)||
+       !Array.isArray(data.agentMessages)||data.agentMessages.length>100||
+       data.agentMessages.some(m=>!m||!UUID.test(m.id)||typeof m.text!=='string'||
+         m.text.length>8000||typeof m.createdAt!=='string'))
+      throw Error('La respuesta del asesor no coincide con esta interacción.');
+    // A formal TU VERSO status takes precedence over chat text, especially rejection/expiry.
+    let decision=null,agentMessageId=null;
+    if(data.status==='EXPIRED')entry.status='EXPIRED';
+    else if(data.status==='CANCELLED')entry.status='CANCELLED';
+    else if(data.status==='ACCEPTED'){entry.status='ACCEPTED';decision='ACCEPTED';}
+    else if(data.status==='REJECTED'){entry.status='REJECTED';decision='REJECTED';}
+    else {
+      const agent=interpretAgentDecision(data.agentMessages);
+      decision=agent.decision;agentMessageId=agent.agentMessageId;
+      if(decision==='ACCEPTED')entry.status='ACCEPTED';
+      else if(decision==='REJECTED')entry.status='REJECTED';
+      else entry.status='PENDING';
+    }
+    persistInteraction(entry);
+    return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
+      decision,agentMessageId,clientStatus:entry.status};
+  }
+  async function cancelInteraction(entry){
+    if(!entry||!UUID.test(entry.idempotencyKey))throw Error('No hay solicitud que cancelar.');
+    if(entry.status==='CANCELLED')return {status:'CANCELLED'};
+    if(!UUID.test(entry.interactionId)){
+      entry.status='CANCELLED';persistInteraction(entry);return {status:'CANCELLED'};
+    }
+    const response=await nativeRequest({operation:'INTERACTION_CANCEL',interactionId:entry.interactionId,
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200||response.data?.status!=='CANCELLED')
+      throw responseError(response,'No se pudo notificar la cancelación de la solicitud');
+    entry.status='CANCELLED';persistInteraction(entry);
+    return response.data;
   }
   function eraseLocalIdentity() {
     clear();
     root.localStorage.removeItem(CUSTOMER_KEY);
     root.localStorage.removeItem(INTERACTION_KEY);
+    root.localStorage.removeItem(SERIES_KEY);
   }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
-    checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,readInteraction,eraseLocalIdentity});
+    checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
+    pollInteraction,cancelInteraction,rejectedStores,markRejectedStore,eraseLocalIdentity});
 })(window);

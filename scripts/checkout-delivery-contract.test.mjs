@@ -111,6 +111,7 @@ test('dirección abre disponibilidad y siempre solicita cotización al backend',
   fetchConfig:async()=>{events.push('GET')},
   requestBackendOrderAvailability:async()=>{events.push('API');st.store='nogales';st.quote={deliveryFeePen:2.5,serverValidated:true};context.deliveryAvailability={status:'READY'};return true;}
  };
+ context.deliveryContactReady=()=>true;
  vm.runInNewContext(extract('resolveDelivery'),context);
  assert.equal(await context.resolveDelivery(),true);
  assert.deepEqual(events,['availability','GET','API']);
@@ -125,6 +126,7 @@ test('sin cobertura del servidor conserva dirección y bloquea checkout',async()
   deliveryLocation:null,render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
   fetchConfig:async()=>{},requestBackendOrderAvailability:async()=>{throw Error('Fuera del radio de cobertura')}
  };
+ context.deliveryContactReady=()=>true;
  vm.runInNewContext(extract('resolveDelivery'),context);
  assert.equal(await context.resolveDelivery(),false);
  assert.deepEqual(events,['availability']);

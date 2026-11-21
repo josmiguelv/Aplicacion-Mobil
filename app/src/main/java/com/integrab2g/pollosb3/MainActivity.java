@@ -366,6 +366,7 @@ public class MainActivity extends Activity {
                     String body = null;
                     String token = null;
                     String key = null;
+                    String accessKey = null;
                     if ("POST".equals(operation)) {
                         key = request.optString("idempotencyKey", "");
                         JSONObject payload = request.optJSONObject("body");
@@ -401,12 +402,48 @@ public class MainActivity extends Activity {
                             !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
                             !payload.optString("appId", "").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
                             !payload.optString("storeId", "").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
-                            payload.optInt("quoteRevision", 0) < 1 ||
+                            payload.optInt("catalogRevision", payload.optInt("quoteRevision", 0)) < 1 ||
                             payload.optJSONArray("items") == null ||
                             payload.optString("customerExternalId", "").isEmpty())
                             throw new IllegalArgumentException("Invalid interaction request");
                         body = payload.toString();
                         path = "/api/v1/mobile/interactions";
+                    } else if ("INTERACTION_MESSAGE".equals(operation)) {
+                        JSONObject payload = request.optJSONObject("body");
+                        String interactionId = request.optString("interactionId", "");
+                        accessKey = request.optString("accessKey", "");
+                        if (payload == null ||
+                            !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !payload.optString("appId", "").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                            !payload.optString("storeId", "").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            payload.optInt("catalogRevision", payload.optInt("quoteRevision", 0)) < 1 ||
+                            payload.optJSONArray("items") == null || payload.optJSONObject("customer") == null)
+                            throw new IllegalArgumentException("Invalid interaction message request");
+                        body = payload.toString();
+                        path = "/api/v1/mobile/interactions/" + interactionId + "/message";
+                    } else if ("INTERACTION_STATUS".equals(operation) ||
+                               "INTERACTION_CANCEL".equals(operation)) {
+                        String appId = request.optString("appId", "");
+                        String storeId = request.optString("storeId", "");
+                        String interactionId = request.optString("interactionId", "");
+                        accessKey = request.optString("accessKey", "");
+                        if (!appId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                            !storeId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid interaction tracking");
+                        path = "/api/v1/mobile/interactions/" + interactionId;
+                        if ("INTERACTION_STATUS".equals(operation)) {
+                            path += "/status?appId=" + java.net.URLEncoder.encode(appId, "UTF-8") +
+                                "&storeId=" + java.net.URLEncoder.encode(storeId, "UTF-8");
+                        } else {
+                            path += "/cancel";
+                            JSONObject cancellation = new JSONObject();
+                            cancellation.put("appId", appId);
+                            cancellation.put("storeId", storeId);
+                            body = cancellation.toString();
+                        }
                     } else if ("GET".equals(operation)) {
                         String id = request.optString("validationId", "");
                         token = request.optString("validationToken", "");
@@ -432,13 +469,17 @@ public class MainActivity extends Activity {
                     try {
                         connection.setInstanceFollowRedirects(false);
                         connection.setConnectTimeout(12000);
-                        connection.setReadTimeout(15000);
+                        // Message relay validates the remote interaction first, then sends text.
+                        // This timeout covers only transport, never waiting for an agent.
+                        connection.setReadTimeout("INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
-                            "AGENT_AVAILABILITY".equals(operation) ? "GET" :
-                            "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ? "POST" : operation;
+                            "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ? "GET" :
+                            "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
+                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
+                        if (accessKey != null) connection.setRequestProperty("X-Order-Access-Key", accessKey);
                         if ("POST".equals(httpMethod)) {
                             connection.setRequestProperty("Content-Type", "application/json");
                             if (key != null) connection.setRequestProperty("Idempotency-Key", key);
