@@ -408,6 +408,20 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid interaction request");
                         body = payload.toString();
                         path = "/api/v1/mobile/interactions";
+                    } else if ("INTERACTION_MESSAGE".equals(operation)) {
+                        JSONObject payload = request.optJSONObject("body");
+                        String interactionId = request.optString("interactionId", "");
+                        accessKey = request.optString("accessKey", "");
+                        if (payload == null ||
+                            !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !payload.optString("appId", "").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                            !payload.optString("storeId", "").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            payload.optInt("catalogRevision", payload.optInt("quoteRevision", 0)) < 1 ||
+                            payload.optJSONArray("items") == null || payload.optJSONObject("customer") == null)
+                            throw new IllegalArgumentException("Invalid interaction message request");
+                        body = payload.toString();
+                        path = "/api/v1/mobile/interactions/" + interactionId + "/message";
                     } else if ("INTERACTION_STATUS".equals(operation) ||
                                "INTERACTION_CANCEL".equals(operation)) {
                         String appId = request.optString("appId", "");
@@ -459,7 +473,7 @@ public class MainActivity extends Activity {
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
                             "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
-                            "INTERACTION_CANCEL".equals(operation) ? "POST" : operation;
+                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
