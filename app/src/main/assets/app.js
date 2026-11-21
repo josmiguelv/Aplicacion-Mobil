@@ -521,7 +521,7 @@ function scheduleAgentDecisionPoll(delay=3200){
  stopAgentDecisionPoll();
  if(st.stage!=='availability'||agentDecisionPolling)return;
  const entry=window.B3OrderAvailability?.readInteraction?.();
- if(entry?.status!=='PENDING'||!entry.interactionId)return;
+ if(!['PENDING','ACCEPTED'].includes(entry?.status)||!entry.interactionId)return;
  agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},delay);
 }
 async function completeAcceptedQuote(entry){
@@ -596,7 +596,7 @@ async function pollAgentDecision(){
   render();
  }catch(error){
   const latest=api?.readInteraction?.();
-  const pending=latest?.status==='PENDING';
+  const pending=['PENDING','ACCEPTED'].includes(latest?.status);
   const sending=pending&&latest.body?.customer&&latest.messageDelivered!==true;
   retryMs=8000;
   deliveryAvailability={status:sending?'CREATE_UNCERTAIN':pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
@@ -606,7 +606,7 @@ async function pollAgentDecision(){
   render();
  }finally{
   agentDecisionPolling=false;
-  if(st.stage==='availability'&&api?.readInteraction?.()?.status==='PENDING'&&
+  if(st.stage==='availability'&&['PENDING','ACCEPTED'].includes(api?.readInteraction?.()?.status)&&
      ['WAITING_APPROVAL','CREATE_UNCERTAIN'].includes(deliveryAvailability.status))
    scheduleAgentDecisionPoll(retryMs);
  }
@@ -628,8 +628,9 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
    message:prior.messageDelivered===false?'La solicitud ya existe. Confirmando el texto al asesor.':
     'Esperando respuesta del local. Continuaremos automáticamente.'};
   st.store=prior.body.storeId;save();render();
-  if(prior.status==='ACCEPTED')await completeAcceptedQuote(prior);
-  else scheduleAgentDecisionPoll(1000);
+  // Even a persisted ACCEPTED can denote only automatic interaction assignment.
+  // Always re-read the actual agent reply before allowing checkout.
+  scheduleAgentDecisionPoll(1000);
   return false;
  }
  let loc=hasDeliveryDestination(address,district)?deliveryLocation:null;
