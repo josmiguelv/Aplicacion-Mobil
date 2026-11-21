@@ -235,7 +235,7 @@
     const fingerprint=JSON.stringify({...body,address:String(address||'').trim(),
       district:String(district||'').trim()});
     const prior=readInteraction();
-    if(prior?.fingerprint===fingerprint)return prior;
+    if(prior?.fingerprint===fingerprint&&!['REJECTED','CANCELLED','EXPIRED'].includes(prior.status))return prior;
     if(prior&&!['PREPARED','REJECTED','CANCELLED','EXPIRED'].includes(prior.status))
       throw Error('Ya existe una solicitud de atención iniciada. No enviaremos otro formulario mientras no se confirme su resolución.');
     return persistInteraction({fingerprint,body,idempotencyKey:uuid(),interactionId:null,
@@ -269,14 +269,14 @@
   function rejectedStores(fingerprint){
     try{
       const data=JSON.parse(root.localStorage.getItem(SERIES_KEY)||'null');
-      return data?.fingerprint===fingerprint&&Array.isArray(data.stores)?
+      return data?.fingerprint===fingerprint&&Number.isFinite(data.createdAt)&&Date.now()-data.createdAt<300000&&Array.isArray(data.stores)?
         data.stores.filter(UUID.test.bind(UUID)).slice(0,30):[];
     }catch(_){return []}
   }
   function markRejectedStore(fingerprint,storeId){
     if(!UUID.test(storeId))throw Error('Sede rechazada inválida');
     const stores=[...new Set([...rejectedStores(fingerprint),storeId])].slice(0,30);
-    root.localStorage.setItem(SERIES_KEY,JSON.stringify({fingerprint,stores}));
+    root.localStorage.setItem(SERIES_KEY,JSON.stringify({fingerprint,stores,createdAt:Date.now()}));
     return stores;
   }
   async function pollInteraction(entry){
