@@ -486,6 +486,18 @@ let agentDecisionTimer=null,agentDecisionPolling=false;
 function currentCartSignature(){
  return JSON.stringify(publishedOrderItems().slice().sort((a,b)=>a.productId.localeCompare(b.productId)));
 }
+function deliveryContactReady(){
+ const p=st.profile||{};
+ return typeof p.first==='string'&&p.first.trim().length>=2&&p.first.trim().length<=60&&
+  typeof p.last==='string'&&p.last.trim().length>=2&&p.last.trim().length<=60&&
+  typeof p.phone==='string'&&/^9[0-9]{8}$/.test(p.phone);
+}
+function deliveryRequestCustomer(address,district){
+ if(!deliveryContactReady())throw Error('Completa nombres, apellidos y celular antes de enviar el pedido.');
+ return {firstName:st.profile.first.trim(),lastName:st.profile.last.trim(),phone:st.profile.phone,
+  address:String(address||'').trim(),district:String(district||'').trim(),
+  reference:String(st.profile.reference||'').trim(),mode:'delivery'};
+}
 function requestSeriesKey(address,district){
  return JSON.stringify({appId:APP_ID,revision:publishedRevision,items:currentCartSignature(),
   address:String(address).trim(),district:String(district).trim()});
@@ -494,8 +506,11 @@ function interactionMatchesCart(entry,address,district){
  if(!entry?.body)return false;
  try{
   const old=JSON.parse(entry.fingerprint);
+  const oldCustomer=entry.body.customer;
+  const currentCustomer=deliveryContactReady()?deliveryRequestCustomer(address,district):null;
   return old.address===address&&old.district===district&&
-   JSON.stringify(entry.body.items)===currentCartSignature();
+   JSON.stringify(entry.body.items)===currentCartSignature()&&
+   (!oldCustomer||JSON.stringify(oldCustomer)===JSON.stringify(currentCustomer));
  }catch(_){return false}
 }
 function stopAgentDecisionPoll(){
@@ -634,7 +649,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  }
  st.store=selected.id;st.quote=null;save();
  const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,catalogRevision:publishedRevision,
-  items:publishedOrderItems(),address,district});
+  items:publishedOrderItems(),address,district,customer:deliveryRequestCustomer(address,district)});
  deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
   message:'Enviando la solicitud. Continuaremos automáticamente cuando el local responda.'};
  render();
@@ -692,6 +707,11 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
  if(address.length<6||district.length<2){
   deliveryRequestError='Ingresa una dirección completa y un distrito para verificar la cobertura.';
   if(!silent)screen('deliveryAddress');else render();return false;
+ }
+ if(!deliveryContactReady()){
+  checkoutPending=true;
+  deliveryRequestError='';
+  screen('identity');return false;
  }
  deliveryRequestPending=true;deliveryRequestError='';deliveryHealthMessage='';st.quote=null;st.store='';
  deliveryAvailability={status:'CHECKING',storeName:'',candidateNames:[],message:''};
@@ -1231,7 +1251,7 @@ function availability(){
   <p class="smallprint">Se puede enviar una interacción de atención a TU VERSO. No se crea un pedido definitivo ni se realizan cobros; PENDING no significa aprobación.</p>
  </div>`;
 }
-function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
+function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" maxlength="60" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" maxlength="60" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
 function phone(){return `<div class="page form">${heading('Tu teléfono','identity')}<p class="sub">Lo usaremos para identificar tu pedido. En esta demo no enviaremos mensajes ni códigos.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(st.profile.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`}
 function prepaymentReview(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
@@ -1637,7 +1657,8 @@ function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchst
 root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-retry],[data-availability-continue],[data-availability-retry],[data-availability-health],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['PENDING','ACCEPTED'].includes(liveRequest?.status)&&
-   (b.hasAttribute('data-address-next')||b.hasAttribute('data-modal-save-delivery')||
+   (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
+    b.hasAttribute('data-address-next')||b.hasAttribute('data-modal-save-delivery')||
     b.hasAttribute('data-modal-mode')||b.hasAttribute('data-mode'))){
  toast('Primero debes cancelar la solicitud actual para cambiar la dirección o modalidad.');
  screen(liveRequest.status==='ACCEPTED'?'prepaymentReview':'availability');
@@ -1803,8 +1824,13 @@ if(b.hasAttribute('data-availability-continue')){
 if(b.hasAttribute('data-availability-retry')){if(!deliveryRequestPending)void resolveDelivery();return}
 if(b.hasAttribute('data-availability-health')){void checkDeliveryBackendHealth();return}
 if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.mode='delivery';invalidateDeliverySelection();maybeSaveDeliveryAddress();save();void resolveDelivery();return}
-if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2)return toast('Ingresa tus nombres y apellidos');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
-if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();void revalidateCheckout('payment');return}
+if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2||v('first').length>60||v('last').length>60)return toast('Ingresa nombres y apellidos de hasta 60 caracteres');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
+if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();
+ if(st.mode==='delivery'){
+  if(!st.profile.address||!st.profile.district){screen('deliveryAddress');return}
+  void resolveDelivery();return
+ }
+ void revalidateCheckout('payment');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
 if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
 if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
