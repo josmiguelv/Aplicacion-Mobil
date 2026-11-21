@@ -462,83 +462,180 @@ function applyBackendQuote(result,entry,address,district){
    validationId:entry.validationId,quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  deliveryAvailability={status:'READY',storeName:st.quote.storeName,candidateNames:[],message:''};save();
 }
+let agentDecisionTimer=null,agentDecisionPolling=false;
+function currentCartSignature(){
+ return JSON.stringify(publishedOrderItems().slice().sort((a,b)=>a.productId.localeCompare(b.productId)));
+}
+function requestSeriesKey(address,district){
+ return JSON.stringify({appId:APP_ID,revision:publishedRevision,items:currentCartSignature(),
+  address:String(address).trim(),district:String(district).trim()});
+}
+function interactionMatchesCart(entry,address,district){
+ if(!entry?.body)return false;
+ try{
+  const old=JSON.parse(entry.fingerprint);
+  return old.address===address&&old.district===district&&
+   JSON.stringify(entry.body.items)===currentCartSignature();
+ }catch(_){return false}
+}
+function stopAgentDecisionPoll(){
+ if(agentDecisionTimer!==null)clearTimeout(agentDecisionTimer);
+ agentDecisionTimer=null;
+}
+function scheduleAgentDecisionPoll(delay=3200){
+ stopAgentDecisionPoll();
+ if(st.stage!=='availability'||agentDecisionPolling)return;
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(entry?.status!=='PENDING'||!entry.interactionId)return;
+ agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},delay);
+}
+async function completeAcceptedQuote(entry){
+ const api=window.B3OrderAvailability;
+ const address=st.profile.address,district=st.profile.district;
+ if(!interactionMatchesCart(entry,address,district))
+  throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
+ if(entry.status!=='ACCEPTED')throw Error('Todavía no existe una aceptación válida del agente.');
+ const selected=shops.find(s=>s.id===entry.body.storeId);
+ if(!selected)throw Error('La sede que aceptó ya no aparece en el catálogo publicado.');
+ deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
+  message:'Solicitud aceptada. Calculando delivery desde '+selected.name+'.'};
+ render();
+ const quote=await api.quoteDelivery({appId:APP_ID,storeId:selected.id,address,district,
+  latitude:deliveryLocation?.latitude,longitude:deliveryLocation?.longitude,
+  useGps:deliveryLocation?.source==='gps'});
+ if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
+ if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
+ if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
+ const fee=Number(quote.deliveryFeePen);
+ if(!Number.isFinite(fee)||fee<0)throw Error('No se pudo determinar el costo del delivery.');
+ st.store=selected.id;
+ st.quote={storeId:selected.id,storeName:selected.name,deliveryFeePen:fee,
+  paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
+  routeDistanceKm:Number.isFinite(Number(quote.routeDistanceKm))?Number(quote.routeDistanceKm):null,
+  distanceSource:'SERVER_ROUTE',quoteOrigin:'ADMIN_API_ACCEPTED',serverValidated:false,
+  provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
+  quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
+ st.pay='';save();screen('prepaymentReview');
+ return true;
+}
+async function pollAgentDecision(){
+ const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
+ if(agentDecisionPolling||st.stage!=='availability'||!entry?.interactionId||
+    !['PENDING','ACCEPTED'].includes(entry.status))return;
+ agentDecisionPolling=true;
+ try{
+  if(entry.status==='ACCEPTED'){await completeAcceptedQuote(entry);return}
+  const result=await api.pollInteraction(entry);
+  if(st.stage!=='availability')return;
+  const store=shops.find(s=>s.id===entry.body.storeId);
+  if(result.decision==='ACCEPTED'){
+   await completeAcceptedQuote(api.readInteraction());return;
+  }
+  if(result.decision==='REJECTED'){
+   api.markRejectedStore(requestSeriesKey(st.profile.address,st.profile.district),entry.body.storeId);
+   deliveryAvailability={status:'CHECKING_STORES',storeName:store?.name||'',candidateNames:[],
+    message:'La sede no pudo atender el pedido. Consultamos el siguiente local disponible.'};
+   render();
+   const run=++deliveryValidationGeneration;
+   await requestBackendOrderAvailability({address:st.profile.address,district:st.profile.district,
+    run,silent:false});
+   return;
+  }
+  if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
+   deliveryAvailability={status:'ERROR',storeName:store?.name||'',candidateNames:[],
+    message:'La solicitud dejó de estar vigente. No se continuará al pago.'};
+   render();return;
+  }
+  deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'',candidateNames:[],
+   message:'Esperando confirmación del local. Continuaremos automáticamente cuando responda.'};
+  render();
+ }catch(error){
+  deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
+   message:error.message||'No se pudo actualizar el estado del pedido. Reintenta sin crear una nueva solicitud.'};
+  render();
+ }finally{
+  agentDecisionPolling=false;
+  if(st.stage==='availability'&&api?.readInteraction?.()?.status==='PENDING'&&
+     deliveryAvailability.status==='WAITING_APPROVAL')scheduleAgentDecisionPoll();
+ }
+}
 async function requestBackendOrderAvailability({address,district,run,silent}){
  const api=window.B3OrderAvailability;
- if(!api?.checkAgentAvailability||!api?.quoteDelivery||!api?.createInteraction)
-  throw Error('Actualiza Android para usar las APIs independientes de TU VERSO.');
- const existing=api.readInteraction?.();
- // A created interaction cannot be read or cancelled from this mobile API version.
- // Never duplicate an existing pending advisor request.
- if(existing?.status==='PENDING'){
-  const store=shops.find(s=>s.id===existing.body?.storeId);
-  deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'Sede seleccionada',
-   candidateNames:[],message:'Ya se envió una interacción a TU VERSO y sigue pendiente de confirmación. La API móvil aún no permite leer la respuesta del asesor; no enviaremos otra.'};
-  return false;
- }
+ if(!api?.checkAgentAvailability||!api?.quoteDelivery||!api?.createInteraction||
+    !api?.pollInteraction)throw Error('Actualiza Android para usar el seguimiento de TU VERSO.');
  const active=()=>run===deliveryValidationGeneration&&st.mode==='delivery'&&
   st.profile.address===address&&st.profile.district===district&&(silent||st.stage==='availability');
+ const prior=api.readInteraction?.();
+ if(prior&&['PENDING','ACCEPTED'].includes(prior.status)){
+  if(!interactionMatchesCart(prior,address,district))
+   throw Error('Existe una solicitud anterior con productos diferentes. Cancélala antes de empezar otra.');
+  const store=shops.find(s=>s.id===prior.body.storeId);
+  deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'Sede seleccionada',
+   candidateNames:[],message:'Esperando respuesta del local. Continuaremos automáticamente.'};
+  st.store=prior.body.storeId;save();render();
+  if(prior.status==='ACCEPTED')await completeAcceptedQuote(prior);
+  else scheduleAgentDecisionPoll(1000);
+  return false;
+ }
  let loc=hasDeliveryDestination(address,district)?deliveryLocation:null;
  if(!loc){
   loc=await geocodeDeliveryDestination(address,district);
   if(!active())return false;
   deliveryLocation={...loc,key:deliveryAddressKey(address,district)};
  }
- const candidates=eligibleDeliveryCandidates(loc),items=publishedOrderItems();
- // A disabled store must not block checking the next configured candidate.
- const consultable=candidates.filter(({store})=>storeAvailabilitySetting(store)===true);
- if(!consultable.length)
-  throw Error('Ninguna sede elegible tiene publicada la opción Consultar disponibilidad del pedido.');
+ const candidates=eligibleDeliveryCandidates(loc);
+ const tried=new Set(api.rejectedStores(requestSeriesKey(address,district)));
+ const consultable=candidates.filter(({store})=>storeAvailabilitySetting(store)===true&&!tried.has(store.id));
+ if(!consultable.length){
+  deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
+   message:'Por ahora no tenemos locales disponibles para realizar tu delivery. Inténtalo más tarde.'};
+  render();return false;
+ }
  let selected=null;
  for(const {store} of consultable){
   if(!active())return false;
   deliveryAvailability={status:'CHECKING_STORES',storeName:store.name,candidateNames:[],
-   message:'Consultando agentes disponibles de '+store.name+' en TU VERSO.'};
-  if(!silent)render();
+   message:'Consultando atención en '+store.name+'.'};
+  render();
   const check=await api.checkAgentAvailability({appId:APP_ID,storeId:store.id});
   if(!active())return false;
-  if(check.available){selected=store;break;}
+  if(check.available){selected=store;break}
  }
  if(!selected){
   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
-   message:'No hay agentes con capacidad disponible en las sedes elegibles.'};
-  return false;
+   message:'Por ahora no tenemos locales disponibles para realizar tu delivery. Inténtalo más tarde.'};
+  render();return false;
  }
- deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
-  message:'Consultando tarifa de reparto para '+selected.name+'.'};
- if(!silent)render();
- const quote=await api.quoteDelivery({appId:APP_ID,address,district,
-  latitude:loc.latitude,longitude:loc.longitude,useGps:loc.source==='gps'});
- if(!active())return false;
- // The existing delivery resolver may return another store; never cross-route an interaction.
- if(quote.storeId!==selected.id)
-  throw Error('El Administrador cotizó una sede diferente de '+selected.name+'. Por seguridad no se creó ninguna interacción; necesitamos una cotización para la sede seleccionada.');
- if(publishedRevision!==quote.revision)
-  throw Error('El catálogo cambió. Actualiza la carta antes de solicitar atención.');
- const fee=Number(quote.deliveryFeePen),dist=quote.routeDistanceKm==null?null:Number(quote.routeDistanceKm);
- if(!Number.isFinite(fee)||fee<0||!Array.isArray(quote.paymentMethods))
-  throw Error('La cotización del Administrador está incompleta.');
- st.store=selected.id;
- st.quote={storeId:selected.id,storeName:selected.name,deliveryFeePen:fee,
-  estimatedSubtotalPen:subtotal(),estimatedTotalPen:Math.round((subtotal()+fee)*100)/100,
-  paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
-  routeDistanceKm:Number.isFinite(dist)&&dist>=0?dist:null,
-  distanceSource:'SERVER_ROUTE',quoteOrigin:'ADMIN_API_PRE_APPROVAL',
-  serverValidated:false,provisional:true,quoteRevision:quote.revision,
-  quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
- save();
- const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,quoteRevision:quote.revision,
-  items,address,district});
- if(!active())return false;
+ st.store=selected.id;st.quote=null;save();
+ const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,catalogRevision:publishedRevision,
+  items:publishedOrderItems(),address,district});
  deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
-  message:'Creando interacción con TU VERSO. Esto no confirma el pedido.'};
- if(!silent)render();
+  message:'Enviando la solicitud. Continuaremos automáticamente cuando el local responda.'};
+ render();
  const response=await api.createInteraction(entry);
  if(!active())return false;
- if(response.status!=='PENDING')throw Error('TU VERSO no confirmó la solicitud pendiente.');
+ if(response.status!=='PENDING')throw Error('No se confirmó la solicitud pendiente.');
  deliveryAvailability={status:'WAITING_APPROVAL',storeName:selected.name,candidateNames:[],
-  message:'Se creó la interacción de TU VERSO y está pendiente de decisión. Esto no confirma ni cobra el pedido. Falta una API pública para recuperar la respuesta del asesor.'};
- save();
- return false; // No decision endpoint, never unlock checkout on PENDING.
+  message:'Esperando confirmación de '+selected.name+'. No necesitas pulsar ningún botón.'};
+ save();render();scheduleAgentDecisionPoll(1000);
+ return false;
+}
+async function cancelApprovedForCartChange(){
+ const api=window.B3OrderAvailability;
+ const entry=api?.readInteraction?.();
+ if(!entry||!['PENDING','ACCEPTED'].includes(entry.status)){nav('carta');return}
+ if(!window.confirm('Al agregar o cambiar productos, se cancelará la aprobación actual y consultaremos nuevamente a los locales. ¿Continuar?'))return;
+ checkoutReviewNote='Notificando al local la cancelación de esta solicitud...';
+ render();
+ try{
+  await api.cancelInteraction(entry);
+  stopAgentDecisionPoll();
+  ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
+  clearDeliveryAvailability();checkoutReviewNote='';save();nav('carta');
+ }catch(error){
+  checkoutReviewNote=error.message||'No se pudo notificar la cancelación. Intenta nuevamente.';
+  render();
+ }
 }
 async function checkDeliveryBackendHealth(){
  if(deliveryHealthPending)return;
