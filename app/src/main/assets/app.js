@@ -1,4 +1,4 @@
-/* POLLOS B3 — V10 responsive. Prototipo offline: precios y productos referenciales, sin cobros reales. */
+/* POLLOS B3 — V12 checkout piloto: interfaz y seguimiento local de pedidos, sin cobros reales. */
 (()=>{'use strict';
 const K='b3-v6-demo-20261110', root=document.getElementById('app');
 const demoProducts=[
@@ -53,6 +53,7 @@ let checkoutPending=false; // only when the client has explicitly chosen to cont
 let checkoutRefreshPending=false,checkoutReviewNote=''; // fresh availability at each checkout gate
 let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
 let deliveryAvailability={status:'IDLE',storeName:'',candidateNames:[],message:''};
+let deliveryValidationStep='INICIO'; // Diagnostic only; never advances interaction or decides acceptance.
 let deliveryValidationGeneration=0; // not persisted or treated as an agent decision
 let deliveryHealthPending=false,deliveryHealthMessage=''; // transient read-only backend diagnostic
 let deliveryGpsRequested=false,deliveryLocation=null,deliveryGeocodeTask=null,deliveryGeocodeSequence=0;
@@ -310,9 +311,9 @@ async function fetchConfig({strict=false}={}){
   let r;
   try{r=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store',...(controller?{signal:controller.signal}:{})})}
   finally{if(timeout)clearTimeout(timeout)}
-  if(!r.ok)throw Error('API unavailable');
+  if(!r.ok)throw Error('El Administrador respondió HTTP '+r.status+' al consultar el catálogo.');
   const c=await r.json();
-  if(!c.ready||!Array.isArray(c.stores))throw Error('Stores not published');
+  if(!c.ready||!Array.isArray(c.stores))throw Error('El Administrador no tiene catálogo publicado para esta aplicación.');
   // Locales: solo los publicados por el administrador.
   const revisionChanged=st.configReady&&publishedRevision!==c.revision;
   publishedRevision=c.revision;
@@ -323,16 +324,24 @@ async function fetchConfig({strict=false}={}){
   storeGeocoding=false;
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
-  if(revisionChanged){deliveryValidationGeneration++;window.B3OrderAvailability?.clear();st.quote=null;st.store='';clearDeliveryAvailability()}
-  if(st.store&&!shops.some(x=>String(x.id)===String(st.store))){deliveryValidationGeneration++;window.B3OrderAvailability?.clear();st.quote=null;st.store='';clearDeliveryAvailability()}
+  if(revisionChanged&&!['SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)){
+   deliveryValidationGeneration++;window.B3OrderAvailability?.clear();st.quote=null;st.store='';clearDeliveryAvailability();
+  }
+  if(st.store&&!shops.some(x=>String(x.id)===String(st.store))&&
+     !['SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)){
+   deliveryValidationGeneration++;window.B3OrderAvailability?.clear();st.quote=null;st.store='';clearDeliveryAvailability();
+  }
   catalogRequestFinished=true;
   save();if(st.stage!=='splash')render();return true;
  }catch(err){
-  if(strict)throw Error('No se pudo actualizar la disponibilidad de locales. Intenta nuevamente.');
-  shops.splice(0,shops.length);
-  st.configReady=false;
-  st.quote=null;st.store='';clearDeliveryAvailability();
-  products.splice(0,products.length,...demoProducts);
+  if(strict)throw Error('No se pudo actualizar la disponibilidad de locales: '+String(err?.message||'sin respuesta')+'.');
+  const ongoing=['SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status);
+  if(!ongoing){
+   shops.splice(0,shops.length);st.configReady=false;st.quote=null;st.store='';
+   clearDeliveryAvailability();products.splice(0,products.length,...demoProducts);
+  }
+  // An internet/catalog interruption must not erase a previously submitted order,
+  // its stable idempotency key or a confirmed agent decision.
   catalogRequestFinished=true;
   console.warn('Mobile configuration unavailable',err.message);
   if(st.stage!=='splash')render();return false;
@@ -667,6 +676,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   throw Error('Actualiza Android para utilizar el envío independiente del mensaje.');
  const active=()=>run===deliveryValidationGeneration&&st.mode==='delivery'&&
   st.profile.address===address&&st.profile.district===district&&(silent||st.stage==='availability');
+ deliveryValidationStep='RECUPERANDO_SOLICITUD';
  const prior=api.readInteraction?.();
  if(prior&&['PENDING','ACCEPTED','SUBMITTING'].includes(prior.status)){
   if(!interactionMatchesCart(prior,address,district))
@@ -682,12 +692,14 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   scheduleAgentDecisionPoll(1000);
   return false;
  }
+ deliveryValidationStep='UBICACION';
  let loc=hasDeliveryDestination(address,district)?deliveryLocation:null;
  if(!loc){
   loc=await geocodeDeliveryDestination(address,district);
   if(!active())return false;
   deliveryLocation={...loc,key:deliveryAddressKey(address,district)};
  }
+ deliveryValidationStep='COBERTURA_Y_HORARIO';
  const candidates=eligibleDeliveryCandidates(loc);
  const tried=new Set(api.rejectedStores(requestSeriesKey(address,district)));
  const consultable=candidates.filter(({store})=>storeAvailabilitySetting(store)===true&&!tried.has(store.id));
@@ -702,6 +714,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   deliveryAvailability={status:'CHECKING_STORES',storeName:store.name,candidateNames:[],
    message:'Consultando atención en '+store.name+'.'};
   render();
+  deliveryValidationStep='DISPONIBILIDAD_AGENTE';
   const check=await api.checkAgentAvailability({appId:APP_ID,storeId:store.id});
   if(!active())return false;
   if(check.available){selected=store;break}
@@ -712,12 +725,14 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   render();return false;
  }
  st.store=selected.id;st.quote=null;save();
+ deliveryValidationStep='PREPARANDO_INTERACCION';
  const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,catalogRevision:publishedRevision,
   items:publishedOrderItems(),address,district,customer:deliveryRequestCustomer(address,district)});
  deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
   message:'Enviando la solicitud. Continuaremos automáticamente cuando el local responda.'};
  render();
  let response;
+ deliveryValidationStep='CREANDO_INTERACCION';
  try{response=await api.createInteraction(entry)}
  catch(error){
   // A 503 or lost HTTP acknowledgement cannot prove the conversation was not created.
@@ -737,6 +752,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   message:'Solicitud creada. Enviando detalle al asesor de '+selected.name+'.'};
  save();render();
  if(entry.body?.customer&&entry.messageDelivered!==true){
+  deliveryValidationStep='ENTREGANDO_DETALLE';
   try{await api.sendInteractionMessage(entry)}
   catch(_){
    // No new interaction is created. The same message is retried idempotently.
@@ -746,6 +762,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   }
  }
  if(!active())return false;
+ deliveryValidationStep='ESPERANDO_RESPUESTA';
  deliveryAvailability={status:'WAITING_APPROVAL',storeName:selected.name,candidateNames:[],
   message:'Esperando confirmación de '+selected.name+'. No necesitas pulsar ningún botón.'};
  save();render();scheduleAgentDecisionPoll(1000);
@@ -838,7 +855,9 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
  }catch(error){
   if(run!==deliveryValidationGeneration)return false;
   st.quote=null;st.store='';
-  deliveryRequestError=error?.message||'No se pudo verificar la disponibilidad.';
+  const stage=deliveryValidationStep;
+  deliveryRequestError=(error?.message||'No se pudo verificar la disponibilidad.')+
+   ' · Etapa: '+stage+'.';
   deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],message:deliveryRequestError};
   save();if(silent)screen('availability');return false;
  }finally{
@@ -1368,7 +1387,7 @@ function availability(){
     <p>${esc(deliveryAvailability.message)}</p>
     ${names.length>1?'<small>Si esta sede rechaza el pedido, la integración consultará otra sede elegible.</small>':''}
    </div>`:''}
-  ${failed?`<div class="notice" role="alert">${esc(deliveryAvailability.message)}</div>`:''}
+  ${failed?`<div class="notice" role="alert">${esc(deliveryAvailability.message)}</div><p class="smallprint">Etapa registrada: ${esc(deliveryValidationStep)}. Si el error ocurre antes de CREANDO_INTERACCION, todavía no se solicitó una conversación a TU VERSO.</p>`:''}
   ${status==='ERROR'?`<button class="outline full" data-availability-health="1" ${deliveryHealthPending?'disabled':''}>${deliveryHealthPending?'Comprobando conexión…':'Verificar conexión con el servidor'}</button>`:''}
   ${deliveryHealthMessage?`<p class="smallprint" role="status">${esc(deliveryHealthMessage)}</p>`:''}
   ${waiting?`<div class="b3-checkout-motion" role="status" aria-label="Solicitud activa en validación"><div class="b3-checkout-orbit"><div class="b3-checkout-orbit-core">${ic('store',31)}</div><i class="b3-orbit-particle first"></i><i class="b3-orbit-particle second"></i></div><strong>Conectados con la sede</strong><span>La solicitud sigue activa. Puedes continuar usando la aplicación mientras la sede responde.</span><div class="b3-checkout-motion-steps"><b>Enviada</b><b>En validación</b><b>Respuesta</b></div></div>`:''}
@@ -1457,7 +1476,7 @@ function success(){let o=st.orders[0];return `<div class="success"><div class="s
 function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3','app')}<div class="chat-info">${ic('chat')}<span>Chat exclusivo para pedidos pagados</span></div><div class="chat-messages"><div class="message agent">El chat estará disponible cuando tu pedido tenga un pago confirmado y la atención siga abierta. Durante la compra no es necesario enviar mensajes.</div></div><form id="chat-form" class="chat-compose"><input id="chat-message" placeholder="Mensajes deshabilitados hasta confirmar el pago" aria-label="Mensajes deshabilitados" disabled><button type="submit" disabled aria-label="Enviar mensaje deshabilitado">${ic('chev')}</button></form></div>`}
 function about(){return `<div class="page about b3-about-new">${heading('Sobre la app','app')}
  <div class="about-copy"><h2>Pollos B3</h2><p>La aplicación móvil para conocer la carta, consultar locales y preparar pedidos de Delivery o recojo.</p>
- <div class="b3-about-facts"><div><strong>Aplicación</strong><span>Pollos B3 · Android</span></div><div><strong>Versión</strong><span>1.0.0 (piloto)</span></div><div><strong>Estado</strong><span>Pedidos y pagos reales aún no habilitados</span></div></div>
+ <div class="b3-about-facts"><div><strong>Aplicación</strong><span>Pollos B3 · Android</span></div><div><strong>Versión</strong><span>1.2.0 (piloto · validación B3)</span></div><div><strong>API del administrador</strong><span>${esc(API_BASE?new URL(API_BASE).hostname:'No configurada')}</span></div><div><strong>Estado</strong><span>Pedidos y pagos reales aún no habilitados</span></div></div>
  <p class="b3-about-owner">Pollos B3 · Todos los derechos reservados.</p></div>
  <div class="b3-about-credit"><p>Desarrollo tecnológico</p><img src="images/integra-b2g-new.webp" alt="INTEGRA B2G" loading="lazy"><strong>INTEGRA B2G</strong><span>Soluciones tecnológicas para Pollos B3</span></div>
  </div>`}
