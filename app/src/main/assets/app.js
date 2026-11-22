@@ -813,6 +813,41 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  save();render();scheduleAgentDecisionPoll(1000);
  return false;
 }
+// Branded confirmation replaces WebView window.confirm (which exposes
+// appassets.androidplatform.net) and never changes route or resets checkout.
+let b3ConfirmDismiss=null;
+function confirmB3({title,description,confirmLabel='Confirmar',danger=false}){
+ if(b3ConfirmDismiss)return Promise.resolve(false);
+ return new Promise(resolve=>{
+  const active=document.activeElement;
+  const layer=document.createElement('div');
+  layer.className='b3-confirm-layer';
+  layer.innerHTML='<div class="b3-confirm-backdrop"></div>'+
+   '<section class="b3-confirm-card" role="dialog" aria-modal="true" aria-labelledby="b3-confirm-title" aria-describedby="b3-confirm-detail">'+
+    '<span class="b3-confirm-kicker">POLLOS B3 · TU PEDIDO</span>'+
+    '<div class="b3-confirm-icon">'+ic('info',24)+'</div>'+
+    '<h2 id="b3-confirm-title">'+esc(title)+'</h2>'+
+    '<p id="b3-confirm-detail">'+esc(description)+'</p>'+
+    '<button type="button" class="b3-confirm-accept '+(danger?'danger':'')+'" data-b3-confirm="yes">'+esc(confirmLabel)+'</button>'+
+    '<button type="button" class="b3-confirm-decline" data-b3-confirm="no">Continuar con mi pedido</button>'+
+   '</section>';
+  const close=accepted=>{
+   if(b3ConfirmDismiss!==dismiss)return;
+   b3ConfirmDismiss=null;
+   layer.remove();resolve(accepted);
+   if(active?.isConnected)active.focus({preventScroll:true});
+  };
+  const dismiss=()=>close(false);
+  b3ConfirmDismiss=dismiss;
+  layer.addEventListener('click',event=>{
+   const action=event.target.closest('[data-b3-confirm]');
+   if(!action)return;
+   close(action.getAttribute('data-b3-confirm')==='yes');
+  });
+  document.body.appendChild(layer);
+  layer.querySelector('[data-b3-confirm="no"]')?.focus({preventScroll:true});
+ });
+}
 async function cancelPersonalCheckout(reason='CANCEL'){
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
  if(!entry||!['SUBMITTING','PENDING','ACCEPTED'].includes(entry.status)){
@@ -820,9 +855,15 @@ async function cancelPersonalCheckout(reason='CANCEL'){
   return;
  }
  const adding=reason==='MODIFY';
- if(!window.confirm(adding?
-   '¿Agregar productos? Se cancelará la solicitud aceptada por la sede. El nuevo pedido necesitará otra validación.':
-   '¿Cancelar esta solicitud? Avisaremos a la sede y detendremos los recordatorios.'))return;
+ if(!await confirmB3(adding?{
+  title:'¿Cambiar los productos?',
+  description:'Para modificar el carrito es necesario cancelar la solicitud actual. Si vuelves a pedir delivery, necesitarás otra confirmación de una sede.',
+  confirmLabel:'Cancelar solicitud y editar',danger:true
+ }:{
+  title:'¿Cancelar tu solicitud?',
+  description:'Avisaremos a la sede y detendremos los recordatorios cuando la cancelación quede confirmada.',
+  confirmLabel:'Sí, cancelar solicitud',danger:true
+ }))return;
  if(entry.status==='SUBMITTING'&&!entry.interactionId){
   api.requestCancelWhenRecovered(entry);
   deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
