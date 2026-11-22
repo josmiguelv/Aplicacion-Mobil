@@ -427,7 +427,12 @@ function deliveryQuoteValid(){
  const fee=Number(st.quote.deliveryFeePen);
  if(st.quote.deliveryFeePen==null||!Number.isFinite(fee)||fee<0||
     st.quote.destinationKey!==deliveryAddressKey(st.profile.address,st.profile.district)||
-    !Number.isFinite(st.quote.quotedAt)||Date.now()-st.quote.quotedAt>=900000)return false;
+    !Number.isFinite(st.quote.quotedAt)||
+    (st.quote.quoteOrigin!=='ADMIN_API_ACCEPTED'&&Date.now()-st.quote.quotedAt>=900000))return false;
+ if(st.quote.quoteOrigin==='ADMIN_API_ACCEPTED'){
+  const deadline=Date.parse(window.B3OrderAvailability?.readInteraction?.()?.paymentExpiresAt||'');
+  if(!Number.isFinite(deadline)||Date.now()>=deadline)return false;
+ }
  if(st.quote.quoteOrigin==='ADMIN_API_ACCEPTED'){
   const entry=window.B3OrderAvailability?.readInteraction?.();
   return entry?.status==='ACCEPTED'&&entry.body?.storeId===st.store&&entry.body?.catalogRevision===publishedRevision&&
@@ -542,17 +547,22 @@ async function completeAcceptedQuote(entry){
  render();
  const quote=await api.quoteDelivery({appId:APP_ID,storeId:selected.id,address,district,
   latitude:deliveryLocation?.latitude,longitude:deliveryLocation?.longitude,
-  useGps:deliveryLocation?.source==='gps'});
+  useGps:Number.isFinite(deliveryLocation?.latitude)&&Number.isFinite(deliveryLocation?.longitude)});
  if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
  const fee=Number(quote.deliveryFeePen);
  if(!Number.isFinite(fee)||fee<0)throw Error('No se pudo determinar el costo del delivery.');
+ // The server starts the per-client payment window only after the agent reply
+ // has been interpreted and a real, published delivery fee is available.
+ const wait=await api.beginPaymentWait(entry);
+ if(wait.status!=='PAYMENT_PENDING')throw Error('No se pudo iniciar el plazo de pago.');
+ if(st.stage!=='availability')return false;
  st.store=selected.id;
  st.quote={storeId:selected.id,storeName:selected.name,deliveryFeePen:fee,
   paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
   routeDistanceKm:Number.isFinite(Number(quote.routeDistanceKm))?Number(quote.routeDistanceKm):null,
-  distanceSource:'SERVER_ROUTE',quoteOrigin:'ADMIN_API_ACCEPTED',serverValidated:false,
+  distanceSource:'SERVER_STRAIGHT_LINE',quoteOrigin:'ADMIN_API_ACCEPTED',serverValidated:false,
   provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  st.pay='';save();screen('prepaymentReview');
