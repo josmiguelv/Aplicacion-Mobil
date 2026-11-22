@@ -166,10 +166,6 @@ public class MainActivity extends Activity {
             String configured = getString(R.string.b3_notifications_api_base).trim();
             return configured.startsWith("https://") ? configured : "";
         }
-        /** Enabling FORM requires a compatible administrator; default is legacy to avoid broken orders. */
-        @JavascriptInterface public boolean isOrderFormEnabled() {
-            return "true".equalsIgnoreCase(getString(R.string.b3_order_form_enabled).trim());
-        }
         @JavascriptInterface public boolean marketingNotificationsEnabled() {return marketingEnabled();}
         @JavascriptInterface public void markMarketingNotificationRead(String id) {
             if(id==null||id.length()>128||!id.matches("[a-zA-Z0-9_-]+"))return;
@@ -459,30 +455,24 @@ public class MainActivity extends Activity {
                             !payload.optString("appId", "").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
                             !payload.optString("storeId", "").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
                             throw new IllegalArgumentException("Invalid interaction message identifiers");
-                        if ("FORM".equals(payload.optString("type", ""))) {
-                            JSONObject form = payload.optJSONObject("form");
-                            JSONArray fields = form == null ? null : form.optJSONArray("fields");
-                            if (!isOrderFormEnabled() || payload.length() != 4 || form == null ||
-                                form.length() != 3 ||
-                                !"VALIDACIÓN DE PEDIDO".equals(form.optString("title", "")) ||
-                                !"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
-                                fields == null || (fields.length() != 5 && fields.length() != 6))
-                                throw new IllegalArgumentException("Unsupported order FORM");
-                            String[] allowedFields = {"Productos", "Subtotal", "Delivery", "Total final", "Dirección", "Referencia"};
-                            for (int i = 0; i < fields.length(); i++) {
-                                JSONObject field = fields.optJSONObject(i);
-                                if (field == null || field.length() != 2 ||
-                                    !allowedFields[i].equals(field.optString("variable", "")) ||
-                                    field.optString("value", "").trim().isEmpty() ||
-                                    field.optString("value", "").length() > (i == 0 ? 3900 : 320))
-                                    throw new IllegalArgumentException("Invalid order FORM fields");
-                            }
-                        } else if (payload.optString("type", "").isEmpty()) {
-                            if (payload.optInt("catalogRevision", payload.optInt("quoteRevision", 0)) < 1 ||
-                                payload.optJSONArray("items") == null || payload.optJSONObject("customer") == null)
-                                throw new IllegalArgumentException("Invalid legacy order request");
-                        } else {
-                            throw new IllegalArgumentException("Unsupported interaction message type");
+                        // Only the approval ticket for a Delivery order may use this operation.
+                        // Reject all legacy text or other message types at the native boundary.
+                        JSONObject form = payload.optJSONObject("form");
+                        JSONArray fields = form == null ? null : form.optJSONArray("fields");
+                        if (!"FORM".equals(payload.optString("type", "")) ||
+                            payload.length() != 4 || form == null || form.length() != 3 ||
+                            !"VALIDACIÓN DE PEDIDO".equals(form.optString("title", "")) ||
+                            !"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
+                            fields == null || (fields.length() != 5 && fields.length() != 6))
+                            throw new IllegalArgumentException("Invalid Delivery approval FORM");
+                        String[] allowedFields = {"Productos", "Subtotal", "Delivery", "Total final", "Dirección", "Referencia"};
+                        for (int i = 0; i < fields.length(); i++) {
+                            JSONObject field = fields.optJSONObject(i);
+                            if (field == null || field.length() != 2 ||
+                                !allowedFields[i].equals(field.optString("variable", "")) ||
+                                field.optString("value", "").trim().isEmpty() ||
+                                field.optString("value", "").length() > (i == 0 ? 3900 : 320))
+                                throw new IllegalArgumentException("Invalid order FORM fields");
                         }
                         body = payload.toString();
                         path = "/api/v1/mobile/interactions/" + interactionId + "/message";
