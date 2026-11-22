@@ -17,7 +17,7 @@ import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 import java.util.Map;
 
-/** Promotional push for Pollos B3 only. Never handles order or private notifications. */
+/** Isolated private order pushes and separately opted-in promotional notifications. */
 public final class B3FirebaseMessagingService extends FirebaseMessagingService {
     @Override public void onNewToken(String token) {
         super.onNewToken(token);
@@ -48,12 +48,39 @@ public final class B3FirebaseMessagingService extends FirebaseMessagingService {
     }
     @Override public void onMessageReceived(RemoteMessage message) {
         super.onMessageReceived(message);
-        if (!getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).getBoolean("marketing_opt_in", false)) return;
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
 
         Map<String,String> data = message.getData();
-        if (!"marketing".equals(data.get("type"))) return;
+        String type=data.get("type");
+        // Transactional notifications are always directed to one device token.
+        // They are never part of the marketing topic or its consent setting.
+        if ("order_status".equals(type)||"order_reminder".equals(type)||"order_expired".equals(type)) {
+            String id=data.get("interactionId");
+            if(id==null||!id.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))return;
+            String title="order_status".equals(type)?"Tu sede respondió":"order_expired".equals(type)?"Tiempo de pago terminado":"Tu pedido está pendiente";
+            String body="order_status".equals(type)?"Abre Pollos B3 para revisar tu solicitud.": "order_expired".equals(type)?"Tu solicitud venció. Puedes iniciar una nueva compra.":"Continúa con el pago o cancela tu solicitud.";
+            Intent intent=new Intent(this,MainActivity.class);
+            intent.setAction(Intent.ACTION_MAIN);
+            intent.addCategory(Intent.CATEGORY_LAUNCHER);
+            intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            intent.putExtra("b3_open_personal_order",true);
+            intent.putExtra("interactionId",id);
+            int requestId=id.hashCode();
+            PendingIntent pending=PendingIntent.getActivity(this,requestId,intent,
+                PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+            Notification.Builder builder=Build.VERSION.SDK_INT>=26?
+                new Notification.Builder(this,MainActivity.PERSONAL_ORDER_CHANNEL):
+                new Notification.Builder(this);
+            builder.setSmallIcon(R.drawable.ic_b3_notification)
+                .setContentTitle(title).setContentText(body).setStyle(new Notification.BigTextStyle().bigText(body))
+                .setContentIntent(pending).setAutoCancel(true);
+            NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
+            if(manager!=null)manager.notify(requestId,builder.build());
+            return;
+        }
+        if (!getSharedPreferences(MainActivity.PREFS, MODE_PRIVATE).getBoolean("marketing_opt_in", false)) return;
+        if (!"marketing".equals(type)) return;
         String id = data.get("notificationId");
         if(id==null||id.length()>128||!id.matches("[a-zA-Z0-9_-]+"))return;
         if(isOutOfWindow(data))return;
