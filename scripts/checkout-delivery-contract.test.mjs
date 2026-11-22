@@ -105,7 +105,7 @@ test('deliveryQuoteValid solo admite cotización reciente y vinculada al servido
 });
 test('dirección abre disponibilidad y siempre solicita cotización al backend',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,store:'',quote:null,stage:'deliveryAddress'};
- const events=[],context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
+ const events=[],context={st,deliveryValidationGeneration:0,deliveryValidationStep:'INICIO',deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
   deliveryLocation:null,fulfillmentModal:null,checkoutPending:true,
   render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},deliveryAddressKey:(a,d)=>a+'|'+d,
   fetchConfig:async()=>{events.push('GET')},
@@ -122,7 +122,7 @@ test('dirección abre disponibilidad y siempre solicita cotización al backend',
 });
 test('sin cobertura del servidor conserva dirección y bloquea checkout',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,quote:null,store:'',stage:'deliveryAddress'};
- const events=[],context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
+ const events=[],context={st,deliveryValidationGeneration:0,deliveryValidationStep:'INICIO',deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
   deliveryLocation:null,render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
   fetchConfig:async()=>{},requestBackendOrderAvailability:async()=>{throw Error('Fuera del radio de cobertura')}
  };
