@@ -677,10 +677,10 @@ public class MainActivity extends Activity {
         // packaged assets, never an old HTML/JS copy left in WebView disk cache.
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         if (getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getInt("b3_ui_bundle_version", 0) != 15 /* Android B3 floating chat V15 bundle */) {
+                .getInt("b3_ui_bundle_version", 0) != 16 /* Android B3 accepted flow V16 bundle */) {
             web.clearCache(true);
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putInt("b3_ui_bundle_version", 15 /* Android B3 floating chat V15 bundle */).apply();
+                .putInt("b3_ui_bundle_version", 16 /* Android B3 accepted flow V16 bundle */).apply();
         }
         settings.setAllowFileAccess(false);
         settings.setAllowFileAccessFromFileURLs(false);
