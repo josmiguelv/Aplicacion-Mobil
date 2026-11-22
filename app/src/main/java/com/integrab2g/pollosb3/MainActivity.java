@@ -462,7 +462,7 @@ public class MainActivity extends Activity {
                         accessKey = request.optString("accessKey", "");
                         key = request.optString("idempotencyKey", "");
                         if (payload == null ||
-                            !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
                             key.equalsIgnoreCase(accessKey) ||
                             !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
                             !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
@@ -475,6 +475,8 @@ public class MainActivity extends Activity {
                         JSONArray fields = form == null ? null : form.optJSONArray("fields");
                         if (!"FORM".equals(payload.optString("type", "")) ||
                             payload.length() != 4 || form == null || form.length() != 3 ||
+                            form.optString("title", "").length() > 180 ||
+                            form.optString("subtitle", "").length() > 350 ||
                             !"VALIDACIÓN DE PEDIDO".equals(form.optString("title", "")) ||
                             !"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
                             fields == null || fields.length() != 5)
@@ -484,8 +486,9 @@ public class MainActivity extends Activity {
                             JSONObject field = fields.optJSONObject(i);
                             if (field == null || field.length() != 2 ||
                                 !allowedFields[i].equals(field.optString("variable", "")) ||
+                                field.optString("variable", "").length() > 80 ||
                                 field.optString("value", "").trim().isEmpty() ||
-                                field.optString("value", "").length() > (i == 0 ? 3900 : i == 4 ? 600 : 320))
+                                field.optString("value", "").length() > 500)
                                 throw new IllegalArgumentException("Invalid order FORM fields");
                         }
                         if (!"Por calcular".equals(fields.optJSONObject(2).optString("value", "")) ||
