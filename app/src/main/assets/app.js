@@ -1420,7 +1420,8 @@ function availability(){
    </section>
    <div class="b3-single-wait-footer">
     <p class="b3-single-wait-summary">${cartCount()} producto(s) · Subtotal ${cash(subtotal())} · Delivery por confirmar</p>
-    ${activeEntry?`<button class="primary full" data-checkout-leave="1">Seguir explorando la app</button>
+    ${activeEntry?`<button class="outline full" data-screen="chat">Ver seguimiento en el chat</button>
+      <button class="primary full" data-checkout-leave="1">Seguir explorando la app</button>
       <button class="outline full" data-checkout-cancel="1">Cancelar solicitud</button>`:
       '<p class="smallprint">Verificando la solicitud original. No se enviará una segunda interacción.</p>'}
    </div>
@@ -1541,7 +1542,89 @@ function summary(){
  <button class="primary full" data-confirm="1" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando disponibilidad...':'Registrar pedido de prueba'}</button></div>`;
 }
 function success(){let o=st.orders[0];return `<div class="success"><div class="success-mark">${ic('check',54)}</div><h1>¡Pedido de prueba registrado!</h1><p>Este pedido se guardó en tu teléfono. <b>No fue enviado a Pollos B3 ni cobrado.</b></p><div class="success-box"><b>${esc(o?.id||'')}</b><span>${cash(o?.total||0)}</span><small>Simulación local</small></div><button class="primary full" data-tab="pedidos">Ver mis pedidos</button><button class="outline full" data-tab="inicio">Volver al inicio</button></div>`}
-function chat(){return `<div class="chat-screen">${heading('Ayuda · Pollos B3','app')}<div class="chat-info">${ic('chat')}<span>Chat exclusivo para pedidos pagados</span></div><div class="chat-messages"><div class="message agent">El chat estará disponible cuando tu pedido tenga un pago confirmado y la atención siga abierta. Durante la compra no es necesario enviar mensajes.</div></div><form id="chat-form" class="chat-compose"><input id="chat-message" placeholder="Mensajes deshabilitados hasta confirmar el pago" aria-label="Mensajes deshabilitados" disabled><button type="submit" disabled aria-label="Enviar mensaje deshabilitado">${ic('chev')}</button></form></div>`}
+// The chat is a read-only view of the current device's verified interaction.
+const B3_CHAT_ACTIVITY=Object.freeze({
+ prepared:'Estamos preparando tu solicitud.',
+ created:'La solicitud quedó registrada para la sede.',
+ detail_delivered:'Se confirmó el envío del detalle a la conversación.',
+ accepted:'La sede respondió que acepta tu solicitud.',
+ rejected:'La sede rechazó la solicitud.',
+ expired:'La solicitud venció.',
+ cancelled:'La cancelación fue confirmada.',
+ cancel_requested:'Solicitaste cancelar; esperamos confirmación.',
+ cancelled_before_send:'Se descartó la solicitud local sin confirmación de creación.',
+ payment_window:'La sede aceptó y se habilitó el plazo para elegir cómo pagar.'
+});
+function chatTranscript(){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry)return '<div class="b3-chat-empty">Aún no tienes una solicitud registrada. Cuando envíes un pedido, aquí aparecerá su seguimiento.</div>';
+ const activities=Array.isArray(entry.activity)?entry.activity.filter(x=>x&&
+   Object.prototype.hasOwnProperty.call(B3_CHAT_ACTIVITY,x.type)&&Number.isFinite(x.at)):[];
+ const lines=activities.map((item,i)=>({kind:'system',
+   text:B3_CHAT_ACTIVITY[item.type],time:item.at,order:i}));
+ if(entry.interactionId&&!activities.some(x=>x.type==='created'))
+   lines.push({kind:'system',text:'Esta solicitud fue registrada anteriormente.',
+     time:Number(entry.createdAt)||Date.now(),order:2});
+ if(entry.status==='SUBMITTING'&&!entry.interactionId)
+   lines.push({kind:'live',text:'Confirmando el registro de tu solicitud. No se enviará un pedido duplicado.',time:Date.now(),order:100});
+ else if(entry.interactionId&&entry.body?.customer&&entry.messageDelivered!==true)
+   lines.push({kind:'live',text:'La interacción existe. El detalle sigue pendiente de confirmación; continuamos consultando al asesor.',time:Date.now(),order:100});
+ else if(['PENDING','ACCEPTED'].includes(entry.status)&&entry.agentDecision!=='ACCEPTED'&&entry.agentDecision!=='REJECTED')
+   lines.push({kind:'live',text:'Esperando la respuesta de la sede. Actualizaremos el chat al recibirla.',time:Date.now(),order:100});
+ const messages=Array.isArray(entry.agentMessages)?entry.agentMessages:[];
+ const seen=new Set();
+ for(const msg of messages){
+   if(!msg||typeof msg.id!=='string'||seen.has(msg.id)||typeof msg.text!=='string'||msg.text.length>8000)continue;
+   const date=Date.parse(msg.createdAt);
+   if(!Number.isFinite(date))continue;
+   seen.add(msg.id);
+   lines.push({kind:'advisor',text:msg.text,time:date,order:50});
+ }
+ lines.sort((a,b)=>a.time-b.time||a.order-b.order);
+ return lines.slice(-65).map(line=>{
+   const date=new Date(line.time);
+   const clock=Number.isFinite(date.getTime())?date.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}):'';
+   const who=line.kind==='advisor'?'Asesor de la sede':line.kind==='live'?'En proceso':'Pollos B3 · Sistema';
+   return '<div class="b3-chat-line '+(line.kind==='advisor'?'advisor':line.kind==='live'?'live':'system')+'">'+
+    '<div class="b3-chat-author">'+esc(who)+'<time>'+esc(clock)+'</time></div>'+
+    '<p>'+esc(line.text)+'</p></div>';
+ }).join('');
+}
+function chatStatusLine(){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry)return 'Sin solicitudes recientes';
+ if(entry.status==='EXPIRED')return 'Solicitud vencida';
+ if(entry.status==='CANCELLED')return 'Solicitud cancelada';
+ if(entry.status==='REJECTED'||entry.agentDecision==='REJECTED')return 'La sede rechazó la solicitud';
+ if(entry.agentDecision==='ACCEPTED')return entry.paymentExpiresAt?
+  'Solicitud aceptada · Revisa tu pedido':'Solicitud aceptada · Verificando el detalle';
+ if(entry.interactionId)return 'Solicitud en validación';
+ return 'Preparando solicitud';
+}
+function refreshChatTimeline(){
+ if(st.stage!=='chat')return;
+ const history=document.getElementById('b3-chat-history');
+ if(!history)return;
+ const atBottom=history.scrollHeight-history.scrollTop-history.clientHeight<90;
+ const next=chatTranscript();
+ if(history.innerHTML!==next){
+   history.innerHTML=next;
+   if(atBottom)history.scrollTop=history.scrollHeight;
+ }
+ const status=document.getElementById('b3-chat-status');
+ if(status)status.textContent=chatStatusLine();
+}
+function chat(){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ const open=!!entry&&['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(entry.status);
+ return '<div class="chat-screen b3-order-chat">'+
+  heading('Seguimiento del pedido','app')+
+  '<div class="chat-info b3-chat-info">'+ic('chat',20)+'<span id="b3-chat-status">'+esc(chatStatusLine())+'</span></div>'+
+  '<div id="b3-chat-history" class="chat-messages b3-chat-history" role="log" aria-label="Historial de la solicitud">'+chatTranscript()+'</div>'+
+  (open?'<button type="button" class="outline full b3-chat-return" data-checkout-return="1">Ver estado de mi solicitud</button>':'')+
+  '<div class="b3-chat-readonly">'+ic('info',17)+' <span>Seguimiento de solo lectura. Solo se muestran eventos confirmados y mensajes reales del asesor.</span></div>'+
+ '</div>';
+}
 function about(){return `<div class="page about b3-about-new">${heading('Sobre la app','app')}
  <div class="about-copy"><h2>Pollos B3</h2><p>La aplicación móvil para conocer la carta, consultar locales y preparar pedidos de Delivery o recojo.</p>
  <div class="b3-about-facts"><div><strong>Aplicación</strong><span>Pollos B3 · Android</span></div><div><strong>Versión</strong><span>1.3.0 (piloto · espera y respuestas B3)</span></div><div><strong>API del administrador</strong><span>${esc(API_BASE?new URL(API_BASE).hostname:'No configurada')}</span></div><div><strong>Estado</strong><span>Pedidos y pagos reales aún no habilitados</span></div></div>
