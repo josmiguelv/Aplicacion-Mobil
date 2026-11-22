@@ -656,3 +656,68 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 @keyframes b3-checkout-core{0%,100%{transform:scale(.96)}50%{transform:scale(1.06)}}
 @media(min-width:620px){.b3-checkout-floating{bottom:28px}}
 @media(prefers-reduced-motion:reduce){.b3-checkout-orbit:before,.b3-checkout-orbit:after,.b3-checkout-orbit-core,.b3-orbit-particle,.b3-checkout-motion-steps b:nth-child(2){animation:none}}
+
+/* POLLOS B3 — isolated mobile request waiting view. One main focal point;
+   no stacked price card, redundant timeline or floating chat on this screen. */
+.b3-single-wait{
+ min-height:100dvh;min-height:100svh;display:flex;flex-direction:column;
+ padding:20px clamp(16px,4vw,26px) calc(20px + env(safe-area-inset-bottom,0px));
+ background:linear-gradient(180deg,#fff 0%,#fff9f8 48%,#fff 100%);
+}
+.b3-single-wait-main{
+ display:flex;flex:1;min-height:350px;flex-direction:column;align-items:center;
+ justify-content:center;text-align:center;gap:0;padding:16px 2px 10px;
+}
+.b3-single-wait-label{
+ color:#aa182d;font-weight:900;letter-spacing:.15em;font-size:10px;
+ margin-bottom:26px;
+}
+.b3-single-wait .b3-checkout-orbit{
+ width:170px;height:170px;margin:0 auto 26px;flex-shrink:0;
+}
+.b3-single-wait .b3-checkout-orbit-core{width:68px;height:68px}
+.b3-single-wait-main h2{
+ font-size:clamp(23px,6vw,30px);line-height:1.16;letter-spacing:-.6px;
+ max-width:340px;color:#251d20;font-weight:850;margin:0 0 13px;
+}
+.b3-single-wait-detail{
+ color:#6f6265;font-size:clamp(13px,3.7vw,15px);line-height:1.55;
+ max-width:340px;margin:0 auto 24px;overflow-wrap:anywhere;
+}
+.b3-single-wait-progress{
+ width:100%;max-width:350px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+ gap:6px;border-radius:17px;background:#fff;
+ padding:13px 8px;border:1px solid #f0e6e7;
+}
+.b3-single-wait-progress span{
+ display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:5px;
+ font-size:11px;font-weight:750;color:#9a9295;
+}
+.b3-single-wait-progress span.complete{color:#258153}
+.b3-single-wait-progress span.current{color:#b72a38}
+.b3-single-wait-store{
+ display:flex;align-items:center;justify-content:center;gap:8px;
+ font-size:12px;color:#6b6065;margin-top:20px;
+}
+.b3-single-wait-store strong{color:#2c2428;font-size:13px}
+.b3-single-wait-footer{
+ width:100%;max-width:410px;margin:12px auto 0;display:grid;gap:11px;
+}
+.b3-single-wait-summary{
+ margin:0 0 6px;text-align:center;color:#80757a;font-size:11px;line-height:1.45;
+}
+.b3-single-wait-footer button{min-height:48px}
+.b3-single-wait-footer button.outline{border-color:#eadcde}
+@media(max-height:650px){
+ .b3-single-wait-main{min-height:275px;padding-top:10px}
+ .b3-single-wait .b3-checkout-orbit{width:120px;height:120px;margin-bottom:14px}
+ .b3-single-wait-label{margin-bottom:16px}
+ .b3-single-wait-detail{margin-bottom:15px}
+ .b3-single-wait-store{margin-top:11px}
+}
+@media(prefers-reduced-motion:reduce){
+ .b3-single-wait .b3-checkout-orbit:before,
+ .b3-single-wait .b3-checkout-orbit:after,
+ .b3-single-wait .b3-checkout-orbit-core,
+ .b3-single-wait .b3-orbit-particle{animation:none!important}
+}
