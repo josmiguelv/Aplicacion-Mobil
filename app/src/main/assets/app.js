@@ -952,7 +952,7 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   // Pending interactions cannot be treated as approved payments.
   const ready=await requestBackendOrderAvailability({address,district,run,silent});
   if(run!==deliveryValidationGeneration)return false;
-  if(!ready&&silent)screen('availability');
+  if(!ready&&silent&&deliveryAvailability.status!=='UNAVAILABLE')screen('availability');
   return ready;
  }catch(error){
   if(run!==deliveryValidationGeneration)return false;
