@@ -51,6 +51,7 @@ let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,revi
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let fulfillmentOutcomeNote=''; // Terminal outcome only; never initiates a new request.
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
+let checkoutCancelInFlight=false; // prevent duplicate cancellation calls to the same request
 let checkoutRefreshPending=false,checkoutReviewNote=''; // fresh availability at each checkout gate
 let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
 let deliveryAvailability={status:'IDLE',storeName:'',candidateNames:[],message:''};
@@ -541,7 +542,6 @@ function scheduleAgentDecisionPoll(delay=3200){
  if(entry?.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&
     st.stage!=='availability'&&(st.stage!=='chat'||!!entry.paymentExpiresAt))return;
  if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
- if(st.stage==='availability'&&deliveryAvailability.status==='ERROR'&&entry.status!=='ACCEPTED')return;
  if(entry.status!=='SUBMITTING'&&!entry.interactionId)return;
  agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},delay);
 }
@@ -589,12 +589,11 @@ async function completeAcceptedQuote(entry){
 }
 async function pollAgentDecision(){
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
- if(agentDecisionPolling||
+ if(agentDecisionPolling||checkoutCancelInFlight||
     !['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status)||
     (entry.status!=='SUBMITTING'&&!entry.interactionId))return;
  if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&
     st.stage!=='availability'&&(st.stage!=='chat'||!!entry.paymentExpiresAt))return;
- if(st.stage==='availability'&&deliveryAvailability.status==='ERROR'&&entry.status!=='ACCEPTED')return;
  agentDecisionPolling=true;
  let retryMs=3200;
  try{
@@ -869,14 +868,15 @@ function confirmB3({title,description,confirmLabel='Confirmar',danger=false}){
   layer.querySelector('[data-b3-confirm="no"]')?.focus({preventScroll:true});
  });
 }
-async function cancelPersonalCheckout(reason='CANCEL'){
+async function cancelPersonalCheckout(reason='CANCEL',skipConfirm=false){
+ if(checkoutCancelInFlight)return;
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
  if(!entry||!['SUBMITTING','PENDING','ACCEPTED'].includes(entry.status)){
   if(reason==='MODIFY')nav('carta');else nav('inicio');
   return;
  }
  const adding=reason==='MODIFY';
- if(!await confirmB3(adding?{
+ if(!skipConfirm&&!await confirmB3(adding?{
   title:'¿Cambiar los productos?',
   description:'Para modificar el carrito es necesario cancelar la solicitud actual. Si vuelves a pedir delivery, necesitarás otra confirmación de una sede.',
   confirmLabel:'Cancelar solicitud y editar',danger:true
@@ -891,7 +891,8 @@ async function cancelPersonalCheckout(reason='CANCEL'){
    message:'Cancelación solicitada. Primero debemos recuperar la confirmación de envío para avisar a la sede.'};
   screen('availability');scheduleAgentDecisionPoll(1000);return;
  }
- checkoutReviewNote='Notificando a la sede la cancelación de esta solicitud...';
+ checkoutCancelInFlight=true;
+ checkoutReviewNote='Cancelando tu solicitud...';
  render();
  try{
   await api.cancelInteraction(entry,{reason});
@@ -908,7 +909,9 @@ async function cancelPersonalCheckout(reason='CANCEL'){
  }catch(error){
   checkoutReviewNote=error.message||'No se pudo confirmar la cancelación. Intenta nuevamente.';
   if(st.stage==='availability')deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
-   message:'No pudimos confirmar la cancelación. La solicitud puede seguir activa; no enviaremos otra hasta comprobarlo. '+(error?.message||'')};
+   message:'No pudimos confirmar la cancelación. Tu solicitud podría seguir activa. Puedes volver a solicitar la cancelación sin crear otro pedido.',reason:'CANCEL_NOT_CONFIRMED'};
+ }finally{
+  checkoutCancelInFlight=false;
   render();
  }
 }
