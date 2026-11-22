@@ -934,3 +934,50 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
  border:1px solid #ebdfe2;background:#fff;color:#4e3b43;
 }
 @media(max-width:360px){.b3-confirm-card{padding:21px 17px 17px}}
+
+/* Delivery unavailable/rejected: one purposeful route back to fulfillment
+   choices. No false green milestones, redundant summary or retry CTA. */
+.b3-fulfillment-outcome{
+ min-height:100dvh;display:flex;flex-direction:column;
+ padding:18px clamp(16px,4vw,26px) calc(22px + env(safe-area-inset-bottom,0px));
+ background:linear-gradient(180deg,#fff 0%,#fff9f9 70%,#fff 100%);
+}
+.b3-fulfillment-outcome-card{
+ display:flex;flex:1;min-height:360px;flex-direction:column;
+ align-items:center;justify-content:center;text-align:center;
+ padding:20px 10px 24px;gap:16px;
+}
+.b3-fulfillment-outcome-kicker{
+ color:#a71d33;font-size:10px;font-weight:900;letter-spacing:.15em;
+}
+.b3-fulfillment-outcome-icon{
+ display:grid;place-items:center;width:86px;height:86px;
+ border-radius:27px;background:#fff1f2;color:#a81c31;
+ box-shadow:0 8px 24px rgba(183,36,53,.09);
+}
+.b3-fulfillment-outcome-card h2{
+ font-size:clamp(25px,6.1vw,32px);font-weight:900;line-height:1.2;
+ letter-spacing:-.035em;color:#261d20;margin:0;max-width:345px;
+}
+.b3-fulfillment-outcome-card>p{
+ margin:0;line-height:1.55;font-size:14px;color:#695f65;
+ max-width:354px;overflow-wrap:anywhere;
+}
+.b3-fulfillment-outcome-info{
+ width:100%;max-width:360px;padding:15px 16px;
+ border:1px solid #f2e4e7;border-radius:15px;background:#fff;
+ display:flex;align-items:center;justify-content:center;gap:10px;
+ font-size:12px;color:#4e454a;line-height:1.45;
+}
+.b3-fulfillment-outcome-info svg{color:#af283d;flex-shrink:0}
+.b3-fulfillment-outcome-card .b3-fulfillment-outcome-note{
+ color:#8b8185;font-size:11px;
+}
+.b3-fulfillment-outcome-actions{
+ width:100%;max-width:420px;margin:12px auto 0;display:grid;gap:12px;
+}
+.b3-fulfillment-outcome-actions button{min-height:52px}
+@media(max-height:620px){
+ .b3-fulfillment-outcome-card{min-height:280px;padding:12px 4px;gap:10px}
+ .b3-fulfillment-outcome-icon{width:65px;height:65px;border-radius:20px}
+}
