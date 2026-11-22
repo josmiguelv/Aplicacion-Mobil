@@ -365,6 +365,7 @@
       else if(decision==='REJECTED')entry.status='REJECTED';
       else entry.status='PENDING';
     }
+    if(decision){entry.agentDecision=decision;entry.agentMessageId=agentMessageId;}
     persistInteraction(entry);
     return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
       decision,agentMessageId,clientStatus:entry.status};
@@ -403,6 +404,11 @@
     }
     return response.data;
   }
+  function requestCancelWhenRecovered(entry){
+    if(!entry||entry.status!=='SUBMITTING'||entry.interactionId)throw Error('La solicitud ya permite cancelación directa.');
+    entry.cancelRequested=true;
+    return persistInteraction(entry);
+  }
   async function cancelInteraction(entry,{reason='MODIFY'}={}){
     if(!entry||!UUID.test(entry.idempotencyKey))throw Error('No hay solicitud que cancelar.');
     if(entry.status==='CANCELLED')return {status:'CANCELLED'};
@@ -425,6 +431,6 @@
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
-    pollInteraction,cancelInteraction,registerPersonalDevice,beginPaymentWait,readPaymentWait,
+    pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
     rejectedStores,markRejectedStore,eraseLocalIdentity});
 })(window);
