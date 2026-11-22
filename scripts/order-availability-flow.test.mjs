@@ -82,8 +82,8 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
  const functions=['currentCartSignature','deliveryContactReady','deliveryRequestCustomer',
  'requestSeriesKey','interactionMatchesCart',
  'stopAgentDecisionPoll','scheduleAgentDecisionPoll','completeAcceptedQuote',
- 'pollAgentDecision','requestBackendOrderAvailability']
- vm.runInNewContext('let agentDecisionTimer=null,agentDecisionPolling=false;\n'+
+ 'pollAgentDecision','requestBackendOrderAvailability','openAlternateFulfillment']
+ vm.runInNewContext('let agentDecisionTimer=null,agentDecisionPolling=false,checkoutPending=false,fulfillmentOutcomeNote=\'\';\n'+
   functions.map(extract).join('\n'),context)
  return {st,events,api,context,start:()=>context.requestBackendOrderAvailability({
   address:st.profile.address,district:st.profile.district,run:context.deliveryValidationGeneration,
@@ -151,14 +151,14 @@ test('aceptado cotiza únicamente la sede original y avanza automáticamente a r
 test('RECHAZADO no envía interacción a segunda sede ni inicia una nueva validación',async()=>{
  const s=simulation({decisions:['REJECTED','ACCEPTED']});
  await s.start();await s.poll();
- assert.equal(s.st.stage,'availability');
+ assert.equal(s.st.stage,'choice');
  assert.equal(s.api.readInteraction().status,'REJECTED');
  assert.equal(s.context.deliveryAvailability.status,'REJECTED');
  assert.match(s.context.deliveryAvailability.message,/no aceptó tu solicitud/);
  assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA]);
  assert.deepEqual(s.events.filter(x=>x.startsWith('POLL:')),['POLL:REJECTED']);
  await s.poll();
- assert.equal(s.st.stage,'availability');
+ assert.equal(s.st.stage,'choice');
  assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA]);
  assert.equal(s.events.filter(x=>x.startsWith('QUOTE:')).length,0);
  assert.equal(s.events.filter(x=>x==='PAYMENT_WINDOW').length,0);
@@ -169,6 +169,7 @@ test('sin sedes o sin agentes, no crea conversaciones y propone cambiar modalida
   await s.start();
   assert.equal(s.context.deliveryAvailability.status,'UNAVAILABLE');
   assert.match(s.context.deliveryAvailability.message,/recojo en tienda/);
+  assert.equal(s.st.stage,'choice');
   assert.equal(s.events.filter(x=>x.startsWith('CREATE:')).length,0);
   assert.equal(s.events.filter(x=>x.startsWith('POLL:')).length,0);
  }
@@ -501,4 +502,20 @@ test('confirmación personalizada no muestra la URL de WebView ni navega antes d
  callback({target:{closest:()=>({getAttribute:()=> 'yes'})}});
  assert.equal(await accepted,true);
  assert.equal(events.filter(e=>e==='CLOSE').length,2);
+});
+
+test('no delivery: preserves cart and opens fulfillment selector, never automatically reissues interaction',async()=>{
+ for(const options of [{allStores:[]},{available:false}]){
+  const sim=simulation(options);
+  sim.st.cart=[{id:productId,qty:2}];
+  await sim.start();
+  assert.equal(sim.st.stage,'choice');
+  assert.deepEqual(sim.st.cart,[{id:productId,qty:2}]);
+  assert.equal(sim.events.filter(x=>x.startsWith('CREATE:')).length,0);
+  assert.deepEqual(sim.events.filter(x=>x==='SCREEN:choice'),['SCREEN:choice']);
+ }
+ assert.match(source,/function openAlternateFulfillment\(message\)/);
+ assert.match(source,/role="status"><strong>Tu pedido sigue en el carrito/);
+ assert.match(source,/function confirmB3\(/);
+ assert.doesNotMatch(source,/window\.confirm\(/);
 });
