@@ -721,3 +721,63 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
  .b3-single-wait .b3-checkout-orbit-core,
  .b3-single-wait .b3-orbit-particle{animation:none!important}
 }
+
+/* Pollos B3 | Chat de seguimiento: eventos reales de la solicitud, solo lectura. */
+.b3-order-chat{
+ height:100dvh;max-height:100dvh;min-height:0;overflow:hidden;
+ padding:calc(12px + env(safe-area-inset-top,0px)) 16px
+   calc(14px + env(safe-area-inset-bottom,0px));
+ background:linear-gradient(180deg,#fff 0%,#fffaf9 58%,#fff 100%);
+}
+.b3-chat-info{
+ margin:12px 0 4px;flex-shrink:0;background:#fff4f3;
+ border:1px solid #f5dfdd;color:#9b2631;font-size:12px;font-weight:750;
+}
+.b3-chat-history{
+ display:flex;flex-direction:column;align-items:stretch;
+ min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;
+ padding:18px 2px 24px;gap:14px;
+ scrollbar-width:thin;scrollbar-color:#ead1d4 transparent;
+}
+.b3-chat-line{
+ align-self:flex-start;max-width:90%;width:max-content;min-width:140px;
+ border-radius:17px 17px 17px 5px;padding:12px 14px;
+ background:#f3f2f2;color:#2b2527;box-shadow:0 2px 9px #2b111005;
+ border:1px solid #efeaeb;overflow-wrap:anywhere;
+}
+.b3-chat-line.advisor{
+ align-self:flex-end;background:#fff0f0;border-color:#f3d7da;
+ border-radius:17px 17px 5px 17px;
+}
+.b3-chat-line.live{
+ background:#fff9ee;border:1px dashed #efd8aa;color:#6c572b;
+}
+.b3-chat-author{
+ display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+ margin:0 0 6px;color:#7b4752;font-size:11px;font-weight:850;
+}
+.b3-chat-line.advisor .b3-chat-author{color:#b52338}
+.b3-chat-author time{
+ color:#8a8082;font-weight:600;font-size:10px;white-space:nowrap;
+ font-variant-numeric:tabular-nums;
+}
+.b3-chat-line p{margin:0;font-size:13px;line-height:1.55;white-space:pre-wrap}
+.b3-chat-empty{
+ background:#fff;border:1px solid #eee1e3;padding:18px;border-radius:15px;
+ color:#766c70;font-size:13px;line-height:1.6;
+}
+.b3-chat-return{
+ flex-shrink:0;min-height:44px;margin:0 0 8px;
+}
+.b3-chat-readonly{
+ flex-shrink:0;display:flex;align-items:flex-start;gap:9px;
+ padding:10px 4px;color:#786a70;font-size:11px;line-height:1.45;
+ border-top:1px solid #f1e8e8;
+}
+.b3-chat-readonly svg{flex-shrink:0;color:#b63244}
+@media(max-height:620px){
+ .b3-order-chat{padding-top:8px}
+ .b3-chat-info{margin-top:7px}
+ .b3-chat-history{padding-top:10px;gap:8px}
+ .b3-chat-line{padding:9px 12px}
+}
