@@ -168,7 +168,7 @@ public class MainActivity extends Activity {
         }
         /** Metadata-only audit marker: never logs payloads, keys, names or addresses. */
         @JavascriptInterface public void orderFormDiagnostic(String stage,int count,int status,String type,String result){
-            if(!("JS_BUILD".equals(stage)||"JS_RESPONSE".equals(stage))||count!=5||
+            if(!("JS_BUILD".equals(stage)||"JS_RESPONSE".equals(stage))||count!=3||
                status<0||status>599)return;
             String safeType="FORM".equals(type)?"FORM":"TEXT".equals(type)?"TEXT":"OTHER";
             String safeResult="ACK".equals(result)?"ACK":"NO_ACK".equals(result)?"NO_ACK":"UNKNOWN";
@@ -479,9 +479,9 @@ public class MainActivity extends Activity {
                             form.optString("subtitle", "").length() > 350 ||
                             !"VALIDACIÓN DE PEDIDO".equals(form.optString("title", "")) ||
                             !"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
-                            fields == null || fields.length() != 5)
+                            fields == null || fields.length() != 3)
                             throw new IllegalArgumentException("Invalid Delivery approval FORM");
-                        String[] allowedFields = {"Productos", "Subtotal", "Delivery", "Total final", "Dirección y referencia"};
+                        String[] allowedFields = {"Productos", "Subtotal", "Dirección y referencia"};
                         for (int i = 0; i < fields.length(); i++) {
                             JSONObject field = fields.optJSONObject(i);
                             if (field == null || field.length() != 2 ||
@@ -491,9 +491,6 @@ public class MainActivity extends Activity {
                                 field.optString("value", "").length() > 500)
                                 throw new IllegalArgumentException("Invalid order FORM fields");
                         }
-                        if (!"Por calcular".equals(fields.optJSONObject(2).optString("value", "")) ||
-                            !"Pendiente de confirmación".equals(fields.optJSONObject(3).optString("value", "")))
-                            throw new IllegalArgumentException("Invalid order approval values");
                         approvalFormFields=fields.length();
                         android.util.Log.i("B3FormAudit","stage=NATIVE_VALIDATED type=FORM fields="+approvalFormFields+
                             " endpoint=/api/v1/mobile/interactions/{id}/message");
