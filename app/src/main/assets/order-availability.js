@@ -87,7 +87,9 @@
     root.clearTimeout(pending.timer);
     requests.delete(reply.requestId);
     if (reply.error) {
-      const error = Error('No fue posible conectar con el servidor de validación.');
+      const error = Error(reply.error==='LOCAL_CONTRACT_REJECTED'?
+        'Android rechazó el formato del FORM antes de emitir la petición HTTP.':
+        'No fue posible completar la comunicación con el Administrador.');
       error.code = String(reply.error);
       pending.reject(error);
     } else {
@@ -380,7 +382,7 @@
       entry.messageIdempotencyKey=next;
       persistInteraction(entry);
     }
-    formTrace('JS_BUILD',messageBody.form.fields.length);
+    formTrace('JS_BUILD',messageBody.form.fields.length,0,'FORM');
     let response;
     try{
       response=await nativeRequest({operation:'INTERACTION_MESSAGE',
