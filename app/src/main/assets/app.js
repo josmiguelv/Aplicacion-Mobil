@@ -416,6 +416,8 @@ function clearDeliveryAvailability(){
 }
 function invalidateDeliverySelection(){
  if(st.mode!=='delivery')return;
+ // Navigating the app must not delete an assigned conversation.
+ if(['SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status))return;
  deliveryValidationGeneration++;deliveryRequestPending=false;
  window.B3OrderAvailability?.clear();
  st.quote=null;st.store='';clearDeliveryAvailability();
@@ -430,7 +432,7 @@ function deliveryQuoteValid(){
   const entry=window.B3OrderAvailability?.readInteraction?.();
   return entry?.status==='ACCEPTED'&&entry.body?.storeId===st.store&&entry.body?.catalogRevision===publishedRevision&&
     st.quote.storeId===st.store&&st.quote.quoteRevision===publishedRevision&&
-    st.quote.distanceSource==='SERVER_ROUTE'&&
+    st.quote.distanceSource==='SERVER_STRAIGHT_LINE'&&
     st.quote.cartSignature===currentCartSignature()&&
     shops.some(x=>x.id===st.store&&x.active===true&&x.delivery_enabled===true);
  }
@@ -911,6 +913,26 @@ const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configRea
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?.price||0),0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 function toast(t){st.notice=t;render();setTimeout(()=>{if(st.notice===t){st.notice='';render()}},2400)}
+function activePersonalCheckout(){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ return ['SUBMITTING','PENDING','ACCEPTED'].includes(entry?.status)?entry:null;
+}
+function personalCheckoutBanner(){
+ const entry=activePersonalCheckout();if(!entry)return '';
+ const pending=entry.status!=='ACCEPTED';
+ return `<button type="button" class="b3-checkout-floating" data-checkout-return="1" aria-label="Ver estado de mi solicitud">
+   <span class="b3-checkout-floating-icon">${ic(pending?'clock':'check',20)}</span>
+   <span><strong>${pending?'Tu pedido está en validación':'¡Tu pedido fue aceptado!'}</strong>
+   <small>${pending?'Sigue activo. Toca para ver el estado.':'Continúa con el total y el pago.'}</small></span>
+   ${ic('chev',16)}</button>`;
+}
+function returnToPersonalCheckout(){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry)return;
+ if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('prepaymentReview');
+ else if(entry.status==='REJECTED'){screen('availability');void resolveDelivery()}
+ else screen('availability');
+}
 function screen(n){selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications()}
 function nav(tab){checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
@@ -1578,7 +1600,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(st.stage==='availability'&&['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
+function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
  return {store:String(st.store||''),total:Math.round(orderTotal()*100),
