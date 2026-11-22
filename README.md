@@ -22,3 +22,22 @@ La app lee `API_BASE` desde `AndroidBridge.getApiBase()`; configura la URL HTTPS
 - **No commercial order submission, backend order status events or feedback ingestion exist yet.** Demo ratings and demo favorite choices are kept only on the device. These UI behaviors must be wired to authenticated staff order status events, secure guest tracking capability and a real opinion endpoint when the ordering backend is built. Do not expose simulated tracking as real order events.
 
 Focused verification: `node scripts/order-experience-smoke.mjs`, followed by `gradle :app:assembleDebug`. GitHub Actions runs both checks.
+
+
+## Ticket de pedido FORM (Android, 22/11/2026)
+
+El flujo conserva la creación de la interacción mediante `POST /api/v1/mobile/interactions` y utiliza el endpoint ya existente `POST /api/v1/mobile/interactions/{interactionId}/message` para el detalle.
+
+El nuevo cuerpo opcional tiene exclusivamente `type: FORM`, `appId`, `storeId` y `form`, que contiene título `VALIDACIÓN DE PEDIDO`, subtítulo `Confirmar disponibilidad para delivery` y campos ordenados `Productos`, `Subtotal`, `Delivery`, `Total final`, `Dirección` y `Referencia` (esta última solo si existe). **No se repiten Cliente ni Teléfono**: la identidad se envía previamente dentro de `customer` en la creación de la interacción.
+
+Las líneas de productos y subtotal se derivan de productos publicados y cantidades del carrito. Son una **vista informativa del catálogo del móvil**: el administrador debe recalcular importes desde su catálogo autorizado, y el costo de Delivery y total final permanecen pendientes de confirmación.
+
+**Compatibilidad:** la versión del administrador revisada todavía rechaza `FORM` en el endpoint `/message`, así que Android mantiene el formato anterior por defecto. El FORM se activa solo para pruebas con un administrador compatible:
+
+```powershell
+.\gradlew.bat assembleDebug -PB3_ORDER_FORM_ENABLED=true
+```
+
+La compilación estándar `./gradlew assembleDebug` conserva el formato anterior; `B3_ORDER_FORM_ENABLED` vale `false` por defecto. `B3_API_BASE` sigue pudiendo sobrescribirse por Gradle. URL configurada predeterminada: `https://back-neutral-rogers-switched.trycloudflare.com`.
+
+El formato se fija al preparar una nueva interacción; los reintentos mantienen el mismo interactionId, token de seguimiento y ticket. No se habilita un FORM a mitad de una interacción existente. Hasta actualizar y certificar el administrador, no se puede confirmar el renderizado del formulario ni los botones de decisión de TU VERSO.
