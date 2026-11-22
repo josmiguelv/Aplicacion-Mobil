@@ -533,3 +533,47 @@ test('chat persiste únicamente hitos confirmados y respuestas verificadas sin r
  assert.equal(persisted.activity.filter(x=>x.type==='accepted').length,1);
  assert.equal(c.requests.filter(x=>x.operation==='INTERACTION_CREATE').length,1);
 });
+
+
+test('cierre operativo del agente sin ACEPTADO/RECHAZADO equivale a rechazo solo con historial verificado',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
+ async function attempt({operationalConversationStatus,messagesAvailable=true,agentMessages=[]}){
+  const c=client(req=>{
+   const data={interactionId,storeId};
+   if(req.operation==='INTERACTION_CREATE')return {requestId:req.requestId,status:201,
+    data:{...data,status:'PENDING',externalReference:'mobile:test'}};
+   if(req.operation==='INTERACTION_MESSAGE')return {requestId:req.requestId,status:200,
+    data:{...data,delivered:true,messageId}};
+   if(req.operation==='INTERACTION_STATUS')return {requestId:req.requestId,status:200,
+    data:{...data,status:'ACCEPTED',messagesAvailable,agentMessages,
+     ...(operationalConversationStatus?{operationalConversationStatus}:{})}};
+   throw Error('Unexpected operation '+req.operation);
+  });
+  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+   items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita',
+   customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',address:'Av. Ejemplo 123',
+    district:'Santa Anita',reference:'',mode:'delivery'}});
+  await c.api.createInteraction(entry);
+  await c.api.sendInteractionMessage(entry);
+  const result=await c.api.pollInteraction(entry);
+  return {entry,result,requests:c.requests};
+ }
+ const closed=await attempt({operationalConversationStatus:'CLOSED'});
+ assert.equal(closed.result.decision,'REJECTED');
+ assert.equal(closed.entry.status,'REJECTED');
+ assert.equal(closed.entry.rejectionReason,'AGENT_CLOSED_WITHOUT_CONFIRMATION');
+ assert.equal(closed.requests.filter(x=>x.operation==='INTERACTION_CREATE').length,1);
+ const unresolved=await attempt({});
+ assert.equal(unresolved.result.decision,null);
+ assert.equal(unresolved.entry.status,'PENDING');
+ const unavailable=await attempt({operationalConversationStatus:'RESOLVED',messagesAvailable:false});
+ assert.equal(unavailable.result.decision,null,'History outage cannot become a rejection');
+ assert.equal(unavailable.entry.status,'PENDING');
+ const approved=await attempt({operationalConversationStatus:'RESOLVED',
+  agentMessages:[{id:'c9b7e9d9-a5ed-4261-92ac-f31f74ec545c',text:'ACEPTADO',
+   createdAt:'2026-11-22T04:00:00Z'}]});
+ assert.equal(approved.result.decision,'ACCEPTED');
+ assert.equal(approved.entry.status,'ACCEPTED');
+});
