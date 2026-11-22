@@ -836,6 +836,7 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   deliveryRequestError='';
   screen('identity');return false;
  }
+ deliveryValidationStep='CATALOGO_PUBLICADO';
  deliveryRequestPending=true;deliveryRequestError='';deliveryHealthMessage='';st.quote=null;st.store='';
  deliveryAvailability={status:'CHECKING',storeName:'',candidateNames:[],message:''};
  if(!silent){fulfillmentModal=null;screen('availability')}else render();
