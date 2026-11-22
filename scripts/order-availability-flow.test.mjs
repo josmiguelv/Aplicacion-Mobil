@@ -257,3 +257,31 @@ test('la espera de Pollos B3 incluye un acceso directo al seguimiento del chat',
  assert.match(source,/function refreshChatTimeline\(\)/);
  assert.match(source,/data-checkout-return="1">Ver estado de mi solicitud/);
 });
+
+test('el chat muestra cronología confirmada, mensajes reales y escapa contenido del asesor',()=>{
+ const labels=source.match(/const B3_CHAT_ACTIVITY=Object\.freeze\(\{[\s\S]*?\}\);/);
+ assert.ok(labels,'Se requieren etiquetas de hitos permitidos');
+ const entry={createdAt:1763780000000,
+  interactionId:'a2e616af-8c52-4776-b3b1-b446fc9b74a9',status:'PENDING',
+  body:{customer:{firstName:'Ana'}},messageDelivered:false,
+  activity:[{type:'prepared',at:1763780000000},{type:'created',at:1763780003000}],
+  agentMessages:[{id:'c9b7e9d9-a5ed-4261-92ac-f31f74ec545c',
+   text:'<script>inseguro</script> ACEPTADO',createdAt:'2026-11-22T04:01:00Z'}]};
+ const context={window:{B3OrderAvailability:{readInteraction:()=>entry}},
+  esc:value=>String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),
+  heading:()=>'<header>Chat</header>',ic:()=>'',st:{stage:'chat'}};
+ vm.runInNewContext(labels[0]+'\n'+
+  ['chatTranscript','chatStatusLine','chat'].map(extract).join('\n'),context);
+ const transcript=context.chatTranscript();
+ assert.match(transcript,/Estamos preparando tu solicitud/);
+ assert.match(transcript,/La solicitud quedó registrada/);
+ assert.match(transcript,/Asesor de la sede/);
+ assert.match(transcript,/&lt;script&gt;inseguro&lt;\/script&gt;/);
+ assert.doesNotMatch(transcript,/<script>/);
+ assert.match(transcript,/pendiente de confirmación/);
+ assert.doesNotMatch(transcript,/La conversación confirmó el envío del detalle/);
+ const html=context.chat();
+ assert.match(html,/b3-chat-history/);
+ assert.match(html,/Seguimiento de solo lectura/);
+ assert.doesNotMatch(html,/chat-form|id="chat-message"/);
+});
