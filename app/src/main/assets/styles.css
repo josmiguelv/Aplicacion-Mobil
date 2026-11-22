@@ -845,3 +845,14 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 @media(prefers-reduced-motion:reduce){
  .b3-chat-panel{animation:none}
 }
+
+/* Waiting screen: chat is a small floating access point, never a CTA in
+   the order decision footer or over the Cancel button. */
+.persistent-chat.b3-wait-chat-fab{
+ left:auto;right:16px;
+ top:calc(80px + env(safe-area-inset-top,0px));bottom:auto;
+ transform:none;width:45px;height:45px;
+ background:#fff;color:#c60019;border:1px solid #eed9de;
+ box-shadow:0 4px 16px rgba(35,14,20,.12);
+}
+.persistent-chat.b3-wait-chat-fab:active{transform:scale(.96)}
