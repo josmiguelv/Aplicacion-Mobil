@@ -483,6 +483,44 @@ function publishedOrderItems(){
   return {productId:id,quantity:x.qty};
  });
 }
+// UI ticket snapshot from the published B3 catalogue, not a payment authorization.
+// The administrator must recalculate the price rather than trust FORM values.
+function deliveryOrderTicketForm(address,district){
+ const items=publishedOrderItems();
+ let subtotalCents=0;
+ const lines=items.map(({productId,quantity})=>{
+  const p=product('api:'+productId),cents=Math.round(Number(p?.price)*100);
+  if(!p?.isPublished||p.disabled||typeof p.name!=='string'||!p.name.trim()||
+     /[\x00-\x1f]/.test(p.name)||!Number.isSafeInteger(cents)||cents<0)
+   throw Error('No se puede preparar el ticket: revisa el catálogo publicado.');
+  const lineCents=cents*quantity;
+  if(!Number.isSafeInteger(lineCents)||!Number.isSafeInteger(subtotalCents+lineCents))
+   throw Error('El importe del ticket supera el límite permitido.');
+  subtotalCents+=lineCents;
+  return quantity+' x '+p.name.trim()+' — '+cash(lineCents/100);
+ });
+ if(Math.abs(subtotalCents/100-subtotal())>.015)
+  throw Error('El subtotal del ticket no coincide con el carrito publicado.');
+ const productsValue=lines.join('\n');
+ if(productsValue.length>3900)throw Error('El detalle del pedido excede el tamaño permitido.');
+ const addr=String(address||'').trim(),area=String(district||'').trim();
+ if(addr.length<6||addr.length>180||area.length<2||area.length>80)
+  throw Error('Confirma una dirección válida antes de crear el ticket.');
+ const fields=[
+  {variable:'Productos',value:productsValue},
+  {variable:'Subtotal',value:cash(subtotalCents/100)},
+  {variable:'Delivery',value:'Por calcular'},
+  {variable:'Total final',value:'Pendiente de confirmación'},
+  {variable:'Dirección',value:addr+', '+area}
+ ];
+ const reference=String(st.profile.reference||'').trim();
+ if(reference){
+  if(reference.length>180||/[\x00-\x1f]/.test(reference))
+   throw Error('Revisa la referencia de entrega.');
+  fields.push({variable:'Referencia',value:reference});
+ }
+ return {title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',fields};
+}
 function applyBackendQuote(result,entry,address,district){
  const fee=Number(result.deliveryFee),amount=Number(result.total),serverSubtotal=Number(result.subtotal);
  if(result.currency!=='PEN'||!result.store||!shops.some(s=>String(s.id)===String(result.store.id))||
@@ -800,7 +838,8 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  st.store=selected.id;st.quote=null;save();
  deliveryValidationStep='PREPARANDO_INTERACCION';
  const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,catalogRevision:publishedRevision,
-  items:publishedOrderItems(),address,district,customer:deliveryRequestCustomer(address,district)});
+  items:publishedOrderItems(),address,district,customer:deliveryRequestCustomer(address,district),
+  orderForm:deliveryOrderTicketForm(address,district)});
  deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
   message:'Enviando la solicitud. Continuaremos automáticamente cuando el local responda.'};
  render();
