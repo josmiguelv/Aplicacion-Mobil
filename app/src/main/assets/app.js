@@ -1059,7 +1059,16 @@ function returnToPersonalCheckout(){
  else if(entry.status==='REJECTED'){screen('availability');void resolveDelivery()}
  else screen('availability');
 }
-function screen(n){if(n==='chat'){openChatOverlay();return}selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications()}
+function screen(n){
+ if(n==='chat'){openChatOverlay();return}
+ if(n==='inicio'){nav('inicio');return}
+ // The accepted and quoted request is already past availability.
+ // Never return to the agent-checking phase from an approved payment screen.
+ if(n==='availability'&&['prepaymentReview','payment','summary'].includes(st.stage)&&
+    activePersonalCheckout()?.status==='ACCEPTED'&&deliveryQuoteValid()){
+  nav('inicio');return;
+ }
+ selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications()}
 function nav(tab){if(tab==='chat'){openChatOverlay();return}checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
@@ -1516,7 +1525,7 @@ function prepaymentReview(){
  const valid=entry?.status==='ACCEPTED'&&deliveryQuoteValid();
  const store=shops.find(x=>x.id===st.store);
  const items=st.cart.map(item=>{const p=product(item.id);return '<p>'+esc(p?.name||'Producto')+' ×'+item.qty+' <b>'+cash((p?.price||0)*item.qty)+'</b></p>'}).join('');
- return `<div class="page">${heading('Revisa tu pedido','availability')}
+ return `<div class="page">${heading('Revisa tu pedido','inicio')}
   <div class="summary-card">
    <h2>${valid?'¡El local aceptó tu solicitud!':'Cotización pendiente de verificar'}</h2>
    <p>${esc(store?.name||'Sede por confirmar')} · ${esc(st.profile.address||'')} · ${esc(st.profile.district||'')}</p>
@@ -1540,7 +1549,7 @@ function payment(){
  const available=paymentOptions();
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const missing=st.configReady&&!available.length;
- return `<div class="page">${heading('Método de pago','prepaymentReview')}
+ return `<div class="page">${heading('Método de pago',st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?'inicio':'prepaymentReview')}
  ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?`<div class="summary-card"><h2>Total de tu pedido</h2><p>Productos <b>${cash(subtotal())}</b></p><p>Delivery estimado <b>${cash(st.quote.deliveryFeePen)}</b></p><p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
  <p class="sub">Solo aparecen los métodos habilitados para tu local y modalidad. No hay cobros reales en este piloto.</p>
  <div class="method-list">${available.map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>
@@ -1556,7 +1565,7 @@ function summary(){
  const selectedStore=shops.find(x=>String(x.id)===String(st.store));
  const items=st.cart.map(x=>{const p=product(x.id);return '<p>'+esc(p?.name||'Producto retirado')+' ×'+x.qty+' <b>'+(p?cash(x.qty*p.price):'Revisar')+'</b></p>'}).join('');
  const methods={yape:'Yape',plin:'Plin',card:'Tarjeta',click:'Click to Pay',cash:'Efectivo al recibir'};
- return `<div class="page">${heading('Resumen de tu pedido','payment')}<div class="summary-card">
+ return `<div class="page">${heading('Resumen de tu pedido',st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?'inicio':'payment')}<div class="summary-card">
  <h2>${st.mode==='delivery'?'Delivery':'Recojo en tienda'}</h2>
  <p>${st.mode==='delivery'?esc(st.profile.address+', '+(st.profile.district||'')):(selectedStore?esc(selectedStore.name+' · '+(selectedStore.address||selectedStore.addr||'')):'Local por confirmar')}</p>
  <hr><p>Pago: <b>${esc(methods[st.pay]||'Por seleccionar')}</b></p>
@@ -2448,7 +2457,7 @@ window.handleB3Back=()=>{
     return false; // Native Activity exits; never navigate to splash.
   }
   if(st.stage==='splash')return false;
-  if(['availability','prepaymentReview','payment'].includes(st.stage)&&activePersonalCheckout()){
+  if(['availability','prepaymentReview','payment','summary'].includes(st.stage)&&activePersonalCheckout()){
     nav('inicio');return true;
   }
   if(st.stage==='login'){
