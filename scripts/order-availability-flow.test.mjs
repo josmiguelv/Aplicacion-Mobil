@@ -189,7 +189,7 @@ test('el estado EXPIRED nunca puede avanzar al pago aunque exista un texto antig
  s.api.pollInteraction=async()=>{const response=await original();return {...response,clientStatus:'EXPIRED'}}
  await s.poll()
  assert.equal(s.st.stage,'availability')
- assert.equal(s.context.deliveryAvailability.status,'ERROR')
+ assert.equal(s.context.deliveryAvailability.status,'UNAVAILABLE')
  assert.deepEqual(s.events.filter(x=>x.startsWith('QUOTE:')),[])
 })
 test('la pantalla de espera no requiere continuar y chat permanece bloqueado',()=>{
