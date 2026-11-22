@@ -17,7 +17,7 @@ const stores=[
  {id:storeB,name:'Sede de prueba B',active:true,delivery_enabled:true,consultOrderAvailability:true}
 ]
 const items=[{productId,quantity:1}]
-function simulation({available=true,decisions=[],allStores=stores,wrongQuote=false,sendFailures=0,createFailures=0}={}){
+function simulation({available=true,decisions=[],allStores=stores,wrongQuote=false,sendFailures=0,createFailures=0,quoteFailures=0}={}){
  const st={mode:'delivery',profile:{first:'Ana',last:'Quispe',phone:'912345678',
   address:'Av. Ejemplo 123',district:'Santa Anita',reference:'Puerta lateral'},
   store:'',quote:null,stage:'availability',pay:''}
@@ -60,6 +60,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   },
   quoteDelivery:async({storeId})=>{
    events.push('QUOTE:'+storeId)
+   if(quoteFailures>0){quoteFailures--;throw Error('No se pudo cotizar el delivery (HTTP 500)')}
    return {storeId:wrongQuote?storeB:storeId,storeName:'Prueba',revision:18,
     deliveryFeePen:4.5,routeDistanceKm:1.8,paymentMethods:['yape','cash']}
   }
@@ -169,7 +170,7 @@ test('cotización de una sede diferente bloquea la continuación al pago',async(
  const s=simulation({decisions:['ACCEPTED'],wrongQuote:true})
  await s.start();await s.poll()
  assert.notEqual(s.st.stage,'prepaymentReview')
- assert.equal(s.context.deliveryAvailability.status,'ERROR')
+ assert.equal(s.context.deliveryAvailability.status,'QUOTE_UNAVAILABLE')
  assert.match(s.context.deliveryAvailability.message,/no corresponde/)
 })
 test('el estado EXPIRED nunca puede avanzar al pago aunque exista un texto antiguo de aceptado',async()=>{
@@ -329,4 +330,50 @@ test('abrir y cerrar chat flotante conserva formulario, etapa, scroll y foco sin
  assert.match(source,/if\(b\.dataset\.screen==='chat'\)\{openChatOverlay\(\);return\}/);
  assert.match(source,/window\.handleB3Back=\(\)=>\{\s*if\(chatOverlay\)\{closeChatOverlay\(\);return true\}/);
  assert.match(source,/if\(chatOverlay\)refreshChatTimeline\(\)/);
+});
+
+test('HTTP 500 al cotizar después de ACEPTADO conserva la interacción y reintenta solo el delivery',async()=>{
+ const run=simulation({decisions:['ACCEPTED'],quoteFailures:1});
+ await run.start();
+ const id=run.api.readInteraction().interactionId;
+ await run.poll();
+ assert.equal(run.api.readInteraction().interactionId,id);
+ assert.equal(run.api.readInteraction().agentDecision,'ACCEPTED');
+ assert.equal(run.api.readInteraction().messageDelivered,true);
+ assert.equal(run.st.stage,'availability');
+ assert.equal(run.st.quote,null);
+ assert.equal(run.context.deliveryAvailability.status,'QUOTE_UNAVAILABLE');
+ assert.match(run.context.deliveryAvailability.message,/HTTP 500/);
+ assert.equal(run.events.filter(x=>x.startsWith('CREATE:')).length,1);
+ assert.equal(run.events.filter(x=>x.startsWith('SEND:')).length,1);
+ assert.equal(run.events.filter(x=>x==='PAYMENT_WINDOW').length,0);
+ await run.poll();
+ assert.equal(run.st.stage,'prepaymentReview');
+ assert.equal(run.api.readInteraction().interactionId,id);
+ assert.equal(run.events.filter(x=>x.startsWith('CREATE:')).length,1);
+ assert.equal(run.events.filter(x=>x.startsWith('SEND:')).length,1);
+ assert.equal(run.events.filter(x=>x.startsWith('QUOTE:')).length,2);
+ assert.equal(run.events.filter(x=>x==='PAYMENT_WINDOW').length,1);
+});
+test('al fallar la tarifa se conserva una sola pantalla de solicitud aceptada',()=>{
+ const entry={interactionId:'a2e616af-8c52-4776-b3b1-b446fc9b74a9',
+  body:{customer:{firstName:'Ana'}},messageDelivered:true,
+  status:'ACCEPTED',agentDecision:'ACCEPTED'};
+ const context={
+  st:{profile:{address:'Av Ejemplo 123',district:'Santa Anita'},quote:null},
+  window:{B3OrderAvailability:{readInteraction:()=>entry}},
+  deliveryAvailability:{status:'QUOTE_UNAVAILABLE',storeName:'Sede de prueba',
+   message:'No se pudo calcular el delivery (HTTP 500)'},
+  activePersonalCheckout:()=>entry,heading:()=>'<header>Estado</header>',
+  ic:()=>'',esc:value=>String(value),cartCount:()=>1,subtotal:()=>13,
+  cash:value=>'S/ '+value,deliveryRequestPending:false
+ };
+ vm.runInNewContext(extract('availability'),context);
+ const page=context.availability();
+ assert.match(page,/b3-single-wait/);
+ assert.match(page,/La sede respondió a tu solicitud/);
+ assert.match(page,/Reintentar tarifa de delivery/);
+ assert.doesNotMatch(page,/class="b3-availability-order"/);
+ assert.doesNotMatch(page,/Carrito · Dirección · Disponibilidad/);
+ assert.doesNotMatch(page,/data-availability-retry/);
 });
