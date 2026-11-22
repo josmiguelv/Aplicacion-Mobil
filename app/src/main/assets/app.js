@@ -609,15 +609,25 @@ async function pollAgentDecision(){
    ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
    clearDeliveryAvailability();save();nav('inicio');toast('Solicitud cancelada.');return;
   }
+  // The detail relay and the agent's answer are separate operations.
+  // A failed message acknowledgement must not prevent reading an already sent reply.
+  let detailError=null;
   if(entry.body?.customer&&entry.messageDelivered!==true){
    if(st.stage==='availability'){
     deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
-     message:'Confirmando entrega del detalle al asesor sin abrir otra conversación.'};render();
+     message:'Sincronizando los detalles de tu pedido con la sede.'};render();
    }
-   await api.sendInteractionMessage(entry);
+   try{await api.sendInteractionMessage(entry)}
+   catch(error){detailError=error}
   }
   if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'){
-   if(st.stage==='availability')await completeAcceptedQuote(entry);
+   if(st.stage==='availability'){
+    if(entry.body?.customer&&entry.messageDelivered!==true){
+     deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
+      message:'La sede ya respondió. Confirmando el detalle antes de mostrar el importe final. '+
+       (detailError?.message||'Reintentaremos sin duplicar la solicitud.')};render();
+    }else await completeAcceptedQuote(entry);
+   }
    return;
   }
   const result=await api.pollInteraction(entry);
@@ -629,7 +639,14 @@ async function pollAgentDecision(){
    return;
   }
   if(result.decision==='ACCEPTED'){
-   if(st.stage==='availability')await completeAcceptedQuote(api.readInteraction());
+   const updated=api.readInteraction?.()||entry;
+   if(updated.body?.customer&&updated.messageDelivered!==true){
+    if(st.stage==='availability'){
+     deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:store?.name||'',candidateNames:[],
+      message:'La sede ya respondió ACEPTADO. Terminamos de confirmar el detalle del pedido. '+
+       (detailError?.message||'Continuaremos automáticamente cuando esté confirmado.')};render();
+    }else{render();toast('La sede respondió. Sincronizando los detalles del pedido.')}
+   }else if(st.stage==='availability')await completeAcceptedQuote(updated);
    else{render();toast('¡La sede aceptó tu pedido! Revisa el total y continúa con el pago.');}
    return;
   }
@@ -645,8 +662,12 @@ async function pollAgentDecision(){
    return;
   }
   if(st.stage==='availability'){
-   deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'',candidateNames:[],
-    message:'La solicitud está activa. La sede responderá cuando revise tu pedido.'};
+   deliveryAvailability={status:detailError?'CREATE_UNCERTAIN':'WAITING_APPROVAL',
+    storeName:store?.name||'',candidateNames:[],
+    message:detailError?
+     'Solicitud creada. No pudimos confirmar la entrega del detalle ('+detailError.message+
+      '). Seguimos consultando al asesor y reintentaremos con la misma solicitud.':
+     'La solicitud está activa. La sede responderá cuando revise tu pedido.'};
    render();
   }
  }catch(error){
@@ -657,7 +678,8 @@ async function pollAgentDecision(){
   retryMs=8000;
   deliveryAvailability={status:recovering||sending?'CREATE_UNCERTAIN':pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
    message:recovering?'Recuperando confirmación de la solicitud enviada, con la misma clave.':
-    sending?'La interacción existe. Verificando entrega del detalle sin duplicarlo.':
+    sending?'La interacción existe, pero aún falta confirmar el detalle. '+
+      (error?.message||'Reintentando sin duplicar la solicitud.'):
     pending?'La consulta tuvo una interrupción. Volveremos a revisar la misma solicitud.':
      error.message||'No pudimos continuar. Tu pedido no se cobrará.'};
   if(st.stage==='availability')render();
@@ -665,7 +687,8 @@ async function pollAgentDecision(){
   agentDecisionPolling=false;
   const current=api?.readInteraction?.();
   if(['PENDING','SUBMITTING'].includes(current?.status)||
-     current?.status==='ACCEPTED'&&current.agentDecision!=='ACCEPTED')
+     current?.status==='ACCEPTED'&&(current.agentDecision!=='ACCEPTED'||
+      st.stage==='availability'&&(!current.paymentExpiresAt||!deliveryQuoteValid())))
    scheduleAgentDecisionPoll(retryMs);
  }
 }
@@ -1368,6 +1391,41 @@ function availability(){
  const required=!checking&&status==='APPROVAL_REQUIRED';
  const failed=!checking&&!waiting&&(status==='ERROR'||status==='UNAVAILABLE');
  const names=deliveryAvailability.candidateNames||[];
+ if(waiting){
+  const request=window.B3OrderAvailability?.readInteraction?.();
+  const confirmed=!!request?.interactionId;
+  const responded=request?.agentDecision==='ACCEPTED';
+  const relayDone=!request?.body?.customer||request.messageDelivered===true;
+  const title=responded?'La sede respondió a tu solicitud':
+   status==='CREATE_UNCERTAIN'?'Estamos registrando tu solicitud':'Esperando confirmación de la sede';
+  const detail=deliveryAvailability.message||
+   'Tu solicitud sigue activa y se actualizará automáticamente.';
+  const store=deliveryAvailability.storeName||'Sede asignada';
+  return `<div class="page b3-single-wait">
+   ${heading('Estado de tu solicitud','app')}
+   <section class="b3-single-wait-main" aria-live="polite">
+    <span class="b3-single-wait-label">POLLOS B3 · DELIVERY</span>
+    <div class="b3-checkout-orbit" aria-hidden="true">
+     <div class="b3-checkout-orbit-core">${ic('store',31)}</div>
+     <i class="b3-orbit-particle first"></i><i class="b3-orbit-particle second"></i>
+    </div>
+    <h2>${esc(title)}</h2>
+    <p class="b3-single-wait-detail">${esc(detail)}</p>
+    <div class="b3-single-wait-progress" aria-label="Progreso de la solicitud">
+     <span class="${confirmed?'complete':'current'}">${ic(confirmed?'check':'clock',16)} Solicitud</span>
+     <span class="${confirmed&&relayDone&&!responded?'current':confirmed&&relayDone?'complete':''}">${ic(confirmed&&relayDone?'check':'clock',16)} Detalle</span>
+     <span class="${responded&&relayDone?'complete':responded?'current':''}">${ic(responded?'check':'clock',16)} Respuesta</span>
+    </div>
+    <div class="b3-single-wait-store">${ic('store',17)} <strong>${esc(store)}</strong></div>
+   </section>
+   <div class="b3-single-wait-footer">
+    <p class="b3-single-wait-summary">${cartCount()} producto(s) · Subtotal ${cash(subtotal())} · Delivery por confirmar</p>
+    ${activeEntry?`<button class="primary full" data-checkout-leave="1">Seguir explorando la app</button>
+      <button class="outline full" data-checkout-cancel="1">Cancelar solicitud</button>`:
+      '<p class="smallprint">Verificando la solicitud original. No se enviará una segunda interacción.</p>'}
+   </div>
+  </div>`;
+ }
  const title=checking?'Buscando una sede para ti':waiting?(status==='CREATE_UNCERTAIN'?'Registrando solicitud de atención':'Esperando confirmación de la sede'):ready?'Tenemos una sede disponible':status==='UNAVAILABLE'?'No hay sedes disponibles':required?'Tu pedido necesita confirmación':'No pudimos completar la consulta';
  const detail=checking?deliveryAvailability.message||'Consultamos la capacidad del asesor y la tarifa del local elegido.'
   :waiting?deliveryAvailability.message
@@ -1702,7 +1760,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
+function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','availability','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
  return {store:String(st.store||''),total:Math.round(orderTotal()*100),
