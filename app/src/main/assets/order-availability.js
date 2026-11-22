@@ -190,12 +190,12 @@
     if(typeof address!=='string'||address.trim().length<6||typeof district!=='string'||
        district.trim().length<2) throw Error('Confirma la dirección para cotizar delivery.');
     const body={appId,mode:'delivery',address:address.trim(),district:district.trim(),
-      city:'Lima',country:'Perú',useGps:useGps===true};
+      city:'Lima',country:'Perú',useGps:useGps===true||Number.isFinite(latitude)&&Number.isFinite(longitude)};
     if(storeId!==undefined){
       if(!UUID.test(storeId))throw Error('La sede a cotizar no es válida.');
       body.storeId=storeId;
     }
-    if(useGps===true&&Number.isFinite(latitude)&&Number.isFinite(longitude)){
+    if(Number.isFinite(latitude)&&Number.isFinite(longitude)){
       body.latitude=latitude;body.longitude=longitude;
     }
     const response=await nativeRequest({operation:'DELIVERY_QUOTE',body});
@@ -369,14 +369,44 @@
     return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
       decision,agentMessageId,clientStatus:entry.status};
   }
-  async function cancelInteraction(entry){
+  async function registerPersonalDevice(entry,fcmToken){
+    if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey))
+      throw Error('No existe una solicitud a la cual asociar el dispositivo.');
+    if(typeof fcmToken!=='string'||fcmToken.length<50||fcmToken.length>4096||
+       !/^[A-Za-z0-9_:.-]+$/.test(fcmToken))throw Error('Token de notificación inválido.');
+    const response=await nativeRequest({operation:'INTERACTION_DEVICE',interactionId:entry.interactionId,
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,fcmToken});
+    if(Number(response.status)!==200||response.data?.registered!==true)
+      throw responseError(response,'No se pudo registrar la notificación individual');
+    return response.data;
+  }
+  async function beginPaymentWait(entry){
+    if(!entry||entry.status!=='ACCEPTED'||!UUID.test(entry.interactionId))
+      throw Error('Todavía no se confirmó el pedido.');
+    const response=await nativeRequest({operation:'INTERACTION_PAYMENT',interactionId:entry.interactionId,
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200||response.data?.status!=='PAYMENT_PENDING'||
+      !Number.isFinite(Date.parse(response.data.expiresAt)))
+      throw responseError(response,'No se pudo confirmar el plazo del pago');
+    entry.paymentExpiresAt=response.data.expiresAt;
+    persistInteraction(entry);
+    return response.data;
+  }
+  async function readPaymentWait(entry){
+    if(!entry||!UUID.test(entry.interactionId))throw Error('Interacción inválida.');
+    const response=await nativeRequest({operation:'INTERACTION_PAYMENT_STATUS',interactionId:entry.interactionId,
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200)throw responseError(response,'No se pudo actualizar el estado del pago');
+    return response.data;
+  }
+  async function cancelInteraction(entry,{reason='MODIFY'}={}){
     if(!entry||!UUID.test(entry.idempotencyKey))throw Error('No hay solicitud que cancelar.');
     if(entry.status==='CANCELLED')return {status:'CANCELLED'};
     if(!UUID.test(entry.interactionId)){
       entry.status='CANCELLED';persistInteraction(entry);return {status:'CANCELLED'};
     }
     const response=await nativeRequest({operation:'INTERACTION_CANCEL',interactionId:entry.interactionId,
-      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,reason});
     if(Number(response.status)!==200||response.data?.status!=='CANCELLED')
       throw responseError(response,'No se pudo notificar la cancelación de la solicitud');
     entry.status='CANCELLED';persistInteraction(entry);
@@ -391,5 +421,6 @@
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
-    pollInteraction,cancelInteraction,rejectedStores,markRejectedStore,eraseLocalIdentity});
+    pollInteraction,cancelInteraction,registerPersonalDevice,beginPaymentWait,readPaymentWait,
+    rejectedStores,markRejectedStore,eraseLocalIdentity});
 })(window);
