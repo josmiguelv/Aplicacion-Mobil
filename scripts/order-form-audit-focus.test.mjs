@@ -113,7 +113,16 @@ test('04 - Reintento del mismo FORM usa la misma clave independiente',async()=>{
  await c.api.createInteraction(entry);
  await assert.rejects(()=>c.api.sendInteractionMessage(entry),/429/);
  assert.equal(entry.messageDelivered,false);
- await c.api.sendInteractionMessage(c.api.readInteraction());
+ const waiting=c.api.readInteraction();
+ assert.equal(waiting.message429Attempts,1);
+ assert.ok(waiting.messageRetryAt>Date.now()+28000);
+ const sentBefore=c.requests.length;
+ await assert.rejects(()=>c.api.sendInteractionMessage(waiting),/reintento programado/);
+ assert.equal(c.requests.length,sentBefore,'No new POST during cooldown');
+ // Simulate the expiration of the persisted cooldown without waiting 30 seconds.
+ waiting.messageRetryAt=Date.now()-1;
+ await c.api.sendInteractionMessage(waiting);
+ assert.equal(c.api.readInteraction().messageDelivered,true);
  assert.deepEqual(c.requests.map(r=>r.operation),
   ['INTERACTION_CREATE','INTERACTION_MESSAGE','INTERACTION_MESSAGE']);
  assert.equal(c.requests[1].idempotencyKey,c.requests[2].idempotencyKey);
@@ -121,4 +130,38 @@ test('04 - Reintento del mismo FORM usa la misma clave independiente',async()=>{
  assert.notEqual(c.requests[1].idempotencyKey,c.requests[0].idempotencyKey);
  assert.equal(JSON.stringify(c.requests[1].body),JSON.stringify(c.requests[2].body));
  assert.equal(c.requests[1].interactionId,c.requests[2].interactionId);
+});
+
+test('05 - no duplica FORM si checkout y polling solicitan envío simultáneo',async()=>{
+ const c=harness(req=>req.operation==='INTERACTION_CREATE'?create(req):accept(req));
+ const entry=c.api.prepareInteraction(input());
+ await c.api.createInteraction(entry);
+ const [a,b]=await Promise.all([
+  c.api.sendInteractionMessage(entry),
+  c.api.sendInteractionMessage(c.api.readInteraction())
+ ]);
+ assert.equal(a.type,'FORM');
+ assert.equal(b.type,'FORM');
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_MESSAGE']);
+ assert.equal(c.api.readInteraction().messageDelivered,true);
+});
+test('06 - segundo HTTP 429 duplica el tiempo de espera, sin cambiar la clave',async()=>{
+ let tries=0;
+ const c=harness(req=>{
+  if(req.operation==='INTERACTION_CREATE')return create(req);
+  tries++;return {requestId:req.requestId,status:429,data:{error:'Límite temporal'}};
+ });
+ const entry=c.api.prepareInteraction(input());
+ await c.api.createInteraction(entry);
+ await assert.rejects(()=>c.api.sendInteractionMessage(entry),/429/);
+ const first=c.api.readInteraction();
+ assert.equal(first.message429Attempts,1);
+ assert.ok(first.messageRetryAt-Date.now()>28000);
+ first.messageRetryAt=Date.now()-1;
+ await assert.rejects(()=>c.api.sendInteractionMessage(first),/429/);
+ const second=c.api.readInteraction();
+ assert.equal(second.message429Attempts,2);
+ assert.ok(second.messageRetryAt-Date.now()>58000);
+ assert.equal(c.requests[1].idempotencyKey,c.requests[2].idempotencyKey);
+ assert.equal(c.requests.filter(x=>x.operation==='INTERACTION_CREATE').length,1);
 });
