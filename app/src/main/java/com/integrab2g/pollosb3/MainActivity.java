@@ -677,10 +677,10 @@ public class MainActivity extends Activity {
         // packaged assets, never an old HTML/JS copy left in WebView disk cache.
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         if (getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getInt("b3_ui_bundle_version", 0) != BuildConfig.VERSION_CODE) {
+                .getInt("b3_ui_bundle_version", 0) != 12 /* Android checkout V12 bundle */) {
             web.clearCache(true);
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putInt("b3_ui_bundle_version", BuildConfig.VERSION_CODE).apply();
+                .putInt("b3_ui_bundle_version", 12 /* Android checkout V12 bundle */).apply();
         }
         settings.setAllowFileAccess(false);
         settings.setAllowFileAccessFromFileURLs(false);
