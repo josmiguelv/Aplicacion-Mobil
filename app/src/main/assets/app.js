@@ -946,12 +946,53 @@ window.b3DeliveryGpsAddress=(token,street,district,hasNumber,error)=>{
  if(deliveryLocation?.source==='gps')deliveryLocation.key=deliveryAddressKey(st.profile.address,st.profile.district);
  deliveryRequestError='';save();render();
 };
+// Android permission allows access but cannot switch the device's master GPS
+// toggle on. Offer a user-controlled route to the proper system settings.
+let locationSettingsModal=null;
+function showLocationSettingsPrompt(code){
+ if(locationSettingsModal)return;
+ const permissions=code==='PERMISSION_DENIED'||code==='LOCATION_PRECISION_REQUIRED';
+ const prompt=code==='LOCATION_DISABLED'?
+  'La ubicación del teléfono está apagada. Para ver las sedes cercanas, actívala en Ajustes de Android.':
+  code==='LOCATION_PRECISION_REQUIRED'?
+   'Android permite una ubicación aproximada, pero no hay un proveedor disponible. Puedes habilitar la ubicación precisa de Pollos B3 o escribir tu dirección.':
+   'Pollos B3 no tiene permiso para usar la ubicación. Puedes activarlo en los permisos de la aplicación o continuar sin GPS.';
+ const layer=document.createElement('div');
+ layer.className='b3-location-permission-layer';
+ layer.innerHTML='<div class="b3-location-permission-backdrop"></div>'+
+  '<section class="b3-location-permission-sheet" role="dialog" aria-modal="true" aria-labelledby="b3-location-title">'+
+  '<span class="b3-location-kicker">POLLOS B3 · UBICACIÓN</span>'+
+  '<h2 id="b3-location-title">Activa tu ubicación cuando la necesites</h2>'+
+  '<p>'+esc(prompt)+'</p>'+
+  '<button type="button" class="primary full" data-location-settings="1">'+
+   (permissions?'Abrir permisos de Pollos B3':'Abrir ajustes de ubicación')+'</button>'+
+  '<button type="button" class="outline full" data-location-later="1">Ahora no, continuar sin GPS</button>'+
+  '</section>';
+ layer.addEventListener('click',event=>{
+  const settings=event.target.closest('[data-location-settings]');
+  const later=event.target.closest('[data-location-later]');
+  if(!settings&&!later)return;
+  layer.remove();locationSettingsModal=null;
+  if(later){deliveryGpsRequested=false;return}
+  if(permissions)window.AndroidBridge?.openAppLocationSettings?.();
+  else window.AndroidBridge?.openLocationSettings?.();
+ });
+ document.body.appendChild(layer);
+ locationSettingsModal=layer;
+}
 window.b3NativeLocation=(lat,lng,error)=>{
  const forDelivery=deliveryGpsRequested;
  deliveryGpsRequested=false;
- if(error){if(st.stage==='app'&&st.tab==='inicio')render();else toast(error);return}
+ if(error){
+  if(['LOCATION_DISABLED','LOCATION_PRECISION_REQUIRED','PERMISSION_DENIED'].includes(error)){
+   // Preserve delivery intent while the customer enables GPS in Android.
+   deliveryGpsRequested=forDelivery;
+   showLocationSettingsPrompt(error);
+  }else toast(error);
+  return;
+ }
  if(!Number.isFinite(lat)||!Number.isFinite(lng)){
-  if(st.stage==='app'&&st.tab==='inicio')render();else toast('No fue posible obtener coordenadas');
+  toast('No fue posible obtener coordenadas. Puedes escribir la dirección manualmente.');
   return;
  }
  st.coords={lat,lng};save();resolveStoreDistances();
