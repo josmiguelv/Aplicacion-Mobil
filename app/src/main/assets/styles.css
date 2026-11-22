@@ -625,3 +625,34 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 @keyframes b3-availability-breathe{0%,100%{transform:scale(1);box-shadow:0 8px 24px #9d1e3011}50%{transform:scale(1.055);box-shadow:0 11px 32px #9d1e3025}}
 @media(prefers-reduced-motion:reduce){.b3-availability-orb.checking{animation:none}}
 @media(max-width:360px){.b3-availability-card{padding:23px 17px}.b3-availability-step small{font-size:9px}.b3-availability-order{padding:16px}}
+
+/* Pollos B3: active approval visualization and private checkout affordances. */
+.b3-checkout-motion{display:flex;flex-direction:column;align-items:center;gap:10px;margin:16px 0;padding:22px 18px;border-radius:24px;background:radial-gradient(circle at 50% 27%,#fff0e7,#fff 57%);border:1px solid #f0dddd;text-align:center}
+.b3-checkout-motion>strong{color:#30232a;font-size:16px;letter-spacing:-.25px}
+.b3-checkout-motion>span{color:#73636a;font-size:12px;line-height:1.6;max-width:290px}
+.b3-checkout-orbit{width:144px;height:144px;border-radius:50%;position:relative;display:grid;place-items:center;margin:6px auto 12px;background:radial-gradient(circle,#fff 28%,#fff6f1 67%,#fff 70%)}
+.b3-checkout-orbit:before{content:'';position:absolute;inset:8px;border:6px solid #f8dfcf;border-top-color:#b80f25;border-right-color:#f9a928;border-radius:50%;animation:b3-checkout-spin 2.1s linear infinite}
+.b3-checkout-orbit:after{content:'';position:absolute;inset:23px;border:2px solid rgba(184,15,37,.12);border-radius:50%;animation:b3-checkout-ripple 2.1s ease-in-out infinite}
+.b3-checkout-orbit-core{width:62px;height:62px;border-radius:21px;display:grid;place-items:center;background:linear-gradient(150deg,#ba1429,#e53533);color:#fff;box-shadow:0 9px 23px #bc152b32;z-index:1;animation:b3-checkout-core 2s ease-in-out infinite}
+.b3-orbit-particle{position:absolute;width:10px;height:10px;border-radius:50%;background:#fba81c;box-shadow:0 0 0 5px #fba81c20}
+.b3-orbit-particle.first{top:13px;right:18px;animation:b3-checkout-ripple 1.5s ease-in-out infinite}
+.b3-orbit-particle.second{bottom:20px;left:13px;animation:b3-checkout-ripple 1.8s ease-in-out infinite .3s}
+.b3-checkout-motion-steps{display:flex;align-items:center;justify-content:space-between;width:100%;max-width:320px;gap:10px;margin-top:9px}
+.b3-checkout-motion-steps b{font-size:10px;line-height:1.4;color:#968991;font-weight:700;position:relative;flex:1}
+.b3-checkout-motion-steps b:first-child{color:#268a53}
+.b3-checkout-motion-steps b:nth-child(2){color:#c22e38;animation:b3-checkout-ripple 1.9s ease-in-out infinite}
+.b3-checkout-wait-actions{display:grid;gap:10px;margin:15px 0}
+.b3-checkout-wait-actions button{min-height:48px}
+.b3-checkout-floating{position:fixed;z-index:60;bottom:calc(84px + env(safe-area-inset-bottom));left:12px;right:12px;max-width:560px;margin:auto;border:1px solid #f0d6d9;border-radius:18px;background:linear-gradient(115deg,#fff,#fff6f5);display:flex;align-items:center;gap:12px;padding:13px 15px;box-shadow:0 12px 32px #23101720;color:#29242a;text-align:left;cursor:pointer}
+.b3-checkout-floating-icon{width:39px;height:39px;border-radius:12px;background:#ffebec;color:#b11f32;display:grid;place-items:center;flex-shrink:0}
+.b3-checkout-floating>span:nth-child(2){display:grid;gap:3px;flex:1}
+.b3-checkout-floating strong{font-size:13px}
+.b3-checkout-floating small{font-size:11px;color:#76686d}
+.b3-checkout-clock{display:flex;align-items:center;justify-content:center;gap:9px;border-radius:14px;background:#fff6ea;border:1px solid #f0dcbf;padding:12px 14px;color:#a05f18;font-size:13px;font-weight:700;margin:16px 0}
+.b3-checkout-clock strong{font-variant-numeric:tabular-nums;font-size:16px;color:#9f2830}
+.b3-checkout-price-note{font-size:12px;color:#857077;margin:11px 0 19px;line-height:1.5}
+@keyframes b3-checkout-spin{to{transform:rotate(360deg)}}
+@keyframes b3-checkout-ripple{0%,100%{opacity:.68;transform:scale(.96)}50%{opacity:1;transform:scale(1.08)}}
+@keyframes b3-checkout-core{0%,100%{transform:scale(.96)}50%{transform:scale(1.06)}}
+@media(min-width:620px){.b3-checkout-floating{bottom:28px}}
+@media(prefers-reduced-motion:reduce){.b3-checkout-orbit:before,.b3-checkout-orbit:after,.b3-checkout-orbit-core,.b3-orbit-particle,.b3-checkout-motion-steps b:nth-child(2){animation:none}}
