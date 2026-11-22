@@ -40,6 +40,8 @@ const memory=()=>{const map=new Map();return {
 }};
 function harness(responder){
  const requests=[],traces=[];
+ const clock={now:Date.now()};
+ class VirtualDate extends Date {static now(){return clock.now;}}
  const window={crypto:webcrypto,Uint8Array,btoa,
   localStorage:memory(),sessionStorage:memory(),setTimeout,clearTimeout};
  window.AndroidBridge={
@@ -50,8 +52,9 @@ function harness(responder){
    queueMicrotask(()=>window.b3OrderAvailabilityNativeResponse(JSON.stringify(responder(request))));
   }
  };
- runInNewContext(js,{window,Uint8Array,JSON,Map,Promise,Error,Date,Number,Set});
- return {api:window.B3OrderAvailability,requests,traces};
+ runInNewContext(js,{window,Uint8Array,JSON,Map,Promise,Error,Date:VirtualDate,Number,Set});
+ return {api:window.B3OrderAvailability,requests,traces,
+  now:()=>clock.now,advance:ms=>{clock.now+=ms}};
 }
 const accept=req=>({requestId:req.requestId,status:200,
  data:{interactionId:uuid,messageId,delivered:true,type:'FORM'}});
@@ -115,13 +118,13 @@ test('04 - Reintento del mismo FORM usa la misma clave independiente',async()=>{
  assert.equal(entry.messageDelivered,false);
  const waiting=c.api.readInteraction();
  assert.equal(waiting.message429Attempts,1);
- assert.ok(waiting.messageRetryAt>Date.now()+28000);
+ assert.ok(waiting.messageRetryAt>c.now()+28000);
  const sentBefore=c.requests.length;
  await assert.rejects(()=>c.api.sendInteractionMessage(waiting),/reintento programado/);
  assert.equal(c.requests.length,sentBefore,'No new POST during cooldown');
  // Simulate the expiration of the persisted cooldown without waiting 30 seconds.
- waiting.messageRetryAt=Date.now()-1;
- await c.api.sendInteractionMessage(waiting);
+ c.advance(31000);
+ await c.api.sendInteractionMessage(c.api.readInteraction());
  assert.equal(c.api.readInteraction().messageDelivered,true);
  assert.deepEqual(c.requests.map(r=>r.operation),
   ['INTERACTION_CREATE','INTERACTION_MESSAGE','INTERACTION_MESSAGE']);
@@ -156,12 +159,37 @@ test('06 - segundo HTTP 429 duplica el tiempo de espera, sin cambiar la clave',a
  await assert.rejects(()=>c.api.sendInteractionMessage(entry),/429/);
  const first=c.api.readInteraction();
  assert.equal(first.message429Attempts,1);
- assert.ok(first.messageRetryAt-Date.now()>28000);
- first.messageRetryAt=Date.now()-1;
+ assert.ok(first.messageRetryAt-c.now()>28000);
+ c.advance(31000);
  await assert.rejects(()=>c.api.sendInteractionMessage(first),/429/);
  const second=c.api.readInteraction();
  assert.equal(second.message429Attempts,2);
- assert.ok(second.messageRetryAt-Date.now()>58000);
+ assert.ok(second.messageRetryAt-c.now()>58000);
  assert.equal(c.requests[1].idempotencyKey,c.requests[2].idempotencyKey);
  assert.equal(c.requests.filter(x=>x.operation==='INTERACTION_CREATE').length,1);
+});
+
+test('07 - lectura de estado desactualizada conserva el 429 persistido',async()=>{
+ const c=harness(req=>{
+  if(req.operation==='INTERACTION_CREATE')return create(req);
+  if(req.operation==='INTERACTION_STATUS')
+   return {requestId:req.requestId,status:200,data:{
+    interactionId:uuid,storeId:store,status:'PENDING',agentMessages:[],messagesAvailable:false
+   }};
+  return {requestId:req.requestId,status:429,data:{error:'Rate limited'}};
+ });
+ const entry=c.api.prepareInteraction(input());
+ await c.api.createInteraction(entry);
+ const stale=c.api.readInteraction();
+ await assert.rejects(()=>c.api.sendInteractionMessage(entry),/HTTP 429/);
+ const before=c.api.readInteraction();
+ assert.equal(before.message429Attempts,1);
+ await c.api.pollInteraction(stale);
+ const after=c.api.readInteraction();
+ assert.equal(after.message429Attempts,1);
+ assert.equal(after.messageRetryAt,before.messageRetryAt);
+ assert.equal(after.messageIdempotencyKey,before.messageIdempotencyKey);
+ assert.deepEqual(c.requests.map(r=>r.operation),[
+  'INTERACTION_CREATE','INTERACTION_MESSAGE','INTERACTION_STATUS'
+ ]);
 });
