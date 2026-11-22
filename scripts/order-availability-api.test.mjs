@@ -114,7 +114,7 @@ test('salud del backend usa únicamente GET de lectura sin crear interacción ni
   assert.match(java,/"INTERACTION_CREATE"\.equals\(operation\)/);
   assert.match(java,/path = "\/health\/live"/);
   assert.match(java,/else if \("GET"\.equals\(operation\)\) \{/);
-  assert.match(checkoutSource,/data-availability-health/);
+  assert.doesNotMatch(checkoutSource,/data-availability-health|Reintentar conexión|Verificar conexión con el servidor/);
 });
 test('readiness 503 pero liveness 200 distingue la base caída del túnel y no envía credenciales',async()=>{
  const {api,requests}=client(req=>req.operation==='HEALTH'?
