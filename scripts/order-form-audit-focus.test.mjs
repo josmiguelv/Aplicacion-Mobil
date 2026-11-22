@@ -112,7 +112,7 @@ test('04 - Reintento del mismo FORM usa la misma clave independiente',async()=>{
  const entry=c.api.prepareInteraction(input());
  await c.api.createInteraction(entry);
  await assert.rejects(()=>c.api.sendInteractionMessage(entry),/429/);
- assert.equal(entry.messageDelivered,undefined);
+ assert.equal(entry.messageDelivered,false);
  await c.api.sendInteractionMessage(c.api.readInteraction());
  assert.deepEqual(c.requests.map(r=>r.operation),
   ['INTERACTION_CREATE','INTERACTION_MESSAGE','INTERACTION_MESSAGE']);
