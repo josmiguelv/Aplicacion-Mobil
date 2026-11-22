@@ -577,6 +577,8 @@ public class MainActivity extends Activity {
                             try (java.io.OutputStream output = connection.getOutputStream()) {
                                 output.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                             }
+                            if ("INTERACTION_MESSAGE".equals(operation))
+                                android.util.Log.i("B3FormAudit","stage=HTTP_BODY_WRITTEN type=FORM fields="+approvalFormFields);
                         } else if ("GET".equals(operation)) {
                             connection.setRequestProperty("Authorization", "Bearer " + token);
                         }
