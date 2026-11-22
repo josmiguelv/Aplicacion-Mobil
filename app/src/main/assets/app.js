@@ -680,6 +680,9 @@ async function pollAgentDecision(){
    return;
   }
   if(st.stage==='availability'){
+   // After a failed cancellation, keep the explicit retry action visible while
+   // silently polling the SAME interaction for a confirmed terminal status.
+   if(deliveryAvailability.reason==='CANCEL_NOT_CONFIRMED')return;
    deliveryAvailability={status:detailError?'CREATE_UNCERTAIN':'WAITING_APPROVAL',
     storeName:store?.name||'',candidateNames:[],
     message:detailError?
@@ -690,6 +693,7 @@ async function pollAgentDecision(){
   }
  }catch(error){
   const latest=api?.readInteraction?.();
+  if(st.stage==='availability'&&deliveryAvailability.reason==='CANCEL_NOT_CONFIRMED')return;
   const pending=['PENDING','SUBMITTING'].includes(latest?.status);
   const recovering=pending&&!latest?.interactionId;
   const sending=pending&&latest?.interactionId&&latest.body?.customer&&latest.messageDelivered!==true;
