@@ -637,6 +637,8 @@ async function pollAgentDecision(){
    return;
   }
   const result=await api.pollInteraction(entry);
+  // Never apply a stale agent-poll UI result while the customer cancels the same request.
+  if(checkoutCancelInFlight)return;
   const store=shops.find(x=>x.id===entry.body.storeId);
   if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
    const cancelled=result.clientStatus==='CANCELLED';
