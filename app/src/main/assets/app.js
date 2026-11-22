@@ -684,9 +684,11 @@ async function pollAgentDecision(){
   const pending=['PENDING','SUBMITTING'].includes(latest?.status);
   const recovering=pending&&!latest?.interactionId;
   const sending=pending&&latest?.interactionId&&latest.body?.customer&&latest.messageDelivered!==true;
+  const transientDeliveryFailure=[429,500,502,503,504].includes(error?.httpStatus)||
+   ['TIMEOUT','CONNECTION_FAILED'].includes(error?.code);
   const quotePending=latest?.status==='ACCEPTED'&&latest.agentDecision==='ACCEPTED'&&
-   (!latest.body?.customer||latest.messageDelivered===true);
-  retryMs=quotePending?12000:8000;
+   (!latest.body?.customer||latest.messageDelivered===true)&&transientDeliveryFailure;
+  retryMs=quotePending?(error?.httpStatus===429?65000:12000):8000;
   const acceptedStore=quotePending?shops.find(s=>s.id===latest.body?.storeId):null;
   deliveryAvailability={
    status:quotePending?'QUOTE_UNAVAILABLE':recovering||sending?'CREATE_UNCERTAIN':
