@@ -262,13 +262,14 @@
       Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
       form.title!=='VALIDACIÓN DE PEDIDO'||
       form.subtitle!=='Confirmar disponibilidad para delivery'||
+      form.title.length>180||form.subtitle.length>350||
       !Array.isArray(form.fields)||form.fields.length!==5)
       throw Error('La solicitud de aprobación requiere exactamente cinco variables.');
     const fields=form.fields.map((item,index)=>{
       if(!item||typeof item!=='object'||Array.isArray(item)||
         Object.keys(item).some(k=>!['variable','value'].includes(k))||
-        item.variable!==labels[index]||typeof item.value!=='string'||
-        !item.value.trim()||item.value.length>(index===0?3900:index===4?600:320)||
+        item.variable!==labels[index]||item.variable.length>80||
+        typeof item.value!=='string'||!item.value.trim()||item.value.length>500||
         /[\x00-\x09\x0b-\x1f]/.test(item.value))
         throw Error('Los campos del FORM no corresponden al contrato de aprobación.');
       return {variable:labels[index],value:item.value};
