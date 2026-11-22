@@ -374,19 +374,25 @@
     // A verified terminal canonical conversation with no commercial decision
     // is a rejection, not an endlessly pending interaction. Require a readable
     // agent-message snapshot: a transient history outage cannot reject an order.
-    const canonicalClosed=['RESOLVED','CLOSED'].includes(data.operationalConversationStatus)&&
-      data.messagesAvailable===true;
-    const closureDecision=canonicalClosed?interpretAgentDecision(data.agentMessages):null;
+    const canonicalClosed=['RESOLVED','CLOSED'].includes(data.operationalConversationStatus);
+    // Closure is an authoritative S2S fact even if message history is down.
+    // Preserve any previously verified ACEPTADO; never infer one from an outage.
+    const verifiedMessages=data.messagesAvailable===true?data.agentMessages:
+      Array.isArray(entry.agentMessages)?entry.agentMessages:[];
+    const closureDecision=canonicalClosed?interpretAgentDecision(verifiedMessages):null;
     // A formal TU VERSO status takes precedence over chat text, especially rejection/expiry.
     let decision=null,agentMessageId=null;
     if(data.status==='EXPIRED')entry.status='EXPIRED';
     else if(data.status==='CANCELLED')entry.status='CANCELLED';
     else if(data.status==='REJECTED'){entry.status='REJECTED';decision='REJECTED';}
     else if(canonicalClosed){
-      decision=closureDecision.decision||'REJECTED';
-      agentMessageId=closureDecision.agentMessageId;
+      decision=closureDecision.decision||(entry.agentDecision==='ACCEPTED'?'ACCEPTED':'REJECTED');
+      agentMessageId=closureDecision.agentMessageId||
+        (decision==='ACCEPTED'?entry.agentMessageId:null);
       entry.status=decision;
-      if(decision==='REJECTED'&&!agentMessageId)entry.rejectionReason='AGENT_CLOSED_WITHOUT_CONFIRMATION';
+      if(decision==='REJECTED'&&!agentMessageId)
+        entry.rejectionReason=data.messagesAvailable===true?'AGENT_CLOSED_WITHOUT_CONFIRMATION':
+          'AGENT_CLOSED_UNCONFIRMED';
     }
     else if(data.status==='ACCEPTED'){
       // Technical acceptance/assignment does not confirm the commercial order.
