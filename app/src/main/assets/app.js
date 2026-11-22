@@ -640,7 +640,7 @@ async function pollAgentDecision(){
   if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
    deliveryAvailability={status:'ERROR',storeName:store?.name||'',candidateNames:[],
     message:'La solicitud dejó de estar vigente. No se continuará al pago.'};
-   if(st.stage==='availability')render();else toast('La solicitud dejó de estar vigente.');
+   if(st.stage==='availability')render();else if(chatOverlay)refreshChatTimeline();else toast('La solicitud dejó de estar vigente.');
    return;
   }
   if(result.decision==='ACCEPTED'){
@@ -650,11 +650,11 @@ async function pollAgentDecision(){
      deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:store?.name||'',candidateNames:[],
       message:'La sede ya respondió ACEPTADO. Terminamos de confirmar el detalle del pedido. '+
        (detailError?.message||'Continuaremos automáticamente cuando esté confirmado.')};render();
-    }else if(st.stage!=='chat'){render();toast('La sede respondió. Sincronizando los detalles del pedido.')}
+    }else if(chatOverlay)refreshChatTimeline();else if(st.stage!=='chat'){render();toast('La sede respondió. Sincronizando los detalles del pedido.')}
    }else if(st.stage==='availability')await completeAcceptedQuote(updated);
    else if(st.stage==='chat'){
     screen('availability');await completeAcceptedQuote(updated);
-   }else{render();toast('¡La sede aceptó tu pedido! Revisa el total y continúa con el pago.');}
+   }else if(chatOverlay)refreshChatTimeline();else{render();toast('¡La sede aceptó tu pedido! Revisa el total y continúa con el pago.');}
    return;
   }
   if(result.decision==='REJECTED'){
@@ -666,7 +666,7 @@ async function pollAgentDecision(){
     render();const run=++deliveryValidationGeneration;
     await requestBackendOrderAvailability({address:st.profile.address,district:st.profile.district,
      run,silent:false});
-   }else{render();toast('La sede no pudo atender tu pedido. Revisa el estado de tu solicitud.');}
+   }else if(chatOverlay)refreshChatTimeline();else{render();toast('La sede no pudo atender tu pedido. Revisa el estado de tu solicitud.');}
    return;
   }
   if(st.stage==='availability'){
