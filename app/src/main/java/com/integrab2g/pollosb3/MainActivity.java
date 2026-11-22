@@ -166,6 +166,15 @@ public class MainActivity extends Activity {
             String configured = getString(R.string.b3_notifications_api_base).trim();
             return configured.startsWith("https://") ? configured : "";
         }
+        /** Metadata-only audit marker: never logs payloads, keys, names or addresses. */
+        @JavascriptInterface public void orderFormDiagnostic(String stage,int count,int status,String type,String result){
+            if(!("JS_BUILD".equals(stage)||"JS_RESPONSE".equals(stage))||count!=5||
+               status<0||status>599)return;
+            String safeType="FORM".equals(type)?"FORM":"TEXT".equals(type)?"TEXT":"OTHER";
+            String safeResult="ACK".equals(result)?"ACK":"NO_ACK".equals(result)?"NO_ACK":"UNKNOWN";
+            android.util.Log.i("B3FormAudit","stage="+stage+" type="+safeType+
+                " fields="+count+" httpStatus="+status+" result="+safeResult);
+        }
         @JavascriptInterface public boolean marketingNotificationsEnabled() {return marketingEnabled();}
         @JavascriptInterface public void markMarketingNotificationRead(String id) {
             if(id==null||id.length()>128||!id.matches("[a-zA-Z0-9_-]+"))return;
@@ -385,6 +394,7 @@ public class MainActivity extends Activity {
             new Thread(() -> {
                 JSONObject reply = new JSONObject();
                 String requestId = "";
+                String operation = "";
                 try {
                     JSONObject request = new JSONObject(requestJson);
                     requestId = request.optString("requestId", "");
@@ -398,12 +408,13 @@ public class MainActivity extends Activity {
                         (base.getRawPath() != null && !base.getRawPath().isEmpty()) ||
                         base.getRawQuery() != null || base.getRawFragment() != null)
                         throw new IllegalArgumentException("Invalid HTTPS backend");
-                    String operation = request.optString("operation", "");
+                    operation = request.optString("operation", "");
                     String path;
                     String body = null;
                     String token = null;
                     String key = null;
                     String accessKey = null;
+                    int approvalFormFields=0;
                     if ("POST".equals(operation)) {
                         key = request.optString("idempotencyKey", "");
                         JSONObject payload = request.optJSONObject("body");
@@ -449,7 +460,10 @@ public class MainActivity extends Activity {
                         JSONObject payload = request.optJSONObject("body");
                         String interactionId = request.optString("interactionId", "");
                         accessKey = request.optString("accessKey", "");
+                        key = request.optString("idempotencyKey", "");
                         if (payload == null ||
+                            !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            key.equalsIgnoreCase(accessKey) ||
                             !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
                             !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
                             !payload.optString("appId", "").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
@@ -463,17 +477,23 @@ public class MainActivity extends Activity {
                             payload.length() != 4 || form == null || form.length() != 3 ||
                             !"VALIDACIÓN DE PEDIDO".equals(form.optString("title", "")) ||
                             !"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
-                            fields == null || (fields.length() != 4 && fields.length() != 5))
+                            fields == null || fields.length() != 5)
                             throw new IllegalArgumentException("Invalid Delivery approval FORM");
-                        String[] allowedFields = {"Productos", "Subtotal", "Total final", "Dirección", "Referencia"};
+                        String[] allowedFields = {"Productos", "Subtotal", "Delivery", "Total final", "Dirección y referencia"};
                         for (int i = 0; i < fields.length(); i++) {
                             JSONObject field = fields.optJSONObject(i);
                             if (field == null || field.length() != 2 ||
                                 !allowedFields[i].equals(field.optString("variable", "")) ||
                                 field.optString("value", "").trim().isEmpty() ||
-                                field.optString("value", "").length() > (i == 0 ? 3900 : 320))
+                                field.optString("value", "").length() > (i == 0 ? 3900 : i == 4 ? 600 : 320))
                                 throw new IllegalArgumentException("Invalid order FORM fields");
                         }
+                        if (!"Por calcular".equals(fields.optJSONObject(2).optString("value", "")) ||
+                            !"Pendiente de confirmación".equals(fields.optJSONObject(3).optString("value", "")))
+                            throw new IllegalArgumentException("Invalid order approval values");
+                        approvalFormFields=fields.length();
+                        android.util.Log.i("B3FormAudit","stage=NATIVE_VALIDATED type=FORM fields="+approvalFormFields+
+                            " endpoint=/api/v1/mobile/interactions/{id}/message");
                         body = payload.toString();
                         path = "/api/v1/mobile/interactions/" + interactionId + "/message";
                     } else if ("INTERACTION_STATUS".equals(operation) ||
@@ -533,7 +553,7 @@ public class MainActivity extends Activity {
                     try {
                         connection.setInstanceFollowRedirects(false);
                         connection.setConnectTimeout(12000);
-                        // Message relay validates the remote interaction first, then sends text.
+                        // Transmits the exact FORM object; it is never serialized as TEXT.
                         // This timeout covers only transport, never waiting for an agent.
                         connection.setReadTimeout("INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
@@ -543,6 +563,10 @@ public class MainActivity extends Activity {
                             "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
                             "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
+                        if ("INTERACTION_MESSAGE".equals(operation))
+                            android.util.Log.i("B3FormAudit","stage=HTTP_OUTBOUND type=FORM fields="+approvalFormFields+
+                                " method=POST endpoint=/api/v1/mobile/interactions/{id}/message"+
+                                " contentType=application/json accessKeyValid=true messageKeyDistinct=true");
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
                         if (accessKey != null) connection.setRequestProperty("X-Order-Access-Key", accessKey);
@@ -575,12 +599,28 @@ public class MainActivity extends Activity {
                                     bytes.write(buffer, 0, count);
                                 }
                             }
-                            reply.put("data", new JSONObject(bytes.toString("UTF-8")));
+                            JSONObject remote = new JSONObject(bytes.toString("UTF-8"));
+                            reply.put("data", remote);
+                            if("INTERACTION_MESSAGE".equals(operation)){
+                                String responseType=remote.optString("type","");
+                                String safeType="FORM".equals(responseType)?"FORM":
+                                    "TEXT".equals(responseType)?"TEXT":"OTHER";
+                                android.util.Log.i("B3FormAudit","stage=HTTP_RESPONSE httpStatus="+status+
+                                    " responseType="+safeType+" delivered="+remote.optBoolean("delivered",false)+
+                                    " hasInteractionId="+remote.has("interactionId")+
+                                    " hasMessageId="+remote.has("messageId"));
+                            }
                         }
                     } finally {
                         connection.disconnect();
                     }
+                } catch (IllegalArgumentException ignored) {
+                    if ("INTERACTION_MESSAGE".equals(operation))
+                        android.util.Log.w("B3FormAudit","stage=LOCAL_REJECT httpStatus=NONE");
+                    try { reply.put("error", "LOCAL_CONTRACT_REJECTED"); } catch (Exception ignored2) {}
                 } catch (Exception ignored) {
+                    if ("INTERACTION_MESSAGE".equals(operation))
+                        android.util.Log.w("B3FormAudit","stage=TRANSPORT_ERROR httpStatus=UNKNOWN");
                     try { reply.put("error", "NETWORK_OR_CONTRACT_ERROR"); } catch (Exception ignored2) {}
                 }
                 final String payload = reply.toString();
