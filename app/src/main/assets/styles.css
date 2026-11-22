@@ -856,3 +856,35 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
  box-shadow:0 4px 16px rgba(35,14,20,.12);
 }
 .persistent-chat.b3-wait-chat-fab:active{transform:scale(.96)}
+
+/* Device location requires separate system activation; permission alone cannot
+   enable GPS. Keep this optional prompt independent from active checkout forms. */
+.b3-location-permission-layer{
+ position:fixed;inset:0;z-index:1600;
+ display:flex;align-items:flex-end;justify-content:center;
+ padding:12px 12px calc(16px + env(safe-area-inset-bottom,0px));
+}
+.b3-location-permission-backdrop{
+ position:absolute;inset:0;background:rgba(24,13,17,.38);
+}
+.b3-location-permission-sheet{
+ position:relative;width:100%;max-width:460px;
+ background:#fff;border-radius:23px;
+ padding:27px 23px 21px;box-shadow:0 20px 60px rgba(24,13,17,.25);
+ border:1px solid #f0dbde;display:grid;gap:12px;
+}
+.b3-location-kicker{
+ font-weight:900;font-size:10px;letter-spacing:.14em;color:#b51a32;
+}
+.b3-location-permission-sheet h2{
+ font-weight:850;font-size:22px;line-height:1.2;margin:0;color:#241b20;
+}
+.b3-location-permission-sheet p{
+ font-size:14px;line-height:1.5;margin:2px 0 10px;color:#6f6368;
+}
+.b3-location-permission-sheet button{min-height:48px}
+@media(max-width:370px){
+ .b3-location-permission-layer{padding:8px 8px calc(9px + env(safe-area-inset-bottom,0px))}
+ .b3-location-permission-sheet{padding:22px 17px 16px}
+ .b3-location-permission-sheet h2{font-size:20px}
+}
