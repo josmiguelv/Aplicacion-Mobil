@@ -34,6 +34,7 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 41;
     private static final int NOTIFICATION_REQUEST = 42;
+    private static final int PERSONAL_NOTIFICATION_REQUEST = 43;
     static final String MARKETING_TOPIC = "pollosb3_promotions";
     static final String NOTIFICATION_CHANNEL = "pollosb3_promotions";
     static final String PERSONAL_ORDER_CHANNEL = "pollosb3_personal_orders";
@@ -182,7 +183,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(()->{if(web!=null)web.evaluateJavascript("window.b3PersonalPushToken && window.b3PersonalPushToken("+JSONObject.quote(value)+")",null);});
             });
             if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
-                runOnUiThread(()->requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},NOTIFICATION_REQUEST));
+                runOnUiThread(()->requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},PERSONAL_NOTIFICATION_REQUEST));
             }
         }
         @JavascriptInterface public void requestLocation() {
@@ -464,7 +465,7 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid interaction tracking");
                         path = "/api/v1/mobile/interactions/" + interactionId;
                         if ("INTERACTION_STATUS".equals(operation) || "INTERACTION_PAYMENT_STATUS".equals(operation)) {
-                            path += "INTERACTION_STATUS".equals(operation)?"/status?appId=":"/payment?appId=" + java.net.URLEncoder.encode(appId, "UTF-8") +
+                            path += ("INTERACTION_STATUS".equals(operation)?"/status?appId=":"/payment?appId=") + java.net.URLEncoder.encode(appId, "UTF-8") +
                                 "&storeId=" + java.net.URLEncoder.encode(storeId, "UTF-8");
                         } else {
                             path += "INTERACTION_CANCEL".equals(operation)?"/cancel":"INTERACTION_DEVICE".equals(operation)?"/device":"/payment";
@@ -617,6 +618,8 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // Private order push permission must never opt the customer into marketing.
+        if(requestCode==PERSONAL_NOTIFICATION_REQUEST)return;
         if(requestCode==NOTIFICATION_REQUEST){
             if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)setMarketingOptIn(true);
             else sendMarketingStatus(false,"Android no autorizó mostrar avisos. Puedes habilitarlos en Ajustes.");
