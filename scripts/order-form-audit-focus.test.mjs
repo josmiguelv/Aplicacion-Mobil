@@ -23,8 +23,6 @@ const form=()=>({
  fields:[
   {variable:'Productos',value:'1 x Producto publicado — S/ 45.00'},
   {variable:'Subtotal',value:'S/ 45.00'},
-  {variable:'Delivery',value:'Por calcular'},
-  {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección y referencia',value:'Av. Ejemplo 123, Santa Anita — Referencia de prueba'}
  ]
 });
@@ -64,7 +62,7 @@ const accept=req=>({requestId:req.requestId,status:200,
 const create=req=>({requestId:req.requestId,status:201,
  data:{interactionId:uuid,status:'PENDING',storeId:store,externalReference:'mobile:synthetic'}});
 
-test('01 - FORM válido, cinco variables, dos operaciones y cabeceras nativas',async()=>{
+test('01 - FORM válido, tres variables, dos operaciones y cabeceras nativas',async()=>{
  const c=harness(req=>req.operation==='INTERACTION_CREATE'?create(req):accept(req));
  const entry=c.api.prepareInteraction(input());
  await c.api.createInteraction(entry);
@@ -72,7 +70,11 @@ test('01 - FORM válido, cinco variables, dos operaciones y cabeceras nativas',a
  assert.equal(result.type,'FORM');
  assert.deepEqual(c.requests.map(r=>r.operation),['INTERACTION_CREATE','INTERACTION_MESSAGE']);
  assert.deepEqual(JSON.parse(JSON.stringify(c.requests[1].body)),{type:'FORM',appId,storeId:store,form:form()});
- assert.equal(c.requests[1].body.form.fields.length,5);
+ assert.equal(c.requests[1].body.form.fields.length,3);
+ assert.deepEqual(c.requests[1].body.form.fields.map(x=>x.variable),
+   ['Productos','Subtotal','Dirección y referencia']);
+ assert.ok(!JSON.stringify(c.requests[1].body).includes('Por calcular'));
+ assert.ok(!JSON.stringify(c.requests[1].body).includes('Pendiente de confirmación'));
  for(const forbidden of ['text','items','customer','catalogRevision'])
   assert.equal(forbidden in c.requests[1].body,false);
  assert.equal(c.requests[1].accessKey,entry.idempotencyKey);
@@ -82,16 +84,16 @@ test('01 - FORM válido, cinco variables, dos operaciones y cabeceras nativas',a
  assert.match(java,/connection\.setRequestProperty\("Content-Type", "application\/json"\)/);
  assert.match(java,/connection\.setRequestProperty\("X-Order-Access-Key", accessKey\)/);
  assert.match(java,/connection\.setRequestProperty\("Idempotency-Key", key\)/);
- assert.ok(c.traces.some(t=>t[0]==='JS_BUILD'&&t[1]===5&&t[3]==='FORM'));
- assert.ok(c.traces.some(t=>t[0]==='JS_RESPONSE'&&t[2]===200&&t[3]==='FORM'));
+ assert.ok(c.traces.some(t=>t[0]==='JS_BUILD'&&t[1]===3&&t[3]==='FORM'));
+ assert.ok(c.traces.some(t=>t[0]==='JS_RESPONSE'&&t[1]===3&&t[2]===200&&t[3]==='FORM'));
 });
-test('02 - FORM con seis variables se rechaza antes de cualquier petición HTTP',()=>{
+test('02 - FORM con variable adicional se rechaza antes de cualquier petición HTTP',()=>{
  const c=harness(()=>{throw Error('No debe llamarse al puente')});
- const six=form();
- six.fields.push({variable:'Nota adicional',value:'No permitido'});
- assert.throws(()=>c.api.prepareInteraction(input(six)),/exactamente cinco variables/);
+ const four=form();
+ four.fields.push({variable:'Delivery',value:'Por calcular'});
+ assert.throws(()=>c.api.prepareInteraction(input(four)),/exactamente tres variables/);
  assert.equal(c.requests.length,0);
- assert.match(java,/fields == null \|\| fields\.length\(\) != 5/);
+ assert.match(java,/fields == null \|\| fields\.length\(\) != 3/);
 });
 test('03 - TEXT no se convierte en FORM ni se confirma como entrega de formulario',async()=>{
  const c=harness(req=>req.operation==='INTERACTION_CREATE'?create(req):{
@@ -256,7 +258,7 @@ test('08 - JVM ejecuta regex UUID reales de INTERACTION_MESSAGE con claves valid
 test('09 - FORM supera 500/80/180/350: rechazo local sin crear interaccion ni truncar',()=>{
  const cases=[
   f=>{f.fields[0].value='X'.repeat(501);},
-  f=>{f.fields[4].value='Y'.repeat(501);},
+  f=>{f.fields[2].value='Y'.repeat(501);},
   f=>{f.fields[1].variable='Z'.repeat(81);},
   f=>{f.title='T'.repeat(181);},
   f=>{f.subtitle='S'.repeat(351);}
@@ -265,7 +267,7 @@ test('09 - FORM supera 500/80/180/350: rechazo local sin crear interaccion ni tr
   const c=harness(()=>{throw Error('No debe consultarse red')});
   const bad=form();
   mutate(bad);
-  assert.throws(()=>c.api.prepareInteraction(input(bad)),/FORM|cinco variables/);
+  assert.throws(()=>c.api.prepareInteraction(input(bad)),/FORM|tres variables/);
   assert.equal(c.requests.length,0,'Un FORM invalido jamas debe llamar al puente');
  }
  assert.match(java,/form\.optString\("title", ""\)\.length\(\) > 180/);
@@ -286,7 +288,7 @@ test('10 - construccion real app.js rechaza 501 caracteres de Productos antes de
   st:{profile:{reference:''}}
  };
  runInNewContext(fn[0],context);
- assert.equal(context.deliveryOrderTicketForm('Av. Ejemplo 123','Santa Anita').fields.length,5);
+ assert.equal(context.deliveryOrderTicketForm('Av. Ejemplo 123','Santa Anita').fields.length,3);
  productName='X'.repeat(501);
  assert.throws(()=>context.deliveryOrderTicketForm('Av. Ejemplo 123','Santa Anita'),
    /500 caracteres/, 'No se debe truncar informacion comercial');
