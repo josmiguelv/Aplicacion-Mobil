@@ -530,3 +530,70 @@ test('no delivery: preserves cart and shows reason without automatically opening
  assert.match(source,/function confirmB3\(/);
  assert.doesNotMatch(source,/window\.confirm\(/);
 });
+
+test('cancelación de solicitud activa informa fallo y reintenta el mismo ID sin crear pedidos',async()=>{
+ const entry={status:'PENDING',interactionId:'a2e616af-8c52-4776-b3b1-b446fc9b74a9',
+  idempotencyKey:'a1e616af-8c52-4776-b3b1-b446fc9b74a9',body:{storeId:storeA}};
+ let tries=0,confirmations=0;
+ const events=[];
+ const context={
+  checkoutCancelInFlight:false,checkoutReviewNote:'',deliveryAvailability:{status:'WAITING_APPROVAL'},
+  deliveryValidationGeneration:0,
+  st:{stage:'availability',quote:null,store:storeA,pay:'yape'},
+  window:{B3OrderAvailability:{
+   readInteraction:()=>entry,
+   cancelInteraction:async(value,options)=>{
+    assert.equal(value,entry);
+    assert.equal(options.reason,'CANCEL');
+    tries++;
+    if(tries===1)throw Error('La conversación ya está cerrada');
+    entry.status='CANCELLED';
+    return {status:'CANCELLED'};
+   }
+  }},
+  confirmB3:async()=>{confirmations++;return true},
+  render:()=>events.push('RENDER'),save:()=>events.push('SAVE'),
+  stopAgentDecisionPoll:()=>events.push('STOP'),
+  clearDeliveryAvailability:()=>events.push('CLEAR'),
+  nav:destination=>events.push('NAV:'+destination),
+  screen:destination=>events.push('SCREEN:'+destination),
+  toast:message=>events.push('TOAST:'+message),
+ };
+ vm.runInNewContext(extract('cancelPersonalCheckout'),context);
+ await context.cancelPersonalCheckout();
+ assert.equal(confirmations,1);
+ assert.equal(tries,1);
+ assert.equal(entry.status,'PENDING');
+ assert.equal(context.deliveryAvailability.reason,'CANCEL_NOT_CONFIRMED');
+ assert.match(context.deliveryAvailability.message,/No pudimos confirmar la cancelación/);
+ assert.equal(context.checkoutCancelInFlight,false);
+ assert.equal(events.filter(x=>x.startsWith('SCREEN:')).length,0);
+ await context.cancelPersonalCheckout('CANCEL',true);
+ assert.equal(confirmations,1,'Second tap is not another confirmation modal');
+ assert.equal(tries,2,'Retry cancels same interaction, no creation');
+ assert.equal(entry.status,'CANCELLED');
+ assert.equal(context.deliveryAvailability.status,'CANCELLED');
+ assert.deepEqual(events.filter(x=>x.startsWith('SCREEN:')),['SCREEN:availability']);
+ assert.equal(context.checkoutCancelInFlight,false);
+});
+
+test('cliente no ve botones de diagnóstico, y cancelación fallida ofrece acción específica',()=>{
+ assert.doesNotMatch(source,/data-availability-health|Reintentar conexión|Verificar conexión con el servidor/);
+ const entry={status:'PENDING',body:{storeId:storeA}};
+ const context={
+  st:{profile:{address:'Av. Ejemplo 123',district:'Santa Anita'},mode:'delivery',quote:null},
+  window:{B3OrderAvailability:{readInteraction:()=>entry}},
+  deliveryAvailability:{status:'ERROR',message:'No pudimos confirmar la cancelación.',
+   reason:'CANCEL_NOT_CONFIRMED',storeName:'Sede de prueba',candidateNames:[]},
+  activePersonalCheckout:()=>entry,heading:()=>'<header>Estado</header>',
+  ic:()=>'',esc:x=>String(x),cash:x=>'S/ '+x,subtotal:()=>13,cartCount:()=>1,
+  deliveryRequestPending:false,checkoutCancelInFlight:false,
+  deliveryQuoteValid:()=>false,deliveryValidationStep:'ESPERANDO_SEDE'
+ };
+ vm.runInNewContext(extract('availability'),context);
+ const html=context.availability();
+ assert.match(html,/Reintentar cancelación/);
+ assert.match(html,/data-checkout-cancel="1"/);
+ assert.doesNotMatch(html,/Reintentar conexión|Verificar conexión con el servidor|Etapa registrada/);
+ assert.equal((html.match(/data-checkout-cancel="1"/g)||[]).length,1);
+});
