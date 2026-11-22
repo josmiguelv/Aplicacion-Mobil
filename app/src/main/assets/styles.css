@@ -981,3 +981,12 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
  .b3-fulfillment-outcome-card{min-height:280px;padding:12px 4px;gap:10px}
  .b3-fulfillment-outcome-icon{width:65px;height:65px;border-radius:20px}
 }
+
+/* Terminal delivery outcome: display a short explanation directly in the
+   existing fulfillment selector. No new interaction or automatic retry. */
+.b3-fulfillment-outcome-banner{
+ border:1px solid #f0dce0;border-radius:15px;background:#fff5f5;
+ padding:13px 15px;margin:0 0 13px;color:#7e2b38;
+}
+.b3-fulfillment-outcome-banner strong{display:block;font-size:13px;font-weight:850;margin-bottom:5px}
+.b3-fulfillment-outcome-banner p{font-size:12px;line-height:1.5;margin:0;color:#6c555d}
