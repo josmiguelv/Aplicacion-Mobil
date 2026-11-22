@@ -539,7 +539,7 @@ function scheduleAgentDecisionPoll(delay=3200){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(entry?.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&st.stage!=='availability')return;
  if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
- if(st.stage==='availability'&&deliveryAvailability.status==='ERROR')return;
+ if(st.stage==='availability'&&deliveryAvailability.status==='ERROR'&&entry.status!=='ACCEPTED')return;
  if(entry.status!=='SUBMITTING'&&!entry.interactionId)return;
  agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},delay);
 }
@@ -590,7 +590,7 @@ async function pollAgentDecision(){
     !['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status)||
     (entry.status!=='SUBMITTING'&&!entry.interactionId))return;
  if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&st.stage!=='availability')return;
- if(st.stage==='availability'&&deliveryAvailability.status==='ERROR')return;
+ if(st.stage==='availability'&&deliveryAvailability.status==='ERROR'&&entry.status!=='ACCEPTED')return;
  agentDecisionPolling=true;
  let retryMs=3200;
  try{
@@ -688,7 +688,7 @@ async function pollAgentDecision(){
   const current=api?.readInteraction?.();
   if(['PENDING','SUBMITTING'].includes(current?.status)||
      current?.status==='ACCEPTED'&&(current.agentDecision!=='ACCEPTED'||
-      st.stage==='availability'&&(!current.paymentExpiresAt||!deliveryQuoteValid())))
+      st.stage==='availability'))
    scheduleAgentDecisionPoll(retryMs);
  }
 }
