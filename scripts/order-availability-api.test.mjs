@@ -359,6 +359,9 @@ test('la app interpreta texto exacto, primera decisión definitiva y estados rem
  const samples=[
   {status:'PENDING',messages:[message('  ACEPTADO.  ')],decision:'ACCEPTED',clientStatus:'ACCEPTED'},
   {status:'PENDING',messages:[message('aceptada')],decision:'ACCEPTED',clientStatus:'ACCEPTED'},
+  {status:'PENDING',messages:[message('ACEPTAR')],decision:'ACCEPTED',clientStatus:'ACCEPTED'},
+  {status:'PENDING',messages:[message('RECHAZAR')],decision:'REJECTED',clientStatus:'REJECTED'},
+  {status:'PENDING',messages:[message('no aceptar')],decision:null,clientStatus:'PENDING'},
   {status:'PENDING',messages:[message('rechazado')],decision:'REJECTED',clientStatus:'REJECTED'},
   {status:'PENDING',messages:[message('rechazada')],decision:'REJECTED',clientStatus:'REJECTED'},
   {status:'PENDING',messages:[message('no acepto')],decision:null,clientStatus:'PENDING'},
