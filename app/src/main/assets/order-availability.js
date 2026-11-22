@@ -240,15 +240,15 @@
   // Store the exact display ticket once, separate from the CREATE payload.
   // No Cliente or Teléfono fields: identity already travels with customer.
   function normalizeOrderForm(form) {
-    const labels=['Productos','Subtotal','Delivery','Total final','Dirección'];
+    const labels=['Productos','Subtotal','Total final','Dirección'];
     if(!form||typeof form!=='object'||Array.isArray(form)||
       Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
       form.title!=='VALIDACIÓN DE PEDIDO'||
       form.subtitle!=='Confirmar disponibilidad para delivery'||
-      !Array.isArray(form.fields)||![5,6].includes(form.fields.length))
+      !Array.isArray(form.fields)||![4,5].includes(form.fields.length))
       throw Error('El ticket de validación tiene un formato inválido.');
     const fields=form.fields.map((item,index)=>{
-      const expected=labels[index]||(index===5?'Referencia':null);
+      const expected=labels[index]||(index===4?'Referencia':null);
       if(!item||typeof item!=='object'||Array.isArray(item)||
         Object.keys(item).some(k=>!['variable','value'].includes(k))||
         item.variable!==expected||typeof item.value!=='string'||
