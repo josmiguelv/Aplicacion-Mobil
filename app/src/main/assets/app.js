@@ -1375,6 +1375,19 @@ function availability(){
 }
 function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" maxlength="60" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" maxlength="60" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
 function phone(){return `<div class="page form">${heading('Tu teléfono','identity')}<p class="sub">Lo usaremos para identificar tu pedido. En esta demo no enviaremos mensajes ni códigos.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(st.profile.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`}
+function personalCheckoutCountdown(){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ const ms=Date.parse(entry?.paymentExpiresAt||'')-Date.now();
+ if(!Number.isFinite(ms))return 'Pendiente de confirmar';
+ if(ms<=0)return 'Plazo vencido';
+ const seconds=Math.ceil(ms/1000);
+ return String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+}
+function personalCheckoutTimeHtml(){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry?.paymentExpiresAt)return '';
+ return `<div class="b3-checkout-clock" role="status">Tiempo disponible para el pago: <strong data-checkout-remaining>${personalCheckoutCountdown()}</strong></div>`;
+}
 function prepaymentReview(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  const valid=entry?.status==='ACCEPTED'&&deliveryQuoteValid();
@@ -1389,10 +1402,14 @@ function prepaymentReview(){
    <p>Delivery <b>${valid?cash(st.quote.deliveryFeePen):'Por confirmar'}</b></p>
    <p class="grand">Total a pagar <strong>${valid?cash(orderTotal()):'Pendiente'}</strong></p>
   </div>
+  ${personalCheckoutTimeHtml()}
+  <p class="b3-checkout-price-note">El delivery se estima por la distancia en línea recta y la tarifa publicada de la sede, sin Google Routes. El importe se muestra antes de elegir cómo pagar.</p>
   ${checkoutReviewNote?'<div class="notice" role="alert">'+esc(checkoutReviewNote)+'</div>':''}
   <p class="smallprint">No se realizará ningún cobro. Solo podrás revisar los métodos de pago disponibles.</p>
   <button class="primary full" data-prepay-payment="1" ${valid?'':'disabled'}>Elegir método de pago</button>
   <button class="outline full" data-prepay-add="1">Agregar o cambiar productos</button>
+  <button class="outline full" data-prepay-cancel="1">Cancelar mi solicitud</button>
+  <button class="outline full" data-checkout-leave="1">Seguir explorando la app</button>
   ${!valid?'<button class="outline full" data-prepay-retry="1">Reintentar cotización</button>':''}
  </div>`;
 }
@@ -1400,7 +1417,8 @@ function payment(){
  const available=paymentOptions();
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const missing=st.configReady&&!available.length;
- return `<div class="page">${heading('Método de pago','phone')}
+ return `<div class="page">${heading('Método de pago','prepaymentReview')}
+ ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?`<div class="summary-card"><h2>Total de tu pedido</h2><p>Productos <b>${cash(subtotal())}</b></p><p>Delivery estimado <b>${cash(st.quote.deliveryFeePen)}</b></p><p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
  <p class="sub">Solo aparecen los métodos habilitados para tu local y modalidad. No hay cobros reales en este piloto.</p>
  <div class="method-list">${available.map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>
  ${missing?`<div class="notice" role="alert">${esc(selected?.name||'La sede asignada')} no tiene métodos de pago publicados para ${st.mode==='delivery'?'delivery':'recojo'}. Deben habilitarse desde el administrador web antes de continuar.</div><button type="button" class="outline full" data-screen="${st.mode==='delivery'?'deliveryAddress':'locations'}">Cambiar sede o modalidad</button>`:''}
@@ -1408,7 +1426,8 @@ function payment(){
  ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
  ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?
    '<div class="notice">Puedes revisar los métodos habilitados. La confirmación y el cobro quedan para la siguiente fase.</div>':
-   `<button class="primary full" data-pay-next="1" ${missing||checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando locales y costo...':'Continuar'}</button>`}</div>`;
+   `<button class="primary full" data-pay-next="1" ${missing||checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando locales y costo...':'Continuar'}</button>`}
+ ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?'<button class="outline full" data-prepay-add="1">Agregar productos (cancelar solicitud anterior)</button><button class="outline full" data-prepay-cancel="1">Cancelar solicitud</button><button class="outline full" data-checkout-leave="1">Seguir explorando</button>':''}</div>`;
 }
 function summary(){
  const selectedStore=shops.find(x=>String(x.id)===String(st.store));
