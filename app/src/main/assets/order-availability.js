@@ -291,19 +291,26 @@
       items:items.map(i=>({productId:i.productId,quantity:i.quantity}))
         .sort((a,b)=>a.productId.localeCompare(b.productId))};
     if(safeCustomer)body.customer=safeCustomer;
+    // A submitted Delivery order must have the exact approval ticket before its message POST.
+    // Do not change the CREATE payload or reissue an existing interaction.
     const formSnapshot=orderForm===undefined?null:normalizeOrderForm(orderForm);
     const fingerprint=JSON.stringify({...body,address:String(address||'').trim(),
       district:String(district||'').trim()});
     const prior=readInteraction();
-    if(prior?.fingerprint===fingerprint&&!['REJECTED','CANCELLED','EXPIRED'].includes(prior.status))return prior;
+    if(prior?.fingerprint===fingerprint&&!['REJECTED','CANCELLED','EXPIRED'].includes(prior.status)){
+      // An older pending request may lack the ticket; upgrade the same request in place.
+      // Never replace a snapshot that has already been sent or prepared.
+      if(safeCustomer&&formSnapshot&&!prior.orderForm&&prior.messageDelivered!==true){
+        prior.orderForm=formSnapshot;
+        persistInteraction(prior);
+      }
+      return prior;
+    }
     if(prior&&!['PREPARED','REJECTED','CANCELLED','EXPIRED'].includes(prior.status))
       throw Error('Ya existe una solicitud de atención iniciada. No enviaremos otro formulario mientras no se confirme su resolución.');
     const now=Date.now();
-    const messageFormat=root.AndroidBridge?.isOrderFormEnabled?.()===true?'FORM':'TEXT';
-    if(messageFormat==='FORM'&&!formSnapshot)
-      throw Error('La validación estructurada requiere un ticket del catálogo publicado.');
     return persistInteraction({fingerprint,body,
-      ...(formSnapshot?{orderForm:formSnapshot}:{}),messageFormat,
+      ...(formSnapshot?{orderForm:formSnapshot}:{}),
       idempotencyKey:uuid(),interactionId:null,
       status:'PREPARED',createdAt:now,activity:[{type:'prepared',at:now}]});
   }
@@ -336,15 +343,15 @@
   }
   async function sendInteractionMessage(entry) {
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
-       !entry.body?.customer||!['PENDING','ACCEPTED'].includes(entry.status))
-      throw Error('No existe una interacción pendiente para enviar el texto.');
+       !entry.body?.customer||entry.body.customer.mode!=='delivery'||
+       !['PENDING','ACCEPTED'].includes(entry.status))
+      throw Error('No existe una solicitud de aprobación de Delivery pendiente.');
     if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
-    const structured=entry.messageFormat==='FORM';
-    if(structured&&!entry.orderForm)
-      throw Error('La solicitud no contiene el ticket estructurado validado.');
-    const messageBody=structured?
-      {type:'FORM',appId:entry.body.appId,storeId:entry.body.storeId,
-        form:normalizeOrderForm(entry.orderForm)}:entry.body;
+    if(!entry.orderForm)
+      throw Error('Falta el ticket FORM obligatorio para la aprobación del pedido.');
+    // This endpoint sends only an order-approval FORM, never a generic text message.
+    const messageBody={type:'FORM',appId:entry.body.appId,storeId:entry.body.storeId,
+      form:normalizeOrderForm(entry.orderForm)};
     const response=await nativeRequest({operation:'INTERACTION_MESSAGE',
       interactionId:entry.interactionId,accessKey:entry.idempotencyKey,body:messageBody});
     if(Number(response.status)!==200)
