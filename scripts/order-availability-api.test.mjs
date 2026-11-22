@@ -20,11 +20,11 @@ function mockStorage() {
     keys:()=>[...items.keys()]
   };
 }
-function client(responder=()=>{}) {
+function client(responder=()=>{},formEnabled=false) {
   const localStorage=mockStorage(),sessionStorage=mockStorage(),requests=[];
   const window={crypto:webcrypto,Uint8Array,btoa,text:undefined,
     localStorage,sessionStorage,setTimeout,clearTimeout};
-  window.AndroidBridge={orderAvailabilityRequest(raw){
+  window.AndroidBridge={isOrderFormEnabled:()=>formEnabled,orderAvailabilityRequest(raw){
     const req=JSON.parse(raw);requests.push(req);
     queueMicrotask(()=>window.b3OrderAvailabilityNativeResponse(JSON.stringify(
       responder(req,requests.length) || {requestId:req.requestId,status:202,
@@ -309,7 +309,7 @@ test('error temporal de envío del texto preserva interacción y reintenta sin r
  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
   items:[{productId,quantity:1}],address:contact.address,district:contact.district,customer:contact})
  await c.api.createInteraction(entry)
- await assert.rejects(()=>c.api.sendInteractionMessage(entry),/No se pudo confirmar el texto del pedido/)
+ await assert.rejects(()=>c.api.sendInteractionMessage(entry),/No se pudo confirmar el ticket del pedido/)
  assert.equal(c.api.readInteraction().interactionId,interactionId)
  assert.equal(c.api.readInteraction().messageDelivered,false)
  await c.api.sendInteractionMessage(entry)
@@ -584,4 +584,101 @@ test('cierre operativo del agente sin ACEPTADO/RECHAZADO equivale a rechazo solo
    createdAt:'2026-11-22T04:00:00Z'}]});
  assert.equal(approved.result.decision,'ACCEPTED');
  assert.equal(approved.entry.status,'ACCEPTED');
+});
+
+test('FORM usa el POST existente, cliente solo en CREATE y ticket sin nombre ni teléfono',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
+ const customer={firstName:'Ana',lastName:'Quispe',phone:'912345678',
+  address:'Av. Principal 123',district:'Santa Anita',reference:'Portón negro',mode:'delivery'};
+ const form={title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',fields:[
+  {variable:'Productos',value:'2 x Pollo a la brasa — S/ 90.00'},
+  {variable:'Subtotal',value:'S/ 90.00'},
+  {variable:'Delivery',value:'Por calcular'},
+  {variable:'Total final',value:'Pendiente de confirmación'},
+  {variable:'Dirección',value:'Av. Principal 123, Santa Anita'},
+  {variable:'Referencia',value:'Portón negro'}
+ ]};
+ const c=client(req=>req.operation==='INTERACTION_CREATE'?
+  {requestId:req.requestId,status:201,data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ok'}}:
+  {requestId:req.requestId,status:200,data:{interactionId,messageId,delivered:true}},true);
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:2}],address:customer.address,district:customer.district,
+  customer,orderForm:form});
+ assert.equal(entry.messageFormat,'FORM');
+ assert.ok(!('form' in entry.body)&&!('type' in entry.body));
+ assert.equal(entry.body.customer.phone,'912345678');
+ await c.api.createInteraction(entry);
+ await c.api.sendInteractionMessage(entry);
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_MESSAGE']);
+ assert.equal(c.requests[0].body.customer.phone,'912345678');
+ assert.deepEqual(JSON.parse(JSON.stringify(c.requests[1].body)),{
+  type:'FORM',appId:'com.integrab2g.pollosb3',storeId,form
+ });
+ assert.equal(c.requests[1].interactionId,interactionId);
+ assert.equal(c.requests[1].accessKey,entry.idempotencyKey);
+ assert.equal('customer' in c.requests[1].body,false);
+ assert.equal('phone' in c.requests[1].body,false);
+ assert.equal('items' in c.requests[1].body,false);
+ assert.equal('catalogRevision' in c.requests[1].body,false);
+ await c.api.sendInteractionMessage(entry);
+ assert.equal(c.requests.length,2,'A delivered ticket is never duplicated');
+});
+test('FORM reintenta la misma ficha y la misma interacción ante HTTP 503',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
+ const customer={firstName:'Ana',lastName:'Quispe',phone:'912345678',
+  address:'Av. Principal 123',district:'Santa Anita',reference:'',mode:'delivery'};
+ const form={title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',fields:[
+  {variable:'Productos',value:'1 x Producto publicado — S/ 30.00'},
+  {variable:'Subtotal',value:'S/ 30.00'},{variable:'Delivery',value:'Por calcular'},
+  {variable:'Total final',value:'Pendiente de confirmación'},
+  {variable:'Dirección',value:'Av. Principal 123, Santa Anita'}]};
+ let attempts=0;
+ const c=client(req=>{
+  if(req.operation==='INTERACTION_CREATE')
+   return {requestId:req.requestId,status:201,
+    data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ok'}};
+  attempts++;
+  return attempts===1?
+   {requestId:req.requestId,status:503,data:{error:'Temporal'}}:
+   {requestId:req.requestId,status:200,data:{interactionId,messageId,delivered:true}};
+ },true);
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:customer.address,district:customer.district,
+  customer,orderForm:form});
+ await c.api.createInteraction(entry);
+ await assert.rejects(()=>c.api.sendInteractionMessage(entry),/HTTP 503/);
+ assert.equal(entry.messageDelivered,false);
+ const snapshot=JSON.stringify(c.requests[1].body);
+ await c.api.sendInteractionMessage(c.api.readInteraction());
+ assert.equal(JSON.stringify(c.requests[2].body),snapshot,'Retry reuses identical ticket snapshot');
+ assert.equal(c.requests[1].interactionId,c.requests[2].interactionId);
+ assert.equal(c.requests[1].accessKey,c.requests[2].accessKey);
+ assert.equal(c.requests.filter(x=>x.operation==='INTERACTION_CREATE').length,1);
+});
+test('FORM inválido o repetición de cliente y teléfono se rechaza antes de enviar',()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const args={appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Principal 123',district:'Santa Anita',
+  customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',
+   address:'Av. Principal 123',district:'Santa Anita',mode:'delivery'}};
+ const valid={title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',
+  fields:[{variable:'Productos',value:'1 x Pollo'},{variable:'Subtotal',value:'S/ 30.00'},
+   {variable:'Delivery',value:'Por calcular'},
+   {variable:'Total final',value:'Pendiente de confirmación'},
+   {variable:'Dirección',value:'Av. Principal 123, Santa Anita'}]};
+ const a=client(()=>{},true);
+ assert.throws(()=>a.api.prepareInteraction({...args,orderForm:{
+  ...valid,fields:[...valid.fields,{variable:'Cliente',value:'Ana'}]
+ }}),/ticket de validación|campos del ticket/);
+ assert.throws(()=>a.api.prepareInteraction({...args,orderForm:{
+  ...valid,fields:[...valid.fields,{variable:'Teléfono',value:'912345678'}]
+ }}),/ticket de validación|campos del ticket/);
+ assert.equal(a.requests.length,0);
+ const legacy=client(()=>{},false);
+ const value=legacy.api.prepareInteraction({...args,orderForm:valid});
+ assert.equal(value.messageFormat,'TEXT','New FORM is opt-in until administrator supports it');
 });
