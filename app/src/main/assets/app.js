@@ -49,6 +49,7 @@ let loginFromAccount=false;
 let addressEditId=null;
 let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
+let fulfillmentOutcomeNote=''; // Terminal outcome only; never initiates a new request.
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
 let checkoutRefreshPending=false,checkoutReviewNote=''; // fresh availability at each checkout gate
 let deliveryRequestPending=false,deliveryRequestError=''; // visible state while validating the address
@@ -668,7 +669,7 @@ async function pollAgentDecision(){
    deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
     message:(store?.name||'La sede consultada')+
       ' no aceptó tu solicitud. No la volveremos a enviar automáticamente. Puedes elegir recojo en tienda.'};
-   if(st.stage==='availability')render();
+   if(st.stage==='availability')openAlternateFulfillment(deliveryAvailability.message);
    else if(chatOverlay)refreshChatTimeline();
    else{render();toast('La sede no aceptó el pedido. Puedes cambiar a recojo en tienda.')}
    return;
@@ -756,7 +757,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   if(/^No hay locales habilitados para delivery|^No hay locales con horario abierto|^La dirección está fuera del radio|está cerrado en este momento\./.test(String(error?.message||''))){
    deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
     message:String(error.message)+' Puedes elegir recojo en tienda u otra modalidad.'};
-   render();return false;
+   openAlternateFulfillment(deliveryAvailability.message);return false;
   }
   throw error;
  }
@@ -765,7 +766,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  if(!consultable.length){
   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
    message:'No encontramos una sede disponible para este delivery. Puedes cambiar a recojo en tienda sin volver a enviar la solicitud.'};
-  render();return false;
+  openAlternateFulfillment(deliveryAvailability.message);return false;
  }
  let selected=null;
  for(const {store} of consultable){
@@ -781,7 +782,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  if(!selected){
   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
    message:'Las sedes elegibles no tienen atención disponible para este delivery. Puedes elegir recojo en tienda.'};
-  render();return false;
+  openAlternateFulfillment(deliveryAvailability.message);return false;
  }
  st.store=selected.id;st.quote=null;save();
  deliveryValidationStep='PREPARANDO_INTERACCION';
@@ -1157,9 +1158,15 @@ function returnToPersonalCheckout(){
   deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
    message:(store?.name||'La sede consultada')+
     ' no aceptó tu solicitud. No la reenviaremos. Puedes cambiar a recojo en tienda.'};
-  screen('availability');
+  openAlternateFulfillment(deliveryAvailability.message);
  }
  else screen('availability');
+}
+function openAlternateFulfillment(message){
+ // Only a terminal decision reaches here; never automatically retry availability.
+ fulfillmentOutcomeNote=String(message||'No hay delivery disponible. Elige otra forma de recibir tu pedido.');
+ st.quote=null;st.store='';st.pay='';checkoutPending=false;
+ screen('choice');
 }
 function screen(n){
  if(n==='chat'){openChatOverlay();return}
@@ -1277,6 +1284,7 @@ function fulfillmentOverlay(){
     <div class="b3-modal-handle" aria-hidden="true"></div>
     <div class="b3-modal-heading"><div><h2>${choice?'¿Para dónde hoy?':delivery?'Pollo Delivery':'Pide y Retira'}</h2><p>${choice?'Elige cómo quieres recibir tu pedido':delivery?'Indica dónde entregaremos tu pedido':'Elige dónde recogerás tu pedido'}</p></div>
     <button type="button" data-modal-close="1" class="b3-modal-close" aria-label="Cerrar">${ic('close',21)}</button></div>
+    ${choice&&fulfillmentOutcomeNote?`<div class="b3-fulfillment-outcome-banner" role="status"><strong>Tu pedido sigue en el carrito</strong><p>${esc(fulfillmentOutcomeNote)}</p></div>`:'' }
     ${!choice?`<button type="button" class="b3-modal-back" data-modal-back="1">${ic('back',17)} Cambiar modalidad</button>`:''}
     ${choice?modeButtons:delivery?deliveryPanel:pickupPanel}
    </section></div>`;
@@ -2272,13 +2280,13 @@ if(b.dataset.homeStore){selectedHomeStore=b.dataset.homeStore;render();return}
 if(b.dataset.homeLocal!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('local',Number(b.dataset.homeLocal));return}
 if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;fulfillmentModal='delivery';render()}return}
 if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
-if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;checkoutPending=false;fulfillmentModal=null;render();return}
+if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;checkoutPending=false;fulfillmentModal=null;fulfillmentOutcomeNote='';render();return}
 if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
 if(b.dataset.modalMode){
  const next=b.dataset.modalMode;
  if(next!=='delivery'&&next!=='pickup')return;
  if(st.mode!==next){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.mode=next;st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)queueNotice('Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.')}
- fulfillmentModal=next;render();if(next==='pickup'&&API_BASE)void fetchConfig();return;
+ fulfillmentOutcomeNote='';fulfillmentModal=next;render();if(next==='pickup'&&API_BASE)void fetchConfig();return;
 }
 if(b.hasAttribute('data-profile-save')){saveProfile();return}
 if(b.dataset.addressCreate){addressEditId=null;screen('addressEdit');return}
@@ -2391,7 +2399,7 @@ if(b.hasAttribute('data-quote-retry')){
 }
 if(b.hasAttribute('data-change-fulfillment')){
  if(deliveryRequestPending||activePersonalCheckout())return;
- screen('choice');
+ openAlternateFulfillment(deliveryAvailability.message);
  return;
 }
 if(b.hasAttribute('data-availability-retry')){
