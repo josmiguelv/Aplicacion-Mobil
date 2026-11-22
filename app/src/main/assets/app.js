@@ -547,6 +547,11 @@ async function completeAcceptedQuote(entry){
  deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
   message:'Solicitud aceptada. Calculando delivery desde '+selected.name+'.'};
  render();
+ if(!hasDeliveryDestination(address,district)){
+  const geocoded=await geocodeDeliveryDestination(address,district);
+  if(st.stage!=='availability')return false;
+  deliveryLocation={...geocoded,key:deliveryAddressKey(address,district)};
+ }
  const quote=await api.quoteDelivery({appId:APP_ID,storeId:selected.id,address,district,
   latitude:deliveryLocation?.latitude,longitude:deliveryLocation?.longitude,
   useGps:Number.isFinite(deliveryLocation?.latitude)&&Number.isFinite(deliveryLocation?.longitude)});
