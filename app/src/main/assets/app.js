@@ -554,6 +554,7 @@ async function completeAcceptedQuote(entry){
  if(entry.body.catalogRevision!==publishedRevision)throw Error('El catálogo cambió después de la aceptación. Debes cancelar y solicitar una nueva confirmación.');
  const selected=shops.find(s=>s.id===entry.body.storeId);
  if(!selected)throw Error('La sede que aceptó ya no aparece en el catálogo publicado.');
+ deliveryValidationStep='COTIZANDO_DELIVERY';
  deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
   message:'Solicitud aceptada. Calculando delivery desde '+selected.name+'.'};
  render();
@@ -683,9 +684,19 @@ async function pollAgentDecision(){
   const pending=['PENDING','SUBMITTING'].includes(latest?.status);
   const recovering=pending&&!latest?.interactionId;
   const sending=pending&&latest?.interactionId&&latest.body?.customer&&latest.messageDelivered!==true;
-  retryMs=8000;
-  deliveryAvailability={status:recovering||sending?'CREATE_UNCERTAIN':pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
-   message:recovering?'Recuperando confirmación de la solicitud enviada, con la misma clave.':
+  const quotePending=latest?.status==='ACCEPTED'&&latest.agentDecision==='ACCEPTED'&&
+   (!latest.body?.customer||latest.messageDelivered===true);
+  retryMs=quotePending?12000:8000;
+  const acceptedStore=quotePending?shops.find(s=>s.id===latest.body?.storeId):null;
+  deliveryAvailability={
+   status:quotePending?'QUOTE_UNAVAILABLE':recovering||sending?'CREATE_UNCERTAIN':
+    pending?'WAITING_APPROVAL':'ERROR',
+   storeName:acceptedStore?.name||'',candidateNames:[],
+   message:quotePending?
+    'La sede aceptó tu solicitud y recibió el detalle. La tarifa de delivery aún no pudo calcularse ('+
+     (error?.message||'servicio temporalmente no disponible')+
+     '). Reintentaremos sin crear otra interacción ni iniciar el pago.':
+    recovering?'Recuperando confirmación de la solicitud enviada, con la misma clave.':
     sending?'La interacción existe, pero aún falta confirmar el detalle. '+
       (error?.message||'Reintentando sin duplicar la solicitud.'):
     pending?'La consulta tuvo una interrupción. Volveremos a revisar la misma solicitud.':
@@ -1393,7 +1404,11 @@ function availability(){
  const activeEntry=activePersonalCheckout();
  const status=deliveryAvailability.status;
  const checking=status==='CHECKING'||status==='CHECKING_STORES';
- const waiting=status==='WAITING_APPROVAL'||status==='CREATE_UNCERTAIN';
+ const acceptedQuote=activeEntry?.status==='ACCEPTED'&&
+  activeEntry.agentDecision==='ACCEPTED'&&
+  (!activeEntry.body?.customer||activeEntry.messageDelivered===true);
+ const waiting=status==='WAITING_APPROVAL'||status==='CREATE_UNCERTAIN'||
+  acceptedQuote&&['QUOTE_UNAVAILABLE','CHECKING_STORES'].includes(status);
  const provisionalFee=waiting&&st.quote?.quoteOrigin==='ADMIN_API_PRE_APPROVAL'&&
   Number.isFinite(Number(st.quote.deliveryFeePen))&&Number.isFinite(Number(st.quote.estimatedTotalPen));
  const ready=!checking&&!waiting&&status==='READY'&&deliveryQuoteValid();
@@ -1429,6 +1444,8 @@ function availability(){
    </section>
    <div class="b3-single-wait-footer">
     <p class="b3-single-wait-summary">${cartCount()} producto(s) · Subtotal ${cash(subtotal())} · Delivery por confirmar</p>
+    ${status==='QUOTE_UNAVAILABLE'&&acceptedQuote?
+      '<button class="outline full" data-quote-retry="1">Reintentar tarifa de delivery</button>':''}
     ${activeEntry?`<button class="primary full" data-checkout-leave="1">Seguir explorando la app</button>
       <button class="outline full" data-checkout-cancel="1">Cancelar solicitud</button>`:
       '<p class="smallprint">Verificando la solicitud original. No se enviará una segunda interacción.</p>'}
@@ -1604,8 +1621,14 @@ function chatStatusLine(){
  if(entry.status==='EXPIRED')return 'Solicitud vencida';
  if(entry.status==='CANCELLED')return 'Solicitud cancelada';
  if(entry.status==='REJECTED'||entry.agentDecision==='REJECTED')return 'La sede rechazó la solicitud';
- if(entry.agentDecision==='ACCEPTED')return entry.paymentExpiresAt?
-  'Solicitud aceptada · Revisa tu pedido':'Solicitud aceptada · Verificando el detalle';
+ if(entry.agentDecision==='ACCEPTED'){
+  if(entry.paymentExpiresAt)return 'Solicitud aceptada · Revisa tu pedido';
+  if(entry.body?.customer&&entry.messageDelivered!==true)
+   return 'Solicitud aceptada · Confirmando el detalle';
+  return deliveryAvailability.status==='QUOTE_UNAVAILABLE'?
+   'Solicitud aceptada · Tarifa de delivery pendiente':
+   'Solicitud aceptada · Calculando delivery';
+ }
  if(entry.interactionId)return 'Solicitud en validación';
  return 'Preparando solicitud';
 }
@@ -2014,7 +2037,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Agregado a tu pedido');return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-availability-retry],[data-availability-health],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-availability-retry],[data-availability-health],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -2191,6 +2214,18 @@ if(b.hasAttribute('data-prepay-retry')){screen('availability');void resolveDeliv
 if(b.hasAttribute('data-availability-continue')){
  if(deliveryRequestPending||deliveryAvailability.status!=='READY'||!deliveryQuoteValid())return toast('Primero necesitamos confirmar una sede disponible.');
  if(checkoutPending){checkoutPending=false;screen('identity')}else screen('cart');return;
+}
+if(b.hasAttribute('data-quote-retry')){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(st.stage==='availability'&&entry?.status==='ACCEPTED'&&
+    entry.agentDecision==='ACCEPTED'&&
+    (!entry.body?.customer||entry.messageDelivered===true)&&!agentDecisionPolling){
+  deliveryAvailability={status:'CHECKING_STORES',storeName:deliveryAvailability.storeName,
+   candidateNames:[],message:'Conservamos tu aceptación. Reintentando solamente la tarifa de delivery.'};
+  render();
+  scheduleAgentDecisionPoll(100);
+ }
+ return;
 }
 if(b.hasAttribute('data-availability-retry')){if(!deliveryRequestPending)void resolveDelivery();return}
 if(b.hasAttribute('data-availability-health')){void checkDeliveryBackendHealth();return}
