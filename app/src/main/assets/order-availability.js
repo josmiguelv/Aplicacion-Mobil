@@ -381,18 +381,18 @@
     let decision=null,agentMessageId=null;
     if(data.status==='EXPIRED')entry.status='EXPIRED';
     else if(data.status==='CANCELLED')entry.status='CANCELLED';
-    else if(data.status==='ACCEPTED'){
-      // This is interaction acceptance/assignment, not approval of the order.
-      const agent=interpretAgentDecision(data.agentMessages);
-      decision=agent.decision;agentMessageId=agent.agentMessageId;
-      entry.status=decision||'PENDING';
-    }
     else if(data.status==='REJECTED'){entry.status='REJECTED';decision='REJECTED';}
     else if(canonicalClosed){
       decision=closureDecision.decision||'REJECTED';
       agentMessageId=closureDecision.agentMessageId;
       entry.status=decision;
       if(decision==='REJECTED'&&!agentMessageId)entry.rejectionReason='AGENT_CLOSED_WITHOUT_CONFIRMATION';
+    }
+    else if(data.status==='ACCEPTED'){
+      // Technical acceptance/assignment does not confirm the commercial order.
+      const agent=interpretAgentDecision(data.agentMessages);
+      decision=agent.decision;agentMessageId=agent.agentMessageId;
+      entry.status=decision||'PENDING';
     }
     else {
       const agent=interpretAgentDecision(data.agentMessages);
