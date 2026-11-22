@@ -1,9 +1,12 @@
-/* Auditoría focal Android -> Administrador: cuatro escenarios sintéticos.
+/* Auditoría focal Android -> Administrador: contrato FORM y UUID Java real.
  * NO realiza solicitudes de red ni crea interacciones en producción.
  */
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {readFileSync} from 'node:fs';
+import {readFileSync,mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {runInNewContext} from 'node:vm';
 import {webcrypto} from 'node:crypto';
 
@@ -192,4 +195,99 @@ test('07 - lectura de estado desactualizada conserva el 429 persistido',async()=
  assert.deepEqual(c.requests.map(r=>r.operation),[
   'INTERACTION_CREATE','INTERACTION_MESSAGE','INTERACTION_STATUS'
  ]);
+});
+
+
+test('08 - JVM ejecuta regex UUID reales de INTERACTION_MESSAGE con claves validas e invalidas',()=>{
+ const native=java.split('} else if ("INTERACTION_MESSAGE".equals(operation)) {')[1]
+   ?.split('} else if ("INTERACTION_STATUS".equals(operation)')[0];
+ assert.ok(native,'No se encontro la rama nativa INTERACTION_MESSAGE');
+ function javaPattern(name){
+  const line=native.split('\n').find(s=>s.includes('!'+name+'.matches("'));
+  const found=line?.match(/\.matches\("([^"]+)"\)/);
+  assert.ok(found,'No se encontro validacion Java de '+name);
+  return found[1];
+ }
+ const keyPattern=javaPattern('key');
+ const interactionPattern=javaPattern('interactionId');
+ const accessPattern=javaPattern('accessKey');
+ const probe=[
+  'public final class B3JavaUuidProbe {',
+  ' static final String KEY = '+JSON.stringify(keyPattern)+';',
+  ' static final String INTERACTION = '+JSON.stringify(interactionPattern)+';',
+  ' static final String ACCESS = '+JSON.stringify(accessPattern)+';',
+  ' static boolean accepts(String interactionId,String accessKey,String key){',
+  '  return key.matches(KEY) && !key.equalsIgnoreCase(accessKey)',
+  '   && interactionId.matches(INTERACTION) && accessKey.matches(ACCESS);',
+  ' }',
+  ' public static void main(String[] args){',
+  '  String interaction="3a122e61-0434-4ec7-8e2e-435524d547a3";',
+  '  String access="f163f181-2c7e-40ec-87af-68f4675d059c";',
+  '  String key="1e96145a-90e3-4836-9e69-399312c89b11";',
+  '  if(!accepts(interaction,access,key))throw new AssertionError("UUID valido rechazado");',
+  '  if(!accepts(interaction.toUpperCase(),access,key.toUpperCase()))',
+  '   throw new AssertionError("UUID mayuscula valido rechazado");',
+  '  if(accepts(interaction,access,"1e96145a-90e3-4836-399312c89b11"))',
+  '   throw new AssertionError("UUID con cuatro grupos aceptado");',
+  '  if(accepts(interaction,access,"no-es-uuid"))',
+  '   throw new AssertionError("UUID invalido aceptado");',
+  '  if(accepts(interaction,access,access))',
+  '   throw new AssertionError("Clave FORM igual a CREATE aceptada");',
+  '  if(accepts("no-es-uuid",access,key))',
+  '   throw new AssertionError("interactionId invalido aceptado");',
+  '  if(accepts(interaction,"no-es-uuid",key))',
+  '   throw new AssertionError("accessKey invalido aceptado");',
+  '  System.out.println("JAVA_UUID_PASS");',
+  ' }',
+  '}'
+ ].join('\n');
+ const dir=mkdtempSync(join(tmpdir(),'b3-form-java-'));
+ try {
+  const source=join(dir,'B3JavaUuidProbe.java');
+  writeFileSync(source,probe,'utf8');
+  const compile=spawnSync('javac',['-encoding','UTF-8',source],{encoding:'utf8'});
+  assert.equal(compile.status,0,'javac fallo: '+compile.stderr);
+  const run=spawnSync('java',['-cp',dir,'B3JavaUuidProbe'],{encoding:'utf8'});
+  assert.equal(run.status,0,'JVM rechazo contrato: '+run.stderr);
+  assert.match(run.stdout,/JAVA_UUID_PASS/);
+ } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('09 - FORM supera 500/80/180/350: rechazo local sin crear interaccion ni truncar',()=>{
+ const cases=[
+  f=>{f.fields[0].value='X'.repeat(501);},
+  f=>{f.fields[4].value='Y'.repeat(501);},
+  f=>{f.fields[1].variable='Z'.repeat(81);},
+  f=>{f.title='T'.repeat(181);},
+  f=>{f.subtitle='S'.repeat(351);}
+ ];
+ for(const mutate of cases){
+  const c=harness(()=>{throw Error('No debe consultarse red')});
+  const bad=form();
+  mutate(bad);
+  assert.throws(()=>c.api.prepareInteraction(input(bad)),/FORM|cinco variables/);
+  assert.equal(c.requests.length,0,'Un FORM invalido jamas debe llamar al puente');
+ }
+ assert.match(java,/form\.optString\("title", ""\)\.length\(\) > 180/);
+ assert.match(java,/form\.optString\("subtitle", ""\)\.length\(\) > 350/);
+ assert.match(java,/field\.optString\("variable", ""\)\.length\(\) > 80/);
+ assert.match(java,/field\.optString\("value", ""\)\.length\(\) > 500/);
+});
+
+test('10 - construccion real app.js rechaza 501 caracteres de Productos antes de CREATE',()=>{
+ const source=readFileSync(new URL('../app/src/main/assets/app.js',import.meta.url),'utf8');
+ const fn=source.match(/function deliveryOrderTicketForm\(address,district\)\{[\s\S]*?\n\}/);
+ assert.ok(fn,'Falta constructor real del ticket');
+ let productName='Producto sintetico';
+ const context={
+  publishedOrderItems:()=>[{productId:'synthetic',quantity:1}],
+  product:()=>({isPublished:true,disabled:false,name:productName,price:45}),
+  subtotal:()=>45,cash:value=>'S/ '+value.toFixed(2),
+  st:{profile:{reference:''}}
+ };
+ runInNewContext(fn[0],context);
+ assert.equal(context.deliveryOrderTicketForm('Av. Ejemplo 123','Santa Anita').fields.length,5);
+ productName='X'.repeat(501);
+ assert.throws(()=>context.deliveryOrderTicketForm('Av. Ejemplo 123','Santa Anita'),
+   /500 caracteres/, 'No se debe truncar informacion comercial');
 });
