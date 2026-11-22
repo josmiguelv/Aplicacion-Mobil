@@ -784,7 +784,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   const store=shops.find(s=>s.id===prior.body.storeId);
   deliveryAvailability={status:prior.messageDelivered===false?'CREATE_UNCERTAIN':'WAITING_APPROVAL',
    storeName:store?.name||'Sede seleccionada',candidateNames:[],
-   message:prior.messageDelivered===false?'La solicitud ya existe. Confirmando el texto al asesor.':
+   message:prior.messageDelivered===false?'La solicitud ya existe. Confirmando el ticket de aprobación con la sede.':
     'Esperando respuesta del local. Continuaremos automáticamente.'};
   st.store=prior.body.storeId;save();render();
   // Even a persisted ACCEPTED can denote only automatic interaction assignment.
@@ -861,7 +861,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  if(response.status!=='PENDING')throw Error('No se confirmó la solicitud pendiente.');
  // The interactionId was saved before attempting the second HTTP request.
  deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
-  message:'Solicitud creada. Enviando detalle al asesor de '+selected.name+'.'};
+  message:'Solicitud creada. Enviando el ticket de aprobación a '+selected.name+'.'};
  save();render();
  if(entry.body?.customer&&entry.messageDelivered!==true){
   deliveryValidationStep='ENTREGANDO_DETALLE';
@@ -869,7 +869,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   catch(_){
    // No new interaction is created. The same message is retried idempotently.
    deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
-    message:'Solicitud creada. Confirmando entrega del texto al asesor. Reintentaremos sin duplicar.'};
+    message:'Solicitud creada. Confirmando el ticket de aprobación. Reintentaremos sin duplicar.'};
    save();render();scheduleAgentDecisionPoll(8000);return false;
   }
  }
