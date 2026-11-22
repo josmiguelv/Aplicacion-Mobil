@@ -445,6 +445,45 @@ test('cotizar para sede aceptada rechaza una tarifa de otra sede',async()=>{
  const c=client(req=>({requestId:req.requestId,status:200,data:{revision:18,storeId:'eeacc37f-7199-4b8f-bb1d-d1338e4f82f8',mode:'delivery',deliveryFeePen:5,paymentMethods:['yape']}}));
  await assert.rejects(()=>c.api.quoteDelivery({appId:'com.integrab2g.pollosb3',storeId,address:'Av. Ejemplo 123',district:'Santa Anita'}),/cotización incompleta/);
 });
+test('private FCM device registration, payment deadline and cancellation use one authorized interaction',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
+ const expiresAt='2099-01-01T00:00:00Z',fcmToken='f'.repeat(160);
+ const c=client(req=>{
+  const data=(()=>{
+   if(req.operation==='INTERACTION_CREATE')return {status:'PENDING',storeId,interactionId,externalReference:'mobile:ref'}
+   if(req.operation==='INTERACTION_STATUS')return {status:'ACCEPTED',storeId,interactionId,agentMessages:[{id:messageId,text:'aceptado',createdAt:'2026-11-21T18:30:00Z'}]}
+   if(req.operation==='INTERACTION_DEVICE')return {registered:true}
+   if(req.operation==='INTERACTION_PAYMENT')return {status:'PAYMENT_PENDING',expiresAt,reminderCount:2}
+   if(req.operation==='INTERACTION_PAYMENT_STATUS')return {status:'PAYMENT_PENDING',expiresAt}
+   if(req.operation==='INTERACTION_CANCEL')return {status:'CANCELLED',interactionId}
+   return null
+  })();
+  return {requestId:req.requestId,status:req.operation==='INTERACTION_CREATE'?201:200,data}
+ });
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
+ await c.api.createInteraction(entry);
+ const decision=await c.api.pollInteraction(entry);
+ assert.equal(decision.decision,'ACCEPTED');
+ assert.equal(entry.status,'ACCEPTED');
+ await c.api.registerPersonalDevice(entry,fcmToken);
+ const payment=await c.api.beginPaymentWait(entry);
+ assert.equal(payment.expiresAt,expiresAt);
+ assert.equal(c.api.readInteraction().paymentExpiresAt,expiresAt);
+ const follow=await c.api.readPaymentWait(entry);
+ assert.equal(follow.status,'PAYMENT_PENDING');
+ await c.api.cancelInteraction(entry,{reason:'CANCEL'});
+ assert.equal(entry.status,'CANCELLED');
+ assert.deepEqual(c.requests.map(x=>x.operation),[
+  'INTERACTION_CREATE','INTERACTION_STATUS','INTERACTION_DEVICE',
+  'INTERACTION_PAYMENT','INTERACTION_PAYMENT_STATUS','INTERACTION_CANCEL']);
+ assert.equal(c.requests[2].interactionId,interactionId);
+ assert.equal(c.requests[2].accessKey,entry.idempotencyKey);
+ assert.equal(c.requests[2].fcmToken,fcmToken);
+ assert.equal(c.requests[5].reason,'CANCEL');
+});
 test('puente Android exclusivo para HTTPS rutas permitidas; scripts en orden',()=>{
   assert.ok(html.indexOf('order-availability.js')>0&&html.indexOf('order-availability.js')<html.indexOf('app.js'));
   assert.match(java,/@JavascriptInterface public void orderAvailabilityRequest\(String requestJson\)/);
