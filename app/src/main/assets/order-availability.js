@@ -240,32 +240,32 @@
   // Store the exact display ticket once, separate from the CREATE payload.
   // No Cliente or Teléfono fields: identity already travels with customer.
   function normalizeOrderForm(form) {
-    const labels=['Productos','Subtotal','Total final','Dirección'];
+    const labels=['Productos','Subtotal','Delivery','Total final','Dirección y referencia'];
     if(!form||typeof form!=='object'||Array.isArray(form)||
       Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
       form.title!=='VALIDACIÓN DE PEDIDO'||
-      form.subtitle!=='Confirmar disponibilidad para delivery'||!Array.isArray(form.fields))
-      throw Error('El ticket de validación tiene un formato inválido.');
-    // Existing in-flight tickets from older APKs may contain the obsolete
-    // Delivery field. Drop only that exact legacy placeholder before sending.
-    const oldDelivery=form.fields[2];
-    const legacyPlaceholder=oldDelivery&&oldDelivery.variable==='Delivery'&&
-      oldDelivery.value==='Por calcular'&&[5,6].includes(form.fields.length);
-    const rawFields=legacyPlaceholder?
-      form.fields.filter((_,index)=>index!==2):form.fields;
-    if(![4,5].includes(rawFields.length))
-      throw Error('El ticket de validación supera el máximo de cinco variables.');
-    const fields=rawFields.map((item,index)=>{
-      const expected=labels[index]||(index===4?'Referencia':null);
+      form.subtitle!=='Confirmar disponibilidad para delivery'||
+      !Array.isArray(form.fields)||form.fields.length!==5)
+      throw Error('La solicitud de aprobación requiere exactamente cinco variables.');
+    const fields=form.fields.map((item,index)=>{
       if(!item||typeof item!=='object'||Array.isArray(item)||
         Object.keys(item).some(k=>!['variable','value'].includes(k))||
-        item.variable!==expected||typeof item.value!=='string'||
-        !item.value.trim()||item.value.length>(index===0?3900:320)||
+        item.variable!==labels[index]||typeof item.value!=='string'||
+        !item.value.trim()||item.value.length>(index===0?3900:index===4?600:320)||
         /[\x00-\x09\x0b-\x1f]/.test(item.value))
-        throw Error('Los campos del ticket de validación no son válidos.');
-      return {variable:expected,value:item.value};
+        throw Error('Los campos del FORM no corresponden al contrato de aprobación.');
+      return {variable:labels[index],value:item.value};
     });
+    if(fields[2].value!=='Por calcular'||fields[3].value!=='Pendiente de confirmación')
+      throw Error('Los campos de entrega y total del FORM no son válidos.');
     return {title:form.title,subtitle:form.subtitle,fields};
+  }
+  // Diagnostic metadata only. No UUIDs, client identity, addresses or JSON bodies.
+  function formTrace(stage,fieldCount,status=0,returnedType='NONE',outcome='UNKNOWN') {
+    try{
+      root.AndroidBridge?.orderFormDiagnostic?.(stage,fieldCount,status,
+        returnedType==='FORM'?'FORM':returnedType==='TEXT'?'TEXT':'OTHER',outcome);
+    }catch(_){/* Diagnostics cannot interrupt checkout. */}
   }
   function prepareInteraction({appId,storeId,catalogRevision,items,address,district,customer,orderForm}) {
     if(typeof appId!=='string'||!UUID.test(storeId)||
@@ -319,10 +319,14 @@
     if(prior&&!['PREPARED','REJECTED','CANCELLED','EXPIRED'].includes(prior.status))
       throw Error('Ya existe una solicitud de atención iniciada. No enviaremos otro formulario mientras no se confirme su resolución.');
     const now=Date.now();
+    const creationKey=uuid();
+    let formKey=uuid();
+    while(formKey===creationKey)formKey=uuid();
     return persistInteraction({fingerprint,body,
       ...(formSnapshot?{orderForm:formSnapshot}:{}),
-      idempotencyKey:uuid(),interactionId:null,
-      status:'PREPARED',createdAt:now,activity:[{type:'prepared',at:now}]});
+      idempotencyKey:creationKey,messageIdempotencyKey:formKey,
+      interactionId:null,status:'PREPARED',createdAt:now,
+      activity:[{type:'prepared',at:now}]});
   }
   async function createInteraction(entry) {
     if(!entry||!UUID.test(entry.idempotencyKey)||!entry.body)
@@ -357,22 +361,64 @@
        !['PENDING','ACCEPTED'].includes(entry.status))
       throw Error('No existe una solicitud de aprobación de Delivery pendiente.');
     if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
+    if(entry.messageDeliveryUncertain===true){
+      const error=Error('La entrega del FORM no se pudo comprobar. No se reenviará automáticamente: se requiere confirmación del servidor.');
+      error.code='FORM_DELIVERY_UNCERTAIN';throw error;
+    }
+    if(entry.messageDeliveryBlocked===true){
+      const error=Error('El Administrador no confirmó el tipo FORM; no reenviamos el pedido.');
+      error.code='FORM_CONTRACT_REJECTED';throw error;
+    }
     if(!entry.orderForm)
       throw Error('Falta el ticket FORM obligatorio para la aprobación del pedido.');
-    // This endpoint sends only an order-approval FORM, never a generic text message.
     const messageBody={type:'FORM',appId:entry.body.appId,storeId:entry.body.storeId,
       form:normalizeOrderForm(entry.orderForm)};
-    const response=await nativeRequest({operation:'INTERACTION_MESSAGE',
-      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,body:messageBody});
-    if(Number(response.status)!==200)
-      throw responseError(response,'No se pudo confirmar el ticket del pedido');
+    // Store a separate stable idempotency key BEFORE making any network request.
+    if(!UUID.test(entry.messageIdempotencyKey)||entry.messageIdempotencyKey===entry.idempotencyKey){
+      let next=uuid();
+      while(next===entry.idempotencyKey)next=uuid();
+      entry.messageIdempotencyKey=next;
+      persistInteraction(entry);
+    }
+    formTrace('JS_BUILD',messageBody.form.fields.length);
+    let response;
+    try{
+      response=await nativeRequest({operation:'INTERACTION_MESSAGE',
+        interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
+        idempotencyKey:entry.messageIdempotencyKey,body:messageBody});
+    }catch(error){
+      // Timeout / transport failures could happen after the server accepted FORM.
+      if(['TIMEOUT','NETWORK_OR_CONTRACT_ERROR','CONNECTION_FAILED','REDIRECT_BLOCKED'].includes(error?.code)){
+        entry.messageDeliveryUncertain=true;persistInteraction(entry);
+      }
+      throw error;
+    }
     const data=response.data||{};
+    formTrace('JS_RESPONSE',messageBody.form.fields.length,Number(response.status),
+      data.type,data.delivered===true?'ACK':'NO_ACK');
+    if(Number(response.status)!==200){
+      const status=Number(response.status);
+      if([400,409].includes(status)){
+        entry.messageDeliveryBlocked=true;persistInteraction(entry);
+      }
+      if(status===503){
+        entry.messageDeliveryUncertain=true;persistInteraction(entry);
+      }
+      if(status===400&&data.error==='Datos de solicitud de texto inválidos'){
+        const error=Error('HTTP 400: el Administrador solo admite el contrato TEXT en /message y rechaza type FORM.');
+        error.httpStatus=400;error.code='ADMIN_FORM_UNSUPPORTED';throw error;
+      }
+      throw responseError(response,'No se pudo confirmar el ticket del pedido');
+    }
     if(data.interactionId!==entry.interactionId||data.delivered!==true||
-       !UUID.test(data.messageId))
-      throw Error('El Administrador no confirmó el ticket de esta interacción.');
-    entry.messageDelivered=true;
-    persistInteraction(entry);
-    recordActivity(entry,'detail_delivered'); // Message POST confirmed, not merely attempted.
+       !UUID.test(data.messageId)||data.type!=='FORM'){
+      // A 200 without explicit FORM acknowledgement is NOT proof of delivery.
+      entry.messageDeliveryBlocked=true;persistInteraction(entry);
+      const error=Error('El Administrador respondió HTTP 200 pero no certificó type FORM y los identificadores del mensaje.');
+      error.httpStatus=200;error.code='FORM_ACK_INVALID';throw error;
+    }
+    entry.messageDelivered=true;persistInteraction(entry);
+    recordActivity(entry,'detail_delivered'); // Only a typed FORM acknowledgement confirms delivery.
     return data;
   }
   const SERIES_KEY='b3-mobile-rejected-stores-v1';
