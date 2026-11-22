@@ -1692,7 +1692,7 @@ function chat(){
 }
 function about(){return `<div class="page about b3-about-new">${heading('Sobre la app','app')}
  <div class="about-copy"><h2>Pollos B3</h2><p>La aplicación móvil para conocer la carta, consultar locales y preparar pedidos de Delivery o recojo.</p>
- <div class="b3-about-facts"><div><strong>Aplicación</strong><span>Pollos B3 · Android</span></div><div><strong>Versión</strong><span>1.6.0 (piloto · confirmación de sede B3)</span></div><div><strong>API del administrador</strong><span>${esc(API_BASE?new URL(API_BASE).hostname:'No configurada')}</span></div><div><strong>Estado</strong><span>Pedidos y pagos reales aún no habilitados</span></div></div>
+ <div class="b3-about-facts"><div><strong>Aplicación</strong><span>Pollos B3 · Android</span></div><div><strong>Versión</strong><span>1.7.0 (piloto · cotización delivery B3)</span></div><div><strong>API del administrador</strong><span>${esc(API_BASE?new URL(API_BASE).hostname:'No configurada')}</span></div><div><strong>Estado</strong><span>Pedidos y pagos reales aún no habilitados</span></div></div>
  <p class="b3-about-owner">Pollos B3 · Todos los derechos reservados.</p></div>
  <div class="b3-about-credit"><p>Desarrollo tecnológico</p><img src="images/integra-b2g-new.webp" alt="INTEGRA B2G" loading="lazy"><strong>INTEGRA B2G</strong><span>Soluciones tecnológicas para Pollos B3</span></div>
  </div>`}
