@@ -1529,6 +1529,31 @@ function availability(){
  const required=!checking&&status==='APPROVAL_REQUIRED';
  const failed=!checking&&!waiting&&(status==='ERROR'||status==='UNAVAILABLE'||status==='REJECTED');
  const names=deliveryAvailability.candidateNames||[];
+ // No checkout milestones, payment, or retry CTA after a terminal outcome.
+ // Preserve the cart and let the customer explicitly choose delivery or pickup.
+ if(status==='REJECTED'||status==='UNAVAILABLE'){
+  const rejected=status==='REJECTED';
+  const headingText=rejected?'La sede no aceptó tu pedido':'No encontramos atención para este delivery';
+  const note=rejected?'Tu solicitud anterior no se volverá a enviar.':
+   'No se ha creado una nueva solicitud de atención.';
+  return `<div class="page b3-fulfillment-outcome">
+   ${heading('Opciones para tu pedido','app')}
+   <section class="b3-fulfillment-outcome-card" role="status">
+    <span class="b3-fulfillment-outcome-kicker">POLLOS B3 · TU PEDIDO</span>
+    <div class="b3-fulfillment-outcome-icon">${ic('store',30)}</div>
+    <h2>${esc(headingText)}</h2>
+    <p>${esc(deliveryAvailability.message||'Puedes revisar otras formas de recibir tu pedido.')}</p>
+    <div class="b3-fulfillment-outcome-info">${ic('cart',17)}
+      <span>Conservamos tus productos y cantidades en el carrito.</span>
+    </div>
+    <p class="b3-fulfillment-outcome-note">${esc(note)}</p>
+   </section>
+   <div class="b3-fulfillment-outcome-actions">
+    <button class="primary full" data-change-fulfillment="1">Cambiar método de entrega</button>
+    <button class="outline full" data-checkout-leave="1">Volver al inicio</button>
+   </div>
+  </div>`;
+ }
  if(waiting){
   const request=window.B3OrderAvailability?.readInteraction?.();
   const confirmed=!!request?.interactionId;
