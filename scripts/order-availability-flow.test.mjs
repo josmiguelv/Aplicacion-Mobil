@@ -67,7 +67,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
  const context={
   st,shops:allStores,window:{B3OrderAvailability:api},APP_ID:'com.integrab2g.pollosb3',
   publishedRevision:18,deliveryValidationGeneration:1,deliveryValidationStep:'INICIO',agentDecisionTimer:null,
-  agentDecisionPolling:false,deliveryAvailability:{status:'CHECKING'},
+  agentDecisionPolling:false,chatOverlay:null,deliveryAvailability:{status:'CHECKING'},
   deliveryLocation:{latitude:-12.05,longitude:-77.12,source:'address',key:'key'},
   hasDeliveryDestination:()=>true,eligibleDeliveryCandidates:()=>allStores.map(store=>({store,km:1})),
   storeAvailabilitySetting:store=>store.consultOrderAvailability,
@@ -284,4 +284,47 @@ test('el chat muestra cronología confirmada, mensajes reales y escapa contenido
  assert.match(html,/b3-chat-history/);
  assert.match(html,/Seguimiento de solo lectura/);
  assert.doesNotMatch(html,/chat-form|id="chat-message"/);
+});
+
+test('abrir y cerrar chat flotante conserva formulario, etapa, scroll y foco sin renderizar',()=>{
+ let focusRestored=false,headerFocused=false,layer=null,clickHandler=null,rendered=0;
+ const input={value:'Dirección a medio completar 123',isConnected:true,
+  focus:()=>{focusRestored=true}};
+ const root={innerHTML:'<form><input id="address"></form>',contains:el=>el===input};
+ const document={
+  activeElement:input,
+  createElement:()=>({
+   className:'',innerHTML:'',removed:false,
+   addEventListener:(event,fn)=>{if(event==='click')clickHandler=fn},
+   querySelector:q=>q.startsWith('[data-chat-close]')?
+     {focus:()=>{headerFocused=true}}:
+     q==='#b3-chat-history'?{scrollHeight:200,scrollTop:0}:null,
+   contains:()=>true,
+   remove(){this.removed=true}
+  }),
+  body:{appendChild:el=>{layer=el}}
+ };
+ const context={document,root,chat:()=>'<div>Historial real</div>',
+  returnToPersonalCheckout:()=>{throw Error('La navegación no debe ejecutarse')},
+  render:()=>{rendered++}};
+ vm.runInNewContext('let chatOverlay=null,chatRestoreFocus=null;\n'+
+  [extract('openChatOverlay'),extract('closeChatOverlay')].join('\n'),context);
+ context.openChatOverlay();
+ context.openChatOverlay();
+ assert.equal(layer.className,'b3-chat-modal-layer');
+ assert.match(layer.innerHTML,/role="dialog"/);
+ assert.ok(headerFocused);
+ assert.equal(root.innerHTML,'<form><input id="address"></form>');
+ assert.equal(input.value,'Dirección a medio completar 123');
+ assert.equal(rendered,0);
+ const outside={hasAttribute:key=>key==='data-chat-close'};
+ clickHandler({target:{closest:()=>outside}});
+ assert.equal(layer.removed,true);
+ assert.equal(focusRestored,true);
+ assert.equal(input.value,'Dirección a medio completar 123');
+ assert.equal(rendered,0);
+ assert.match(source,/function screen\(n\)\{if\(n==='chat'\)\{openChatOverlay\(\);return\}/);
+ assert.match(source,/if\(b\.dataset\.screen==='chat'\)\{openChatOverlay\(\);return\}/);
+ assert.match(source,/window\.handleB3Back=\(\)=>\{\s*if\(chatOverlay\)\{closeChatOverlay\(\);return true\}/);
+ assert.match(source,/if\(chatOverlay\)refreshChatTimeline\(\)/);
 });
