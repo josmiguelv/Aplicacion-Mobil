@@ -745,23 +745,39 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  save();render();scheduleAgentDecisionPoll(1000);
  return false;
 }
-async function cancelApprovedForCartChange(){
- const api=window.B3OrderAvailability;
- const entry=api?.readInteraction?.();
- if(!entry||!['PENDING','ACCEPTED'].includes(entry.status)){nav('carta');return}
- if(!window.confirm('Al agregar o cambiar productos, se cancelará la aprobación actual y consultaremos nuevamente a los locales. ¿Continuar?'))return;
- checkoutReviewNote='Notificando al local la cancelación de esta solicitud...';
+async function cancelPersonalCheckout(reason='CANCEL'){
+ const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
+ if(!entry||!['SUBMITTING','PENDING','ACCEPTED'].includes(entry.status)){
+  if(reason==='MODIFY')nav('carta');else nav('inicio');
+  return;
+ }
+ const adding=reason==='MODIFY';
+ if(!window.confirm(adding?
+   '¿Agregar productos? Se cancelará la solicitud aceptada por la sede. El nuevo pedido necesitará otra validación.':
+   '¿Cancelar esta solicitud? Avisaremos a la sede y detendremos los recordatorios.'))return;
+ if(entry.status==='SUBMITTING'&&!entry.interactionId){
+  api.requestCancelWhenRecovered(entry);
+  deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
+   message:'Cancelación solicitada. Primero debemos recuperar la confirmación de envío para avisar a la sede.'};
+  screen('availability');scheduleAgentDecisionPoll(1000);return;
+ }
+ checkoutReviewNote='Notificando a la sede la cancelación de esta solicitud...';
  render();
  try{
-  await api.cancelInteraction(entry);
+  await api.cancelInteraction(entry,{reason});
   stopAgentDecisionPoll();
   ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
-  clearDeliveryAvailability();checkoutReviewNote='';save();nav('carta');
+  clearDeliveryAvailability();checkoutReviewNote='';save();
+  if(adding)nav('carta');else nav('inicio');
+  toast(adding?'Solicitud anterior cancelada. Puedes modificar tu carrito.':'Solicitud cancelada.');
  }catch(error){
-  checkoutReviewNote=error.message||'No se pudo notificar la cancelación. Intenta nuevamente.';
+  checkoutReviewNote=error.message||'No se pudo confirmar la cancelación. Intenta nuevamente.';
+  if(st.stage==='availability')deliveryAvailability={status:'WAITING_APPROVAL',storeName:'',candidateNames:[],
+   message:'La cancelación aún no se confirmó. La solicitud sigue activa.'};
   render();
  }
 }
+async function cancelApprovedForCartChange(){return cancelPersonalCheckout('MODIFY')}
 async function checkDeliveryBackendHealth(){
  if(deliveryHealthPending)return;
  if(!window.B3OrderAvailability?.checkConnection){
@@ -1756,19 +1772,19 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
     flight.oncancel=()=>flyer.remove();
   });
 }
-function addToCart(id,qty=1){let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Agregado a tu pedido');return true}
+function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Agregado a tu pedido');return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
 root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-retry],[data-availability-continue],[data-availability-retry],[data-availability-health],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
-if(['PENDING','ACCEPTED'].includes(liveRequest?.status)&&
+if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
     b.hasAttribute('data-address-next')||b.hasAttribute('data-modal-save-delivery')||
     b.hasAttribute('data-modal-mode')||b.hasAttribute('data-mode'))){
  toast('Primero debes cancelar la solicitud actual para cambiar la dirección o modalidad.');
- screen(liveRequest.status==='ACCEPTED'?'prepaymentReview':'availability');
+ returnToPersonalCheckout();
  return;
 }
-if(['PENDING','ACCEPTED'].includes(liveRequest?.status)&&
+if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-add')||b.hasAttribute('data-cartdelta')||b.hasAttribute('data-remove'))){
  toast('Primero debes cancelar la solicitud actual para cambiar los productos.');
  screen(liveRequest.status==='ACCEPTED'?'prepaymentReview':'availability');
@@ -1873,15 +1889,24 @@ if(b.hasAttribute('data-modal-save-delivery')){
  save();void resolveDelivery();return;
 }
 if(b.dataset.modalPickstore){void confirmStore('pickup',b.dataset.modalPickstore);return;}
-if(b.hasAttribute('data-gps')){deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-marketing-first-later')){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return}
+if(b.hasAttribute('data-gps')){deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.hasAttribute('data-checkout-return')){returnToPersonalCheckout();return}
+if(b.hasAttribute('data-checkout-leave')){nav('inicio');return}
+if(b.hasAttribute('data-checkout-cancel')){void cancelPersonalCheckout('CANCEL');return}
+if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-marketing-first-later')){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return}
 if(b.hasAttribute('data-marketing-first-accept')){localStorage.setItem(MARKETING_PROMPT_KEY,'accepted');marketingPromptVisible=false;render();window.AndroidBridge?.setMarketingNotificationsEnabled?.(true);return}
 if(b.hasAttribute('data-marketing-toggle')){if(window.AndroidBridge?.setMarketingNotificationsEnabled){window.AndroidBridge.setMarketingNotificationsEnabled(!window.AndroidBridge.marketingNotificationsEnabled());}else toast('Las notificaciones push solo están disponibles en Android.');return}
 if(b.dataset.notificationOpen){openNotificationDetail(b.dataset.notificationOpen);return}
 if(b.hasAttribute('data-notification-catalog')){nav('carta');return}
 if(b.hasAttribute('data-notifications-refresh')){void fetchNotifications();return}
 if(b.dataset.screen){
+ if(activePersonalCheckout()&&['deliveryAddress','identity','phone','choice','locations'].includes(b.dataset.screen)){
+  nav('inicio');toast('Tu solicitud sigue activa. Cancélala antes de modificar la compra.');return;
+ }
  if(b.dataset.screen==='detail'&&!st.selected)return;
- if(b.dataset.screen==='identity'){startCheckout();return}
+ if(b.dataset.screen==='identity'){
+  if(activePersonalCheckout()){returnToPersonalCheckout();return}
+  startCheckout();return
+ }
  if(b.dataset.screen==='cart'){
   screen('cart');
   // Viewing the subtotal must never start a delivery availability consultation.
@@ -1892,7 +1917,7 @@ if(b.dataset.screen){
  screen(b.dataset.screen);return;
 }
 if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
-if(b.dataset.mode){if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
+if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)st.notice='Modalidad modificada. Verifica productos, importes y pagos.'}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
 if(b.dataset.store){void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
@@ -1920,6 +1945,7 @@ if(b.hasAttribute('data-prepay-payment')){
  st.pay='';save();screen('payment');return;
 }
 if(b.hasAttribute('data-prepay-add')){void cancelApprovedForCartChange();return}
+if(b.hasAttribute('data-prepay-cancel')){void cancelPersonalCheckout('CANCEL');return}
 if(b.hasAttribute('data-prepay-retry')){screen('availability');void resolveDelivery();return}
 if(b.hasAttribute('data-availability-continue')){
  if(deliveryRequestPending||deliveryAvailability.status!=='READY'||!deliveryQuoteValid())return toast('Primero necesitamos confirmar una sede disponible.');
@@ -2122,6 +2148,9 @@ window.handleB3Back=()=>{
     return false; // Native Activity exits; never navigate to splash.
   }
   if(st.stage==='splash')return false;
+  if(['availability','prepaymentReview','payment'].includes(st.stage)&&activePersonalCheckout()){
+    nav('inicio');return true;
+  }
   if(st.stage==='login'){
     if(loginFromAccount){loginFromAccount=false;nav('cuenta');return true}
     return false; // First launch login: close app on Back, not splash.
