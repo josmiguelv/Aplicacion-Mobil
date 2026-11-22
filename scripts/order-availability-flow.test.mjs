@@ -83,7 +83,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
  'requestSeriesKey','interactionMatchesCart',
  'stopAgentDecisionPoll','scheduleAgentDecisionPoll','completeAcceptedQuote',
  'pollAgentDecision','requestBackendOrderAvailability','openAlternateFulfillment']
- vm.runInNewContext('let agentDecisionTimer=null,agentDecisionPolling=false,checkoutPending=false,fulfillmentOutcomeNote=\'\';\n'+
+ vm.runInNewContext('let agentDecisionTimer=null,agentDecisionPolling=false,checkoutPending=false,checkoutCancelInFlight=false,fulfillmentOutcomeNote=\'\';\n'+
   functions.map(extract).join('\n'),context)
  return {st,events,api,context,start:()=>context.requestBackendOrderAvailability({
   address:st.profile.address,district:st.profile.district,run:context.deliveryValidationGeneration,
@@ -376,7 +376,7 @@ test('al fallar la tarifa se conserva una sola pantalla de solicitud aceptada',(
    message:'No se pudo calcular el delivery (HTTP 500)'},
   activePersonalCheckout:()=>entry,heading:()=>'<header>Estado</header>',
   ic:()=>'',esc:value=>String(value),cartCount:()=>1,subtotal:()=>13,
-  cash:value=>'S/ '+value,deliveryRequestPending:false
+  cash:value=>'S/ '+value,deliveryRequestPending:false,checkoutCancelInFlight:false
  };
  vm.runInNewContext(extract('availability'),context);
  const page=context.availability();
