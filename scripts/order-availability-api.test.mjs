@@ -15,8 +15,6 @@ const sampleForm=(address='Av. Ejemplo 123',district='Santa Anita',reference='')
  fields:[
   {variable:'Productos',value:'1 x Producto publicado — S/ 30.00'},
   {variable:'Subtotal',value:'S/ 30.00'},
-  {variable:'Delivery',value:'Por calcular'},
-  {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección y referencia',value:address+', '+district+(reference?' — '+reference:'')}
  ]
 });
@@ -619,8 +617,8 @@ test('FORM usa el POST existente, cliente solo en CREATE y ticket sin nombre ni 
  assert.equal('phone' in c.requests[1].body,false);
  assert.equal('items' in c.requests[1].body,false);
  assert.equal('catalogRevision' in c.requests[1].body,false);
- assert.equal(c.requests[1].body.form.fields.length,5);
- assert.equal(c.requests[1].body.form.fields[2].variable,'Delivery');
+ assert.equal(c.requests[1].body.form.fields.length,3);
+ assert.equal(c.requests[1].body.form.fields[2].variable,'Dirección y referencia');
  assert.equal(c.requests[1].idempotencyKey,entry.messageIdempotencyKey);
  assert.notEqual(entry.messageIdempotencyKey,entry.idempotencyKey);
  await c.api.sendInteractionMessage(entry);
@@ -656,10 +654,10 @@ test('FORM inválido o repetición de cliente y teléfono se rechaza antes de en
  const a=client(()=>{});
  assert.throws(()=>a.api.prepareInteraction({...args,orderForm:{
   ...valid,fields:[...valid.fields,{variable:'Cliente',value:'Ana'}]
- }}),/exactamente cinco variables|campos del FORM/);
+ }}),/exactamente tres variables|campos del FORM/);
  assert.throws(()=>a.api.prepareInteraction({...args,orderForm:{
   ...valid,fields:[...valid.fields,{variable:'Teléfono',value:'912345678'}]
- }}),/exactamente cinco variables|campos del FORM/);
+ }}),/exactamente tres variables|campos del FORM/);
  assert.equal(a.requests.length,0);
  assert.throws(()=>a.api.prepareInteraction(args),/ticket FORM válido/);
  const mandatory=a.api.prepareInteraction({...args,orderForm:valid});
@@ -707,7 +705,7 @@ test('FORM: palabras del asesor determinan ACCEPTED / REJECTED, no el estado té
  }
 });
 
-test('FORM de seis variables se rechaza localmente sin petición HTTP',()=>{
+test('FORM de cuatro variables se rechaza localmente sin petición HTTP',()=>{
  const c=client(),storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
  const form=sampleForm();
  form.fields.push({variable:'Referencia',value:'Portón negro'});
@@ -717,10 +715,10 @@ test('FORM de seis variables se rechaza localmente sin petición HTTP',()=>{
   customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',
    address:'Av. Ejemplo 123',district:'Santa Anita',mode:'delivery'},
   orderForm:form
- }),/exactamente cinco variables/);
+ }),/exactamente tres variables/);
  assert.equal(c.requests.length,0);
 });
-test('rechaza un sexto campo distinto del legado conocido',()=>{
+test('rechaza variables adicionales ajenas al FORM de tres campos',()=>{
  const c=client(), storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
  const form=sampleForm('Av. Ejemplo 123','Santa Anita');
  form.fields.push({variable:'Referencia',value:'Portón negro'});
@@ -731,6 +729,6 @@ test('rechaza un sexto campo distinto del legado conocido',()=>{
   customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',
    address:'Av. Ejemplo 123',district:'Santa Anita',mode:'delivery'},
   orderForm:form
- }),/exactamente cinco variables/);
+ }),/exactamente tres variables/);
  assert.equal(c.requests.length,0);
 });
