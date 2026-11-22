@@ -626,35 +626,24 @@ test('FORM usa el POST existente, cliente solo en CREATE y ticket sin nombre ni 
  await c.api.sendInteractionMessage(entry);
  assert.equal(c.requests.length,2,'A delivered ticket is never duplicated');
 });
-test('FORM reintenta la misma ficha y la misma interacción ante HTTP 503',async()=>{
+test('HTTP 503 del FORM es incierto: prohíbe reintento automático sin nueva creación',async()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
  const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
- const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
  const customer={firstName:'Ana',lastName:'Quispe',phone:'912345678',
   address:'Av. Principal 123',district:'Santa Anita',reference:'',mode:'delivery'};
- const form=sampleForm('Av. Principal 123','Santa Anita');
- let attempts=0;
- const c=client(req=>{
-  if(req.operation==='INTERACTION_CREATE')
-   return {requestId:req.requestId,status:201,
-    data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ok'}};
-  attempts++;
-  return attempts===1?
-   {requestId:req.requestId,status:503,data:{error:'Temporal'}}:
-   {requestId:req.requestId,status:200,data:{interactionId,messageId,delivered:true,type:'FORM'}};
- });
+ const c=client(req=>req.operation==='INTERACTION_CREATE'?
+  {requestId:req.requestId,status:201,
+   data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ok'}}:
+  {requestId:req.requestId,status:503,data:{error:'Temporal'}});
  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
   items:[{productId,quantity:1}],address:customer.address,district:customer.district,
-  customer,orderForm:form});
+  customer,orderForm:sampleForm('Av. Principal 123','Santa Anita')});
  await c.api.createInteraction(entry);
  await assert.rejects(()=>c.api.sendInteractionMessage(entry),/HTTP 503/);
  assert.equal(entry.messageDelivered,false);
- const snapshot=JSON.stringify(c.requests[1].body);
- await c.api.sendInteractionMessage(c.api.readInteraction());
- assert.equal(JSON.stringify(c.requests[2].body),snapshot,'Retry reuses identical ticket snapshot');
- assert.equal(c.requests[1].interactionId,c.requests[2].interactionId);
- assert.equal(c.requests[1].accessKey,c.requests[2].accessKey);
- assert.equal(c.requests.filter(x=>x.operation==='INTERACTION_CREATE').length,1);
+ assert.equal(c.api.readInteraction().messageDeliveryUncertain,true);
+ await assert.rejects(()=>c.api.sendInteractionMessage(c.api.readInteraction()),/no se pudo comprobar/);
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_MESSAGE']);
 });
 test('FORM inválido o repetición de cliente y teléfono se rechaza antes de enviar',()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
@@ -667,10 +656,10 @@ test('FORM inválido o repetición de cliente y teléfono se rechaza antes de en
  const a=client(()=>{});
  assert.throws(()=>a.api.prepareInteraction({...args,orderForm:{
   ...valid,fields:[...valid.fields,{variable:'Cliente',value:'Ana'}]
- }}),/ticket de validación|campos del ticket/);
+ }}),/exactamente cinco variables|campos del FORM/);
  assert.throws(()=>a.api.prepareInteraction({...args,orderForm:{
   ...valid,fields:[...valid.fields,{variable:'Teléfono',value:'912345678'}]
- }}),/ticket de validación|campos del ticket/);
+ }}),/exactamente cinco variables|campos del FORM/);
  assert.equal(a.requests.length,0);
  assert.throws(()=>a.api.prepareInteraction(args),/ticket FORM válido/);
  const mandatory=a.api.prepareInteraction({...args,orderForm:valid});
