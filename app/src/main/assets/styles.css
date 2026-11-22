@@ -888,3 +888,49 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
  .b3-location-permission-sheet{padding:22px 17px 16px}
  .b3-location-permission-sheet h2{font-size:20px}
 }
+
+/* POLLOS B3 — native confirmation replacement.
+   No browser-origin/URL header, no route change and no interruption of payment. */
+.b3-confirm-layer{
+ position:fixed;inset:0;z-index:1800;
+ display:flex;align-items:center;justify-content:center;
+ padding:18px 17px calc(18px + env(safe-area-inset-bottom,0px));
+}
+.b3-confirm-backdrop{position:absolute;inset:0;background:rgba(22,13,17,.53)}
+.b3-confirm-card{
+ position:relative;width:100%;max-width:420px;background:#fff;
+ border-radius:24px;box-shadow:0 22px 66px rgba(14,8,12,.28);
+ border:1px solid #f0e0e2;padding:25px 24px 21px;
+ display:flex;flex-direction:column;align-items:stretch;gap:12px;
+}
+.b3-confirm-kicker{
+ color:#b11f36;font-size:10px;letter-spacing:.16em;font-weight:850;
+}
+.b3-confirm-icon{
+ width:50px;height:50px;border-radius:16px;
+ display:grid;place-items:center;color:#ba172f;background:#fff1f3;
+ margin:5px auto 2px;
+}
+.b3-confirm-card h2{
+ margin:2px 0 0;font-weight:850;font-size:clamp(21px,5.9vw,25px);
+ letter-spacing:-.035em;line-height:1.2;color:#2e1d24;text-align:center;
+}
+.b3-confirm-card p{
+ margin:0 0 10px;text-align:center;font-size:14px;
+ color:#71656a;line-height:1.6;
+}
+.b3-confirm-accept,.b3-confirm-decline{
+ display:flex;align-items:center;justify-content:center;
+ width:100%;min-height:50px;border-radius:15px;font-size:15px;
+ font-weight:800;padding:12px 15px;
+}
+.b3-confirm-accept{
+ border:1px solid #d20b2b;background:#d20b2b;color:#fff;
+}
+.b3-confirm-accept.danger{
+ background:#a81d32;border-color:#a81d32;
+}
+.b3-confirm-decline{
+ border:1px solid #ebdfe2;background:#fff;color:#4e3b43;
+}
+@media(max-width:360px){.b3-confirm-card{padding:21px 17px 17px}}
