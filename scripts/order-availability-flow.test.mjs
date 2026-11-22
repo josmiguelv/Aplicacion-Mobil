@@ -60,7 +60,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   },
   quoteDelivery:async({storeId})=>{
    events.push('QUOTE:'+storeId)
-   if(quoteFailures>0){quoteFailures--;throw Error('No se pudo cotizar el delivery (HTTP 500)')}
+   if(quoteFailures>0){quoteFailures--;const error=Error('No se pudo cotizar el delivery (HTTP 500)');error.httpStatus=500;throw error}
    return {storeId:wrongQuote?storeB:storeId,storeName:'Prueba',revision:18,
     deliveryFeePen:4.5,routeDistanceKm:1.8,paymentMethods:['yape','cash']}
   }
@@ -170,7 +170,7 @@ test('cotización de una sede diferente bloquea la continuación al pago',async(
  const s=simulation({decisions:['ACCEPTED'],wrongQuote:true})
  await s.start();await s.poll()
  assert.notEqual(s.st.stage,'prepaymentReview')
- assert.equal(s.context.deliveryAvailability.status,'QUOTE_UNAVAILABLE')
+ assert.equal(s.context.deliveryAvailability.status,'ERROR')
  assert.match(s.context.deliveryAvailability.message,/no corresponde/)
 })
 test('el estado EXPIRED nunca puede avanzar al pago aunque exista un texto antiguo de aceptado',async()=>{
