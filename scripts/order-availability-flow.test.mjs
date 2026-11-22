@@ -54,6 +54,10 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
    if(decision==='REJECTED')current.status='REJECTED'
    return {decision,clientStatus:current.status}
   },
+  beginPaymentWait:async()=>{
+   events.push('PAYMENT_WINDOW');current.paymentExpiresAt='2099-01-01T00:00:00Z';
+   return {status:'PAYMENT_PENDING',expiresAt:current.paymentExpiresAt,reminderCount:2};
+  },
   quoteDelivery:async({storeId})=>{
    events.push('QUOTE:'+storeId)
    return {storeId:wrongQuote?storeB:storeId,storeName:'Prueba',revision:18,
