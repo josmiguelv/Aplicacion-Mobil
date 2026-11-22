@@ -10,6 +10,16 @@ const html=readFileSync(new URL('../app/src/main/assets/index.html',import.meta.
 const java=readFileSync(new URL('../app/src/main/java/com/integrab2g/pollosb3/MainActivity.java',import.meta.url),'utf8');
 const productId='c82150dd-cad0-4139-9aaf-309c26e074b1';
 const validationId='e37880ae-2d8a-4242-9239-080de6fe4e45';
+const sampleForm=(address='Av. Ejemplo 123',district='Santa Anita')=>({
+ title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',
+ fields:[
+  {variable:'Productos',value:'1 x Producto publicado — S/ 30.00'},
+  {variable:'Subtotal',value:'S/ 30.00'},
+  {variable:'Delivery',value:'Por calcular'},
+  {variable:'Total final',value:'Pendiente de confirmación'},
+  {variable:'Dirección',value:address+', '+district}
+ ]
+});
 
 function mockStorage() {
   const items=new Map();
@@ -20,11 +30,11 @@ function mockStorage() {
     keys:()=>[...items.keys()]
   };
 }
-function client(responder=()=>{},formEnabled=false) {
+function client(responder=()=>{}) {
   const localStorage=mockStorage(),sessionStorage=mockStorage(),requests=[];
   const window={crypto:webcrypto,Uint8Array,btoa,text:undefined,
     localStorage,sessionStorage,setTimeout,clearTimeout};
-  window.AndroidBridge={isOrderFormEnabled:()=>formEnabled,orderAvailabilityRequest(raw){
+  window.AndroidBridge={orderAvailabilityRequest(raw){
     const req=JSON.parse(raw);requests.push(req);
     queueMicrotask(()=>window.b3OrderAvailabilityNativeResponse(JSON.stringify(
       responder(req,requests.length) || {requestId:req.requestId,status:202,
@@ -257,7 +267,8 @@ test('Android includes entered contact and delivery address, never untrusted pri
  const contact={firstName:'Ana',lastName:'Quispe',phone:'912345678',address:'Av. Ejemplo 123',
   district:'Santa Anita',reference:'Porton lateral',mode:'delivery'};
  const args={appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
-  items:[{productId,quantity:1}],address:contact.address,district:contact.district,customer:contact};
+  items:[{productId,quantity:1}],address:contact.address,district:contact.district,
+   customer:contact,orderForm:sampleForm(contact.address,contact.district)};
  const entry=c.api.prepareInteraction(args);
  assert.equal(JSON.stringify(entry.body.customer),JSON.stringify(contact));
  assert.ok(!('summary' in entry.body)&&!('total' in entry.body));
@@ -267,7 +278,7 @@ test('Android includes entered contact and delivery address, never untrusted pri
  assert.equal(c.requests[0].body.customer.reference,'Porton lateral');
  assert.equal(c.api.readInteraction().idempotencyKey,entry.idempotencyKey);
 });
-test('Android devuelve interactionId inmediatamente y entrega texto sin otra creación',async()=>{
+test('Android devuelve interactionId inmediatamente y entrega FORM sin otra creación',async()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c'
  const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3'
  const messageId='1e96145a-90e3-4836-9e69-399312c89b11'
@@ -277,7 +288,8 @@ test('Android devuelve interactionId inmediatamente y entrega texto sin otra cre
   {requestId:req.requestId,status:201,data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ref'}}:
   {requestId:req.requestId,status:200,data:{interactionId,delivered:true,messageId}})
  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
-  items:[{productId,quantity:1}],address:contact.address,district:contact.district,customer:contact})
+  items:[{productId,quantity:1}],address:contact.address,district:contact.district,
+  customer:contact,orderForm:sampleForm(contact.address,contact.district)})
  const created=await c.api.createInteraction(entry)
  assert.equal(created.interactionId,interactionId)
  assert.equal(c.api.readInteraction().interactionId,interactionId)
@@ -292,7 +304,7 @@ test('Android devuelve interactionId inmediatamente y entrega texto sin otra cre
  await c.api.sendInteractionMessage(entry)
  assert.equal(c.requests.length,2)
 })
-test('error temporal de envío del texto preserva interacción y reintenta sin recrear',async()=>{
+test('error temporal de envío del FORM preserva interacción y reintenta sin recrear',async()=>{
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c'
  const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3'
  const messageId='1e96145a-90e3-4836-9e69-399312c89b11'
@@ -307,7 +319,8 @@ test('error temporal de envío del texto preserva interacción y reintenta sin r
   return {requestId:req.requestId,status:200,data:{interactionId,delivered:true,messageId}}
  })
  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
-  items:[{productId,quantity:1}],address:contact.address,district:contact.district,customer:contact})
+  items:[{productId,quantity:1}],address:contact.address,district:contact.district,
+  customer:contact,orderForm:sampleForm(contact.address,contact.district)})
  await c.api.createInteraction(entry)
  await assert.rejects(()=>c.api.sendInteractionMessage(entry),/No se pudo confirmar el ticket del pedido/)
  assert.equal(c.api.readInteraction().interactionId,interactionId)
@@ -516,7 +529,7 @@ test('chat persiste únicamente hitos confirmados y respuestas verificadas sin r
  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
   items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita',
   customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',address:'Av. Ejemplo 123',
-   district:'Santa Anita',reference:'Puerta lateral',mode:'delivery'}});
+   district:'Santa Anita',reference:'Puerta lateral',mode:'delivery'},orderForm:sampleForm()});
  assert.deepEqual(Array.from(entry.activity,x=>x.type),['prepared']);
  await c.api.createInteraction(entry);
  assert.deepEqual(Array.from(entry.activity,x=>x.type),['prepared','created']);
@@ -554,7 +567,7 @@ test('cierre operativo del agente sin ACEPTADO/RECHAZADO equivale a rechazo solo
   const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
    items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita',
    customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',address:'Av. Ejemplo 123',
-    district:'Santa Anita',reference:'',mode:'delivery'}});
+    district:'Santa Anita',reference:'',mode:'delivery'},orderForm:sampleForm()});
   await c.api.createInteraction(entry);
   await c.api.sendInteractionMessage(entry);
   if(alreadyApproved){entry.agentDecision='ACCEPTED';entry.status='ACCEPTED'}
@@ -602,11 +615,11 @@ test('FORM usa el POST existente, cliente solo en CREATE y ticket sin nombre ni 
  ]};
  const c=client(req=>req.operation==='INTERACTION_CREATE'?
   {requestId:req.requestId,status:201,data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ok'}}:
-  {requestId:req.requestId,status:200,data:{interactionId,messageId,delivered:true}},true);
+  {requestId:req.requestId,status:200,data:{interactionId,messageId,delivered:true}});
  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
   items:[{productId,quantity:2}],address:customer.address,district:customer.district,
   customer,orderForm:form});
- assert.equal(entry.messageFormat,'FORM');
+ assert.equal(entry.orderForm.title,'VALIDACIÓN DE PEDIDO');
  assert.ok(!('form' in entry.body)&&!('type' in entry.body));
  assert.equal(entry.body.customer.phone,'912345678');
  await c.api.createInteraction(entry);
@@ -645,7 +658,7 @@ test('FORM reintenta la misma ficha y la misma interacción ante HTTP 503',async
   return attempts===1?
    {requestId:req.requestId,status:503,data:{error:'Temporal'}}:
    {requestId:req.requestId,status:200,data:{interactionId,messageId,delivered:true}};
- },true);
+ });
  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
   items:[{productId,quantity:1}],address:customer.address,district:customer.district,
   customer,orderForm:form});
@@ -670,7 +683,7 @@ test('FORM inválido o repetición de cliente y teléfono se rechaza antes de en
    {variable:'Delivery',value:'Por calcular'},
    {variable:'Total final',value:'Pendiente de confirmación'},
    {variable:'Dirección',value:'Av. Principal 123, Santa Anita'}]};
- const a=client(()=>{},true);
+ const a=client(()=>{});
  assert.throws(()=>a.api.prepareInteraction({...args,orderForm:{
   ...valid,fields:[...valid.fields,{variable:'Cliente',value:'Ana'}]
  }}),/ticket de validación|campos del ticket/);
@@ -678,7 +691,8 @@ test('FORM inválido o repetición de cliente y teléfono se rechaza antes de en
   ...valid,fields:[...valid.fields,{variable:'Teléfono',value:'912345678'}]
  }}),/ticket de validación|campos del ticket/);
  assert.equal(a.requests.length,0);
- const legacy=client(()=>{},false);
- const value=legacy.api.prepareInteraction({...args,orderForm:valid});
- assert.equal(value.messageFormat,'TEXT','New FORM is opt-in until administrator supports it');
+ assert.throws(()=>a.api.prepareInteraction(args),/ticket FORM válido/);
+ const mandatory=a.api.prepareInteraction({...args,orderForm:valid});
+ assert.equal(mandatory.orderForm.title,'VALIDACIÓN DE PEDIDO');
+ assert.ok(!('messageFormat' in mandatory));
 });
