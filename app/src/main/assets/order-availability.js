@@ -226,6 +226,19 @@
   function persistInteraction(entry) {
     root.localStorage.setItem(INTERACTION_KEY,JSON.stringify(entry));return entry;
   }
+  // Poll and FORM POST can hold different snapshots of the same interaction.
+  // Never let a stale status read erase an in-flight message's cooldown or ACK.
+  function syncFormDeliveryState(entry) {
+    const current=readInteraction();
+    if(!entry||!current||current.interactionId!==entry.interactionId||
+       current.idempotencyKey!==entry.idempotencyKey)return entry;
+    for(const key of ['messageDelivered','messageIdempotencyKey','messageRetryAt',
+      'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked']){
+      if(Object.prototype.hasOwnProperty.call(current,key))entry[key]=current[key];
+      else delete entry[key];
+    }
+    return entry;
+  }
   // Only locally confirmed milestones are recorded; no simulated server replies.
   // Records stay within the same private, per-device interaction entry.
   const ACTIVITY_TYPES=new Set(['prepared','created','detail_delivered','accepted',
@@ -371,6 +384,7 @@
     }
   }
   async function sendInteractionMessageOnce(entry) {
+    syncFormDeliveryState(entry);
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
        !entry.body?.customer||entry.body.customer.mode!=='delivery'||
        !['PENDING','ACCEPTED'].includes(entry.status))
@@ -500,6 +514,8 @@
        data.agentMessages.some(m=>!m||!UUID.test(m.id)||typeof m.text!=='string'||
          m.text.length>8000||typeof m.createdAt!=='string'))
       throw Error('La respuesta del asesor no coincide con esta interacción.');
+    // FORM delivery state can have changed while the status GET was in flight.
+    syncFormDeliveryState(entry);
     // The Administrator returns only verified OUTBOUND conversation messages.
     // Never replace a verified snapshot after a transient history-read outage.
     if(data.messagesAvailable===true)
