@@ -75,7 +75,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   publishedOrderItems:()=>items,subtotal:()=>24.7,
   deliveryOrderTicketForm:()=>({title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',
    fields:[{variable:'Productos',value:'1 x Producto publicado — S/ 24.70'},
-    {variable:'Subtotal',value:'S/ 24.70'},{variable:'Delivery',value:'Por calcular'},
+    {variable:'Subtotal',value:'S/ 24.70'},
     {variable:'Total final',value:'Pendiente de confirmación'},
     {variable:'Dirección',value:'Av. Ejemplo 123, Santa Anita'}]}),
   save:()=>{},render:()=>{},refreshChatTimeline:()=>{},screen:name=>{st.stage=name;events.push('SCREEN:'+name)},
@@ -621,7 +621,6 @@ test('ticket FORM usa únicamente productos publicados, subtotal y destino; nunc
  assert.deepEqual(form.fields,[
   {variable:'Productos',value:'2 x Pollo a la brasa — S/ 90.00\n1 x Papas adicionales — S/ 8.50'},
   {variable:'Subtotal',value:'S/ 98.50'},
-  {variable:'Delivery',value:'Por calcular'},
   {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección',value:'Av. Principal 123, Santa Anita'},
   {variable:'Referencia',value:'Portón negro'}
@@ -630,7 +629,10 @@ test('ticket FORM usa únicamente productos publicados, subtotal y destino; nunc
  assert.throws(()=>context.deliveryOrderTicketForm('x','Santa Anita'),/dirección válida/);
  context.st.profile.reference='';
  const withoutRef=JSON.parse(JSON.stringify(context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita')));
- assert.equal(withoutRef.fields.length,5);
+ assert.equal(withoutRef.fields.length,4);
+ assert.equal(form.fields.length,5);
+ assert.ok(!form.fields.some(x=>x.variable==='Delivery'));
+ assert.ok(!withoutRef.fields.some(x=>x.variable==='Delivery'));
  context.subtotal=()=>90;
  assert.throws(()=>context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita'),/subtotal.*no coincide/);
  context.subtotal=()=>98.5;
