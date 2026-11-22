@@ -66,7 +66,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
  }
  const context={
   st,shops:allStores,window:{B3OrderAvailability:api},APP_ID:'com.integrab2g.pollosb3',
-  publishedRevision:18,deliveryValidationGeneration:1,agentDecisionTimer:null,
+  publishedRevision:18,deliveryValidationGeneration:1,deliveryValidationStep:'INICIO',agentDecisionTimer:null,
   agentDecisionPolling:false,deliveryAvailability:{status:'CHECKING'},
   deliveryLocation:{latitude:-12.05,longitude:-77.12,source:'address',key:'key'},
   hasDeliveryDestination:()=>true,eligibleDeliveryCandidates:()=>allStores.map(store=>({store,km:1})),
