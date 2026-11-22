@@ -325,9 +325,9 @@
   function interpretAgentDecision(agentMessages) {
     for(const message of agentMessages) {
       const text=message.text.trim().toLocaleLowerCase('es-PE').replace(/[.!]+$/,'').trim();
-      if(['acepto','aceptado','aceptada'].includes(text))
+      if(['aceptar','acepto','aceptado','aceptada'].includes(text))
         return {decision:'ACCEPTED',agentMessageId:message.id};
-      if(['rechazado','rechazada'].includes(text))
+      if(['rechazar','rechazado','rechazada'].includes(text))
         return {decision:'REJECTED',agentMessageId:message.id};
     }
     return {decision:null,agentMessageId:null};
