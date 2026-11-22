@@ -496,3 +496,40 @@ test('puente Android exclusivo para HTTPS rutas permitidas; scripts en orden',()
   assert.match(java,/connection\.setRequestProperty\("Idempotency-Key", key\)/);
   assert.match(checkoutSource,/\[data-availability-continue\],\[data-availability-retry\]/);
 });
+
+test('chat persiste únicamente hitos confirmados y respuestas verificadas sin reabrir la interacción',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
+ const adviserMessage='c9b7e9d9-a5ed-4261-92ac-f31f74ec545c';
+ const c=client(req=>{
+  const data={interactionId,storeId};
+  if(req.operation==='INTERACTION_CREATE')return {
+   requestId:req.requestId,status:201,data:{...data,status:'PENDING',externalReference:'mobile:test'}};
+  if(req.operation==='INTERACTION_MESSAGE')return {
+   requestId:req.requestId,status:200,data:{...data,delivered:true,messageId}};
+  if(req.operation==='INTERACTION_STATUS')return {
+   requestId:req.requestId,status:200,data:{...data,status:'PENDING',messagesAvailable:true,
+    agentMessages:[{id:adviserMessage,text:'ACEPTADO',createdAt:'2026-11-22T04:00:00Z'}]}};
+  throw Error('Operación no simulada '+req.operation);
+ });
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita',
+  customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',address:'Av. Ejemplo 123',
+   district:'Santa Anita',reference:'Puerta lateral',mode:'delivery'}});
+ assert.deepEqual(Array.from(entry.activity,x=>x.type),['prepared']);
+ await c.api.createInteraction(entry);
+ assert.deepEqual(Array.from(entry.activity,x=>x.type),['prepared','created']);
+ await c.api.sendInteractionMessage(entry);
+ assert.deepEqual(Array.from(entry.activity,x=>x.type),['prepared','created','detail_delivered']);
+ await c.api.pollInteraction(entry);
+ await c.api.pollInteraction(entry);
+ assert.deepEqual(Array.from(entry.activity,x=>x.type),
+  ['prepared','created','detail_delivered','accepted']);
+ assert.equal(entry.agentMessages.length,1);
+ assert.equal(entry.agentMessages[0].text,'ACEPTADO');
+ const persisted=c.api.readInteraction();
+ assert.equal(persisted.agentMessages[0].id,adviserMessage);
+ assert.equal(persisted.activity.filter(x=>x.type==='accepted').length,1);
+ assert.equal(c.requests.filter(x=>x.operation==='INTERACTION_CREATE').length,1);
+});
