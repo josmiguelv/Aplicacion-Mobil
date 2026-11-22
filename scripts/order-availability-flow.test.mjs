@@ -72,7 +72,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   hasDeliveryDestination:()=>true,eligibleDeliveryCandidates:()=>allStores.map(store=>({store,km:1})),
   storeAvailabilitySetting:store=>store.consultOrderAvailability,
   publishedOrderItems:()=>items,subtotal:()=>24.7,
-  save:()=>{},render:()=>{},screen:name=>{st.stage=name;events.push('SCREEN:'+name)},
+  save:()=>{},render:()=>{},refreshChatTimeline:()=>{},screen:name=>{st.stage=name;events.push('SCREEN:'+name)},
   deliveryAddressKey:(a,b)=>a+'|'+b,
   geocodeDeliveryDestination:async()=>({latitude:-12.05,longitude:-77.12,source:'address'}),
   clearTimeout:()=>{},setTimeout:()=>1,
@@ -234,4 +234,24 @@ test('espera pendiente ocupa una vista independiente sin apilar resumen y etapas
  assert.doesNotMatch(page,/class="b3-availability-order"/);
  assert.doesNotMatch(page,/class="b3-availability-step"/);
  assert.doesNotMatch(page,/class="b3-checkout-motion"/);
+});
+
+test('la respuesta validada mientras el cliente mira el chat avanza al importe sin duplicar',async()=>{
+ const sim=simulation({decisions:['ACCEPTED']});
+ await sim.start();
+ const id=sim.api.readInteraction().interactionId;
+ sim.st.stage='chat';
+ await sim.poll();
+ assert.equal(sim.api.readInteraction().interactionId,id);
+ assert.equal(sim.st.stage,'prepaymentReview');
+ assert.equal(sim.events.filter(x=>x.startsWith('CREATE:')).length,1);
+ assert.equal(sim.events.filter(x=>x.startsWith('QUOTE:')).length,1);
+ assert.ok(sim.events.includes('SCREEN:availability'));
+ assert.ok(sim.events.includes('SCREEN:prepaymentReview'));
+});
+test('la espera de Pollos B3 incluye un acceso directo al seguimiento del chat',()=>{
+ assert.match(source,/data-screen="chat">Ver seguimiento en el chat/);
+ assert.match(source,/function chatTranscript\(\)/);
+ assert.match(source,/function refreshChatTimeline\(\)/);
+ assert.match(source,/data-checkout-return="1">Ver estado de mi solicitud/);
 });
