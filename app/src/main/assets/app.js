@@ -773,7 +773,9 @@ async function pollAgentDecision(){
     recovering?'Estamos comprobando que tu solicitud haya quedado registrada. No la enviaremos dos veces.':
     sending?formWaitingMessage(latest):
     pending?'Tu solicitud está registrada. Estamos verificando la respuesta de la sede.':
-     'No pudimos continuar con tu pedido. No se realizará ningún cobro.'};
+     error?.httpStatus||/HTTP\s*\d{3}|demasiadas consultas/i.test(String(error?.message||''))?
+      'No pudimos continuar con tu pedido. No se realizará ningún cobro.':
+      error?.message||'No pudimos continuar con tu pedido. No se realizará ningún cobro.'};
   if(st.stage==='availability')render();
  }finally{
   agentDecisionPolling=false;
@@ -1036,9 +1038,11 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
  }catch(error){
   if(run!==deliveryValidationGeneration)return false;
   st.quote=null;st.store='';
-  const stage=deliveryValidationStep;
-  deliveryRequestError=(error?.message||'No se pudo verificar la disponibilidad.')+
-   ' · Etapa: '+stage+'.';
+  // Do not display backend HTTP status codes or internal processing stages.
+  deliveryRequestError=error?.httpStatus||
+   /HTTP\s*\d{3}|demasiadas consultas/i.test(String(error?.message||''))?
+   'No pudimos completar la solicitud. Puedes revisar la entrega o elegir otra modalidad.':
+   error?.message||'No se pudo verificar la disponibilidad.';
   deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],message:deliveryRequestError};
   save();if(silent)screen('availability');return false;
  }finally{
