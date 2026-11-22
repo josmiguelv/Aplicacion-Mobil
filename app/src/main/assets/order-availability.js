@@ -397,6 +397,10 @@
     const response=await nativeRequest({operation:'INTERACTION_PAYMENT_STATUS',interactionId:entry.interactionId,
       accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
     if(Number(response.status)!==200)throw responseError(response,'No se pudo actualizar el estado del pago');
+    if(response.data?.status==='EXPIRED'){
+      entry.status='EXPIRED';entry.paymentExpiresAt=response.data.expiresAt;
+      persistInteraction(entry);
+    }
     return response.data;
   }
   async function cancelInteraction(entry,{reason='MODIFY'}={}){
