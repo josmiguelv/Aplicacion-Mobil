@@ -326,7 +326,7 @@ test('abrir y cerrar chat flotante conserva formulario, etapa, scroll y foco sin
  assert.equal(focusRestored,true);
  assert.equal(input.value,'Dirección a medio completar 123');
  assert.equal(rendered,0);
- assert.match(source,/function screen\(n\)\{if\(n==='chat'\)\{openChatOverlay\(\);return\}/);
+ assert.match(source,/function screen\(n\)\{\s*if\(n==='chat'\)\{openChatOverlay\(\);return\}/);
  assert.match(source,/if\(b\.dataset\.screen==='chat'\)\{openChatOverlay\(\);return\}/);
  assert.match(source,/window\.handleB3Back=\(\)=>\{\s*if\(chatOverlay\)\{closeChatOverlay\(\);return true\}/);
  assert.match(source,/if\(chatOverlay\)refreshChatTimeline\(\)/);
