@@ -696,3 +696,43 @@ test('FORM inválido o repetición de cliente y teléfono se rechaza antes de en
  assert.equal(mandatory.orderForm.title,'VALIDACIÓN DE PEDIDO');
  assert.ok(!('messageFormat' in mandatory));
 });
+
+test('FORM: palabras del asesor determinan ACCEPTED / REJECTED, no el estado técnico',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
+ const words=[
+  ['aceptar','ACCEPTED'],['acepto','ACCEPTED'],['aceptado','ACCEPTED'],['aceptada','ACCEPTED'],
+  ['rechazar','REJECTED'],['rechazado','REJECTED'],['rechazada','REJECTED'],
+  ['  ACEPTAR. ','ACCEPTED'],['RECHAZADO!','REJECTED']
+ ];
+ for(const [reply,expected] of words){
+  const c=client(req=>{
+   if(req.operation==='INTERACTION_CREATE')return {requestId:req.requestId,status:201,
+    data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ok'}};
+   if(req.operation==='INTERACTION_MESSAGE')return {requestId:req.requestId,status:200,
+    data:{interactionId,delivered:true,messageId}};
+   if(req.operation==='INTERACTION_STATUS')return {requestId:req.requestId,status:200,
+    data:{interactionId,storeId,status:'ACCEPTED',messagesAvailable:true,agentMessages:[
+      {id:messageId,text:reply,createdAt:'2026-11-22T20:00:00Z'}
+    ]}};
+   throw Error('Unexpected operation '+req.operation);
+  });
+  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+   items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita',
+   customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',
+    address:'Av. Ejemplo 123',district:'Santa Anita',mode:'delivery'},
+   orderForm:sampleForm()});
+  await c.api.createInteraction(entry);
+  await c.api.sendInteractionMessage(entry);
+  const response=await c.api.pollInteraction(entry);
+  assert.equal(response.decision,expected,reply);
+  assert.equal(entry.status,expected,reply);
+  assert.equal(response.agentMessageId,messageId,reply);
+  assert.deepEqual(c.requests.map(req=>req.operation),[
+   'INTERACTION_CREATE','INTERACTION_MESSAGE','INTERACTION_STATUS'
+  ]);
+  assert.equal(c.requests[1].body.type,'FORM');
+  assert.equal(c.requests[1].body.form.title,'VALIDACIÓN DE PEDIDO');
+ }
+});
