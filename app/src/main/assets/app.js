@@ -1046,8 +1046,8 @@ function returnToPersonalCheckout(){
  else if(entry.status==='REJECTED'){screen('availability');void resolveDelivery()}
  else screen('availability');
 }
-function screen(n){selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications()}
-function nav(tab){checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
+function screen(n){if(n==='chat'){openChatOverlay();return}selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications()}
+function nav(tab){if(tab==='chat'){openChatOverlay();return}checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
 const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${p.isPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
@@ -1611,8 +1611,8 @@ function chatStatusLine(){
  return 'Preparando solicitud';
 }
 function refreshChatTimeline(){
- if(st.stage!=='chat')return;
- const history=document.getElementById('b3-chat-history');
+ if(!chatOverlay)return;
+ const history=chatOverlay.querySelector('#b3-chat-history');
  if(!history)return;
  const atBottom=history.scrollHeight-history.scrollTop-history.clientHeight<90;
  const next=chatTranscript();
@@ -1620,14 +1620,46 @@ function refreshChatTimeline(){
    history.innerHTML=next;
    if(atBottom)history.scrollTop=history.scrollHeight;
  }
- const status=document.getElementById('b3-chat-status');
+ const status=chatOverlay.querySelector('#b3-chat-status');
  if(status)status.textContent=chatStatusLine();
+}
+// The overlay lives outside #app so its opening/closing never rebuilds forms.
+let chatOverlay=null,chatRestoreFocus=null;
+function openChatOverlay(){
+ if(chatOverlay)return;
+ const current=document.activeElement;
+ chatRestoreFocus=current&&root.contains(current)?current:null;
+ const layer=document.createElement('div');
+ layer.className='b3-chat-modal-layer';
+ layer.innerHTML='<div class="b3-chat-modal-backdrop" data-chat-close="1" aria-hidden="true"></div>'+
+  '<section class="b3-chat-panel" role="dialog" aria-modal="true" aria-label="Seguimiento del pedido">'+chat()+'</section>';
+ layer.addEventListener('click',event=>{
+  const action=event.target.closest('[data-chat-close],[data-checkout-return]');
+  if(!action||!layer.contains(action))return;
+  if(action.hasAttribute('data-chat-close')){closeChatOverlay();return}
+  closeChatOverlay();
+  returnToPersonalCheckout(); // Only on intentional "Ver estado".
+ });
+ document.body.appendChild(layer);
+ chatOverlay=layer;
+ const close=layer.querySelector('[data-chat-close]:not(.b3-chat-modal-backdrop)');
+ if(close)close.focus({preventScroll:true});
+ const list=layer.querySelector('#b3-chat-history');
+ if(list)list.scrollTop=list.scrollHeight;
+}
+function closeChatOverlay(){
+ if(!chatOverlay)return;
+ chatOverlay.remove();
+ chatOverlay=null;
+ const focus=chatRestoreFocus;
+ chatRestoreFocus=null;
+ if(focus?.isConnected)focus.focus({preventScroll:true});
 }
 function chat(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  const open=!!entry&&['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(entry.status);
  return '<div class="chat-screen b3-order-chat">'+
-  heading('Seguimiento del pedido','app')+
+  '<div class="b3-chat-modal-header"><div><small>POLLOS B3 · ATENCIÓN</small><strong>Seguimiento del pedido</strong></div><button type="button" data-chat-close="1" aria-label="Cerrar chat y continuar donde estaba">'+ic('close',20)+'</button></div>'+
   '<div class="chat-info b3-chat-info">'+ic('chat',20)+'<span id="b3-chat-status">'+esc(chatStatusLine())+'</span></div>'+
   '<div id="b3-chat-history" class="chat-messages b3-chat-history" role="log" aria-label="Historial de la solicitud">'+chatTranscript()+'</div>'+
   (open?'<button type="button" class="outline full b3-chat-return" data-checkout-return="1">Ver estado de mi solicitud</button>':'')+
@@ -2107,6 +2139,7 @@ if(b.dataset.notificationOpen){openNotificationDetail(b.dataset.notificationOpen
 if(b.hasAttribute('data-notification-catalog')){nav('carta');return}
 if(b.hasAttribute('data-notifications-refresh')){void fetchNotifications();return}
 if(b.dataset.screen){
+ if(b.dataset.screen==='chat'){openChatOverlay();return}
  if(activePersonalCheckout()&&['deliveryAddress','identity','phone','choice','locations'].includes(b.dataset.screen)){
   nav('inicio');toast('Tu solicitud sigue activa. Cancélala antes de modificar la compra.');return;
  }
@@ -2178,6 +2211,7 @@ if(b.hasAttribute('data-logout')){st.registered=false;save();render();return}
 if(b.dataset.openmaps){if(window.AndroidBridge?.openMaps)window.AndroidBridge.openMaps(b.dataset.openmaps);else window.open(b.dataset.openmaps,'_blank');return}
 if(b.hasAttribute('data-clear')){if(!window.confirm('¿Eliminar los datos locales de demostración?'))return;localStorage.removeItem(K);location.reload();return}
 });
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&chatOverlay){e.preventDefault();closeChatOverlay()}});
 root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target.matches('.hero-card[role=button],.promo-card[role=button]'))){e.preventDefault();e.target.click()}});
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();toast('El chat se habilitará después de confirmar el pago.')}});
 root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){
@@ -2369,6 +2403,7 @@ window.b3OpenFromLink=()=>{
   nav('inicio');
 };
 window.handleB3Back=()=>{
+  if(chatOverlay){closeChatOverlay();return true}
   if(marketingPromptVisible){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return true}
   if(fulfillmentModal){checkoutPending=false;fulfillmentModal=null;render();return true}
   if(st.stage==='app'){
