@@ -222,6 +222,21 @@
   function persistInteraction(entry) {
     root.localStorage.setItem(INTERACTION_KEY,JSON.stringify(entry));return entry;
   }
+  // Only locally confirmed milestones are recorded; no simulated server replies.
+  // Records stay within the same private, per-device interaction entry.
+  const ACTIVITY_TYPES=new Set(['prepared','created','detail_delivered','accepted',
+    'rejected','expired','cancelled','cancel_requested','cancelled_before_send','payment_window']);
+  function recordActivity(entry,type) {
+    if(!entry||!ACTIVITY_TYPES.has(type))return entry;
+    const events=Array.isArray(entry.activity)?entry.activity.filter(e=>e&&
+      ACTIVITY_TYPES.has(e.type)&&Number.isFinite(e.at)).slice(-39):[];
+    if(!events.some(e=>e.type===type)){
+      events.push({type,at:Date.now()});
+      entry.activity=events;
+      persistInteraction(entry);
+    }
+    return entry;
+  }
   function prepareInteraction({appId,storeId,catalogRevision,items,address,district,customer}) {
     if(typeof appId!=='string'||!UUID.test(storeId)||
       !Number.isSafeInteger(catalogRevision)||catalogRevision<1||
@@ -260,8 +275,9 @@
     if(prior?.fingerprint===fingerprint&&!['REJECTED','CANCELLED','EXPIRED'].includes(prior.status))return prior;
     if(prior&&!['PREPARED','REJECTED','CANCELLED','EXPIRED'].includes(prior.status))
       throw Error('Ya existe una solicitud de atención iniciada. No enviaremos otro formulario mientras no se confirme su resolución.');
+    const now=Date.now();
     return persistInteraction({fingerprint,body,idempotencyKey:uuid(),interactionId:null,
-      status:'PREPARED',createdAt:Date.now()});
+      status:'PREPARED',createdAt:now,activity:[{type:'prepared',at:now}]});
   }
   async function createInteraction(entry) {
     if(!entry||!UUID.test(entry.idempotencyKey)||!entry.body)
@@ -287,6 +303,7 @@
     entry.status='PENDING';entry.interactionId=data.interactionId;
     entry.messageDelivered=!entry.body.customer;
     persistInteraction(entry);
+    recordActivity(entry,'created'); // Confirmed by the Administrator's 200/201 response.
     return {...data,status:'PENDING'};
   }
   async function sendInteractionMessage(entry) {
@@ -304,6 +321,7 @@
       throw Error('El Administrador no confirmó el mensaje de esta interacción.');
     entry.messageDelivered=true;
     persistInteraction(entry);
+    recordActivity(entry,'detail_delivered'); // Message POST confirmed, not merely attempted.
     return data;
   }
   const SERIES_KEY='b3-mobile-rejected-stores-v1';
@@ -347,6 +365,12 @@
        data.agentMessages.some(m=>!m||!UUID.test(m.id)||typeof m.text!=='string'||
          m.text.length>8000||typeof m.createdAt!=='string'))
       throw Error('La respuesta del asesor no coincide con esta interacción.');
+    // The Administrator returns only verified OUTBOUND conversation messages.
+    // Never replace a verified snapshot after a transient history-read outage.
+    if(data.messagesAvailable===true)
+      entry.agentMessages=data.agentMessages.slice(-40).map(m=>({
+        id:m.id,text:m.text,createdAt:m.createdAt
+      }));
     // A formal TU VERSO status takes precedence over chat text, especially rejection/expiry.
     let decision=null,agentMessageId=null;
     if(data.status==='EXPIRED')entry.status='EXPIRED';
@@ -367,6 +391,10 @@
     }
     if(decision){entry.agentDecision=decision;entry.agentMessageId=agentMessageId;}
     persistInteraction(entry);
+    if(entry.status==='EXPIRED')recordActivity(entry,'expired');
+    else if(entry.status==='CANCELLED')recordActivity(entry,'cancelled');
+    else if(decision==='ACCEPTED')recordActivity(entry,'accepted');
+    else if(decision==='REJECTED')recordActivity(entry,'rejected');
     return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
       decision,agentMessageId,clientStatus:entry.status};
   }
@@ -391,6 +419,7 @@
       throw responseError(response,'No se pudo confirmar el plazo del pago');
     entry.paymentExpiresAt=response.data.expiresAt;
     persistInteraction(entry);
+    recordActivity(entry,'payment_window');
     return response.data;
   }
   async function readPaymentWait(entry){
@@ -400,26 +429,30 @@
     if(Number(response.status)!==200)throw responseError(response,'No se pudo actualizar el estado del pago');
     if(response.data?.status==='EXPIRED'){
       entry.status='EXPIRED';entry.paymentExpiresAt=response.data.expiresAt;
-      persistInteraction(entry);
+      persistInteraction(entry);recordActivity(entry,'expired');
     }
     return response.data;
   }
   function requestCancelWhenRecovered(entry){
     if(!entry||entry.status!=='SUBMITTING'||entry.interactionId)throw Error('La solicitud ya permite cancelación directa.');
     entry.cancelRequested=true;
-    return persistInteraction(entry);
+    persistInteraction(entry);
+    return recordActivity(entry,'cancel_requested');
   }
   async function cancelInteraction(entry,{reason='MODIFY'}={}){
     if(!entry||!UUID.test(entry.idempotencyKey))throw Error('No hay solicitud que cancelar.');
     if(entry.status==='CANCELLED')return {status:'CANCELLED'};
     if(!UUID.test(entry.interactionId)){
-      entry.status='CANCELLED';persistInteraction(entry);return {status:'CANCELLED'};
+      entry.status='CANCELLED';persistInteraction(entry);
+      recordActivity(entry,'cancelled_before_send');
+      return {status:'CANCELLED'};
     }
     const response=await nativeRequest({operation:'INTERACTION_CANCEL',interactionId:entry.interactionId,
       accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,reason});
     if(Number(response.status)!==200||response.data?.status!=='CANCELLED')
       throw responseError(response,'No se pudo notificar la cancelación de la solicitud');
     entry.status='CANCELLED';persistInteraction(entry);
+    recordActivity(entry,'cancelled');
     return response.data;
   }
   function eraseLocalIdentity() {
