@@ -36,6 +36,8 @@ public class MainActivity extends Activity {
     private static final int NOTIFICATION_REQUEST = 42;
     static final String MARKETING_TOPIC = "pollosb3_promotions";
     static final String NOTIFICATION_CHANNEL = "pollosb3_promotions";
+    static final String PERSONAL_ORDER_CHANNEL = "pollosb3_personal_orders";
+    private String pendingPersonalInteractionId = "";
     static final String PREFS = "b3_push_settings";
     private boolean pendingNotificationsScreen = false;
     private String pendingNotificationId = "";
@@ -65,6 +67,17 @@ public class MainActivity extends Activity {
         pendingNotificationId = "";
         web.evaluateJavascript("window.b3OpenNotifications && window.b3OpenNotifications("+JSONObject.quote(id)+")", null);
     }
+    private void dispatchPendingPersonalCheckout() {
+        if (pendingPersonalInteractionId.isEmpty() || !appLinkPageReady || web == null) return;
+        String id=pendingPersonalInteractionId;
+        pendingPersonalInteractionId="";
+        web.evaluateJavascript("window.b3OpenPersonalOrderNotification && window.b3OpenPersonalOrderNotification("+JSONObject.quote(id)+")",null);
+    }
+    private static String personalInteractionFromIntent(Intent intent){
+        if(intent==null || !intent.getBooleanExtra("b3_open_personal_order",false))return "";
+        String id=intent.getStringExtra("interactionId");
+        return id!=null&&id.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")?id:"";
+    }
     private void dispatchPendingAppLink() {
         if (!pendingOpenHome || !appLinkPageReady || web == null) return;
         pendingOpenHome = false;
@@ -74,6 +87,8 @@ public class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        pendingPersonalInteractionId=personalInteractionFromIntent(intent);
+        dispatchPendingPersonalCheckout();
         if (isMarketingNotificationIntent(intent)) {
             pendingNotificationId = getNotificationId(intent);
             pendingNotificationsScreen = true;
@@ -158,6 +173,17 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface public void setMarketingNotificationsEnabled(boolean enabled) {
             runOnUiThread(()->setMarketingOptIn(enabled));
+        }
+        /** Personal FCM token is used only with the server-authorized interaction; never a topic. */
+        @JavascriptInterface public void requestPersonalPushToken() {
+            FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task->{
+                if(!task.isSuccessful()||task.getResult()==null)return;
+                final String value=task.getResult();
+                runOnUiThread(()->{if(web!=null)web.evaluateJavascript("window.b3PersonalPushToken && window.b3PersonalPushToken("+JSONObject.quote(value)+")",null);});
+            });
+            if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
+                runOnUiThread(()->requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},NOTIFICATION_REQUEST));
+            }
         }
         @JavascriptInterface public void requestLocation() {
             runOnUiThread(() -> requestOptionalLocation());
@@ -423,7 +449,10 @@ public class MainActivity extends Activity {
                         body = payload.toString();
                         path = "/api/v1/mobile/interactions/" + interactionId + "/message";
                     } else if ("INTERACTION_STATUS".equals(operation) ||
-                               "INTERACTION_CANCEL".equals(operation)) {
+                               "INTERACTION_CANCEL".equals(operation) ||
+                               "INTERACTION_DEVICE".equals(operation) ||
+                               "INTERACTION_PAYMENT".equals(operation) ||
+                               "INTERACTION_PAYMENT_STATUS".equals(operation)) {
                         String appId = request.optString("appId", "");
                         String storeId = request.optString("storeId", "");
                         String interactionId = request.optString("interactionId", "");
@@ -434,15 +463,22 @@ public class MainActivity extends Activity {
                             !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
                             throw new IllegalArgumentException("Invalid interaction tracking");
                         path = "/api/v1/mobile/interactions/" + interactionId;
-                        if ("INTERACTION_STATUS".equals(operation)) {
-                            path += "/status?appId=" + java.net.URLEncoder.encode(appId, "UTF-8") +
+                        if ("INTERACTION_STATUS".equals(operation) || "INTERACTION_PAYMENT_STATUS".equals(operation)) {
+                            path += "INTERACTION_STATUS".equals(operation)?"/status?appId=":"/payment?appId=" + java.net.URLEncoder.encode(appId, "UTF-8") +
                                 "&storeId=" + java.net.URLEncoder.encode(storeId, "UTF-8");
                         } else {
-                            path += "/cancel";
-                            JSONObject cancellation = new JSONObject();
-                            cancellation.put("appId", appId);
-                            cancellation.put("storeId", storeId);
-                            body = cancellation.toString();
+                            path += "INTERACTION_CANCEL".equals(operation)?"/cancel":"INTERACTION_DEVICE".equals(operation)?"/device":"/payment";
+                            JSONObject payload = new JSONObject();
+                            payload.put("appId",appId);
+                            payload.put("storeId",storeId);
+                            if("INTERACTION_DEVICE".equals(operation)){
+                                String fcmToken=request.optString("fcmToken","");
+                                if(fcmToken.length()<50||fcmToken.length()>4096||!fcmToken.matches("[A-Za-z0-9_:.-]+"))
+                                    throw new IllegalArgumentException("Invalid personal FCM token");
+                                payload.put("fcmToken",fcmToken);
+                            }
+                            if("INTERACTION_CANCEL".equals(operation))payload.put("reason",request.optString("reason","MODIFY"));
+                            body=payload.toString();
                         }
                     } else if ("GET".equals(operation)) {
                         String id = request.optString("validationId", "");
@@ -473,9 +509,11 @@ public class MainActivity extends Activity {
                         // This timeout covers only transport, never waiting for an agent.
                         connection.setReadTimeout("INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
-                            "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ? "GET" :
+                            "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ||
+                            "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
-                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ? "POST" : operation;
+                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
+                            "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
@@ -593,10 +631,14 @@ public class MainActivity extends Activity {
         super.onCreate(state);
         pendingOpenHome = isPollosB3OpenLink(getIntent());
         pendingNotificationsScreen = isMarketingNotificationIntent(getIntent());
+        pendingPersonalInteractionId = personalInteractionFromIntent(getIntent());
         pendingNotificationId = pendingNotificationsScreen ? getNotificationId(getIntent()) : "";
         if(Build.VERSION.SDK_INT>=26){
             NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-            if(manager!=null)manager.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL,"Ofertas Pollos B3",NotificationManager.IMPORTANCE_DEFAULT));
+            if(manager!=null){
+                manager.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL,"Ofertas Pollos B3",NotificationManager.IMPORTANCE_DEFAULT));
+                manager.createNotificationChannel(new NotificationChannel(PERSONAL_ORDER_CHANNEL,"Estado de mis pedidos",NotificationManager.IMPORTANCE_HIGH));
+            }
         }
         if(marketingEnabled())FirebaseMessaging.getInstance().subscribeToTopic(MARKETING_TOPIC);
         web = new WebView(this);
@@ -611,6 +653,7 @@ public class MainActivity extends Activity {
                     appLinkPageReady = true;
                     dispatchPendingAppLink();
                     dispatchPendingNotificationsScreen();
+                    dispatchPendingPersonalCheckout();
                 }
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -645,6 +688,7 @@ public class MainActivity extends Activity {
         pendingOpenHome = false;
         pendingNotificationsScreen = false;
         pendingNotificationId = "";
+        pendingPersonalInteractionId = "";
         if (locationManager != null && currentListener != null) try {locationManager.removeUpdates(currentListener);}catch(Exception ignored){}
         if (web != null) { web.removeJavascriptInterface("AndroidBridge"); web.destroy(); web=null; }
         super.onDestroy();
