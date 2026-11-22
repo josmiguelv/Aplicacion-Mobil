@@ -148,23 +148,30 @@ test('aceptado cotiza únicamente la sede original y avanza automáticamente a r
  assert.equal(s.st.quote.quoteOrigin,'ADMIN_API_ACCEPTED')
  assert.equal(s.st.quote.storeId,storeA)
 })
-test('rechazado usa segunda sede sin cotizar la primera ni pedir intervención al cliente',async()=>{
- const s=simulation({decisions:['REJECTED','ACCEPTED']})
- await s.start();await s.poll()
- assert.equal(s.st.stage,'availability')
- assert.equal(s.context.deliveryAvailability.status,'WAITING_APPROVAL')
- assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA,'CREATE:'+storeB])
- await s.poll()
- assert.equal(s.st.stage,'prepaymentReview')
- assert.deepEqual(s.events.filter(x=>x.startsWith('QUOTE:')),['QUOTE:'+storeB])
-})
-test('si ambas sedes rechazan, informa no disponibilidad sin cotización ni pago',async()=>{
- const s=simulation({decisions:['REJECTED','REJECTED']})
- await s.start();await s.poll();await s.poll()
- assert.equal(s.st.stage,'availability')
- assert.equal(s.context.deliveryAvailability.status,'UNAVAILABLE')
- assert.match(s.context.deliveryAvailability.message,/no tenemos locales disponibles/)
- assert.ok(!s.events.some(x=>x.startsWith('QUOTE:')))
+test('RECHAZADO no envía interacción a segunda sede ni inicia una nueva validación',async()=>{
+ const s=simulation({decisions:['REJECTED','ACCEPTED']});
+ await s.start();await s.poll();
+ assert.equal(s.st.stage,'availability');
+ assert.equal(s.api.readInteraction().status,'REJECTED');
+ assert.equal(s.context.deliveryAvailability.status,'REJECTED');
+ assert.match(s.context.deliveryAvailability.message,/no aceptó tu solicitud/);
+ assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA]);
+ assert.deepEqual(s.events.filter(x=>x.startsWith('POLL:')),['POLL:REJECTED']);
+ await s.poll();
+ assert.equal(s.st.stage,'availability');
+ assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA]);
+ assert.equal(s.events.filter(x=>x.startsWith('QUOTE:')).length,0);
+ assert.equal(s.events.filter(x=>x==='PAYMENT_WINDOW').length,0);
+});
+test('sin sedes o sin agentes, no crea conversaciones y propone cambiar modalidad',async()=>{
+ for(const options of [{allStores:[]},{available:false}]){
+  const s=simulation(options);
+  await s.start();
+  assert.equal(s.context.deliveryAvailability.status,'UNAVAILABLE');
+  assert.match(s.context.deliveryAvailability.message,/recojo en tienda/);
+  assert.equal(s.events.filter(x=>x.startsWith('CREATE:')).length,0);
+  assert.equal(s.events.filter(x=>x.startsWith('POLL:')).length,0);
+ }
 })
 test('cotización de una sede diferente bloquea la continuación al pago',async()=>{
  const s=simulation({decisions:['ACCEPTED'],wrongQuote:true})
@@ -328,7 +335,8 @@ test('abrir y cerrar chat flotante conserva formulario, etapa, scroll y foco sin
  assert.equal(rendered,0);
  assert.match(source,/function screen\(n\)\{\s*if\(n==='chat'\)\{openChatOverlay\(\);return\}/);
  assert.match(source,/if\(b\.dataset\.screen==='chat'\)\{openChatOverlay\(\);return\}/);
- assert.match(source,/window\.handleB3Back=\(\)=>\{\s*if\(chatOverlay\)\{closeChatOverlay\(\);return true\}/);
+ assert.match(source,/window\.handleB3Back=\(\)=>\{\s*if\(b3ConfirmDismiss\)/);
+ assert.match(source,/if\(chatOverlay\)\{closeChatOverlay\(\);return true\}/);
  assert.match(source,/if\(chatOverlay\)refreshChatTimeline\(\)/);
 });
 
@@ -433,4 +441,64 @@ test('activación GPS es voluntaria, abre solo los ajustes nativos elegidos y no
  assert.equal(vm.runInNewContext('deliveryGpsRequested',context),false);
  assert.equal(calls.includes('DEVICE_SETTINGS'),true);
  assert.match(source,/deliveryGpsRequested=forDelivery;\s*showLocationSettingsPrompt\(error\)/);
+});
+
+test('sin disponibilidad o con rechazo se ofrece cambiar método, jamás comprobar otra vez',()=>{
+ const st={mode:'delivery',profile:{address:'Calle de prueba 123',district:'Santa Anita'},quote:null};
+ for(const status of ['UNAVAILABLE','REJECTED']){
+  const entry=status==='REJECTED'?{status:'REJECTED',body:{storeId:storeA}}:null;
+  const context={
+   st,window:{B3OrderAvailability:{readInteraction:()=>entry}},
+   activePersonalCheckout:()=>null,
+   deliveryAvailability:{status,storeName:'Sede de prueba',
+    message:status==='REJECTED'?'La sede no aceptó tu pedido':'Sin atención disponible'},
+   deliveryRequestPending:false,deliveryHealthPending:false,deliveryHealthMessage:'',
+   deliveryValidationStep:'COBERTURA_Y_HORARIO',checkoutPending:false,
+   heading:()=>'<header>Estado del pedido</header>',ic:()=>'',esc:s=>String(s),
+   cartCount:()=>1,subtotal:()=>13,cash:n=>'S/ '+n,deliveryQuoteValid:()=>false
+  };
+  vm.runInNewContext(extract('availability'),context);
+  const html=context.availability();
+  assert.match(html,/Cambiar método de entrega/);
+  assert.match(html,/data-change-fulfillment="1"/);
+  assert.doesNotMatch(html,/data-availability-retry/);
+  assert.doesNotMatch(html,/Volver a comprobar/);
+ }
+ assert.match(source,/if\(b\.hasAttribute\('data-change-fulfillment'\)\)/);
+ assert.match(source,/screen\('choice'\)/);
+ assert.doesNotMatch(source,/window\.confirm\(/);
+});
+test('confirmación personalizada no muestra la URL de WebView ni navega antes de confirmar',async()=>{
+ const events=[],layers=[];
+ const focused={isConnected:true,focus:()=>events.push('RESTORE')};
+ let callback=null;
+ const doc={
+  activeElement:focused,
+  createElement:()=>({
+   innerHTML:'',className:'',remove(){events.push('CLOSE')},
+   addEventListener:(name,fn)=>{if(name==='click')callback=fn},
+   querySelector:()=>({focus:()=>events.push('FOCUS')})
+  }),
+  body:{appendChild:layer=>layers.push(layer)}
+ };
+ const context={document:doc,ic:()=>'',esc:s=>String(s)};
+ vm.runInNewContext('let b3ConfirmDismiss=null;\n'+extract('confirmB3'),context);
+ const answer=context.confirmB3({
+  title:'¿Cancelar tu solicitud?',
+  description:'No volveremos a enviarla automáticamente.',
+  confirmLabel:'Sí, cancelar solicitud',danger:true
+ });
+ assert.equal(layers.length,1);
+ assert.match(layers[0].innerHTML,/POLLOS B3 · TU PEDIDO/);
+ assert.match(layers[0].innerHTML,/Cancelar tu solicitud/);
+ assert.doesNotMatch(layers[0].innerHTML,/appassets|androidplatform\.net|https:\/\//);
+ callback({target:{closest:()=>({getAttribute:()=> 'no'})}});
+ assert.equal(await answer,false);
+ const accepted=context.confirmB3({
+  title:'¿Cambiar los productos?',description:'Se cancelará la solicitud.',
+  confirmLabel:'Continuar',danger:true
+ });
+ callback({target:{closest:()=>({getAttribute:()=> 'yes'})}});
+ assert.equal(await accepted,true);
+ assert.equal(events.filter(e=>e==='CLOSE').length,2);
 });
