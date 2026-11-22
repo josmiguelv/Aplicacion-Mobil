@@ -168,8 +168,9 @@ test('sin sedes o sin agentes, no crea conversaciones y propone cambiar modalida
   const s=simulation(options);
   await s.start();
   assert.equal(s.context.deliveryAvailability.status,'UNAVAILABLE');
-  assert.match(s.context.deliveryAvailability.message,/recojo en tienda/);
-  assert.equal(s.st.stage,'choice');
+  assert.match(s.context.deliveryAvailability.message,/Recojo en tienda/i);
+   assert.equal(s.st.stage,'availability');
+   assert.equal(s.context.deliveryAvailability.reason,options.available===false?'NO_AGENTS':'NO_ELIGIBLE');
   assert.equal(s.events.filter(x=>x.startsWith('CREATE:')).length,0);
   assert.equal(s.events.filter(x=>x.startsWith('POLL:')).length,0);
  }
@@ -444,7 +445,7 @@ test('activación GPS es voluntaria, abre solo los ajustes nativos elegidos y no
  assert.match(source,/deliveryGpsRequested=forDelivery;\s*showLocationSettingsPrompt\(error\)/);
 });
 
-test('sin disponibilidad o con rechazo se ofrece cambiar método, jamás comprobar otra vez',()=>{
+test('sin disponibilidad muestra motivo y reintento manual; rechazo conserva cambio de modalidad',()=>{
  const st={mode:'delivery',profile:{address:'Calle de prueba 123',district:'Santa Anita'},quote:null};
  for(const status of ['UNAVAILABLE','REJECTED']){
   const entry=status==='REJECTED'?{status:'REJECTED',body:{storeId:storeA}}:null;
@@ -460,10 +461,18 @@ test('sin disponibilidad o con rechazo se ofrece cambiar método, jamás comprob
   };
   vm.runInNewContext(extract('availability'),context);
   const html=context.availability();
-  assert.match(html,/Cambiar método de entrega/);
-  assert.match(html,/data-change-fulfillment="1"/);
-  assert.doesNotMatch(html,/data-availability-retry/);
-  assert.doesNotMatch(html,/Volver a comprobar/);
+  if(status==='UNAVAILABLE'){
+    assert.match(html,/Elegir Recojo en tienda/);
+    assert.match(html,/Volver a intentar Delivery/);
+    assert.match(html,/data-availability-pickup="1"/);
+    assert.match(html,/data-availability-retry="1"/);
+    assert.match(html,/No se ha creado una nueva solicitud/);
+    assert.doesNotMatch(html,/data-change-fulfillment="1"/);
+   }else{
+    assert.match(html,/Cambiar método de entrega/);
+    assert.match(html,/data-change-fulfillment="1"/);
+    assert.doesNotMatch(html,/data-availability-retry/);
+   }
  }
  assert.match(source,/if\(b\.hasAttribute\('data-change-fulfillment'\)\)/);
  assert.match(source,/screen\('choice'\)/);
@@ -504,15 +513,16 @@ test('confirmación personalizada no muestra la URL de WebView ni navega antes d
  assert.equal(events.filter(e=>e==='CLOSE').length,2);
 });
 
-test('no delivery: preserves cart and opens fulfillment selector, never automatically reissues interaction',async()=>{
+test('no delivery: preserves cart and shows reason without automatically opening the selector or creating an interaction',async()=>{
  for(const options of [{allStores:[]},{available:false}]){
   const sim=simulation(options);
   sim.st.cart=[{id:productId,qty:2}];
   await sim.start();
-  assert.equal(sim.st.stage,'choice');
-  assert.deepEqual(sim.st.cart,[{id:productId,qty:2}]);
-  assert.equal(sim.events.filter(x=>x.startsWith('CREATE:')).length,0);
-  assert.deepEqual(sim.events.filter(x=>x==='SCREEN:choice'),['SCREEN:choice']);
+  assert.equal(sim.st.stage,'availability');
+   assert.deepEqual(sim.st.cart,[{id:productId,qty:2}]);
+   assert.equal(sim.events.filter(x=>x.startsWith('CREATE:')).length,0);
+   assert.deepEqual(sim.events.filter(x=>x==='SCREEN:availability'),['SCREEN:availability']);
+   assert.equal(sim.events.filter(x=>x==='SCREEN:choice').length,0);
  }
  assert.match(source,/function openAlternateFulfillment\(message\)/);
  assert.match(source,/role="status"><strong>Tu pedido sigue en el carrito/);
