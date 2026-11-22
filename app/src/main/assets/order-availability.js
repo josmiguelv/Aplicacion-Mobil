@@ -9,6 +9,8 @@
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const TOKEN = /^ordv1_[A-Za-z0-9_-]{43}$/;
   const requests = new Map();
+  // Prevent simultaneous FORM POSTs when checkout and the status poll overlap.
+  const formPostsInFlight = new Map();
   let sequence = 0;
   const secureBytes = length => {
     if (!root.crypto || typeof root.crypto.getRandomValues !== 'function')
@@ -358,6 +360,17 @@
     return {...data,status:'PENDING'};
   }
   async function sendInteractionMessage(entry) {
+    const interactionId=entry?.interactionId;
+    if(UUID.test(interactionId)&&formPostsInFlight.has(interactionId))
+      return formPostsInFlight.get(interactionId);
+    const task=sendInteractionMessageOnce(entry);
+    if(UUID.test(interactionId))formPostsInFlight.set(interactionId,task);
+    try{return await task;}
+    finally{
+      if(formPostsInFlight.get(interactionId)===task)formPostsInFlight.delete(interactionId);
+    }
+  }
+  async function sendInteractionMessageOnce(entry) {
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
        !entry.body?.customer||entry.body.customer.mode!=='delivery'||
        !['PENDING','ACCEPTED'].includes(entry.status))
@@ -370,6 +383,13 @@
     if(entry.messageDeliveryBlocked===true){
       const error=Error('El Administrador no confirmó el tipo FORM; no reenviamos el pedido.');
       error.code='FORM_CONTRACT_REJECTED';throw error;
+    }
+    // Persisted cooldown survives app restarts; no repeated POST during HTTP 429.
+    if(Number.isFinite(entry.messageRetryAt)&&entry.messageRetryAt>Date.now()){
+      const error=Error('El FORM tiene un reintento programado, sin crear otra interacción.');
+      error.code='FORM_RETRY_DELAY';
+      error.retryAfterMs=entry.messageRetryAt-Date.now();
+      throw error;
     }
     if(!entry.orderForm)
       throw Error('Falta el ticket FORM obligatorio para la aprobación del pedido.');
@@ -393,6 +413,9 @@
       if(['TIMEOUT','NETWORK_OR_CONTRACT_ERROR','CONNECTION_FAILED','REDIRECT_BLOCKED'].includes(error?.code)){
         entry.messageDeliveryUncertain=true;persistInteraction(entry);
       }
+      if(error?.code==='LOCAL_CONTRACT_REJECTED'){
+        entry.messageDeliveryBlocked=true;persistInteraction(entry);
+      }
       throw error;
     }
     const data=response.data||{};
@@ -402,6 +425,16 @@
       const status=Number(response.status);
       if([400,409].includes(status)){
         entry.messageDeliveryBlocked=true;persistInteraction(entry);
+      }
+      if(status===429){
+        // Each 429 increases the delay: 30 s, 60 s, 120 s, 240 s, then 5 min.
+        // The message payload, interaction and idempotency key do not change.
+        const attempts=Math.min(20,(Number.isInteger(entry.message429Attempts)?
+          Math.max(0,entry.message429Attempts):0)+1);
+        const backoffMs=Math.min(300000,30000*Math.pow(2,Math.min(4,attempts-1)));
+        entry.message429Attempts=attempts;
+        entry.messageRetryAt=Date.now()+backoffMs;
+        persistInteraction(entry);
       }
       if(status===503){
         entry.messageDeliveryUncertain=true;persistInteraction(entry);
@@ -419,7 +452,10 @@
       const error=Error('El Administrador respondió HTTP 200 pero no certificó type FORM y los identificadores del mensaje.');
       error.httpStatus=200;error.code='FORM_ACK_INVALID';throw error;
     }
-    entry.messageDelivered=true;persistInteraction(entry);
+    entry.messageDelivered=true;
+    delete entry.messageRetryAt;
+    delete entry.message429Attempts;
+    persistInteraction(entry);
     recordActivity(entry,'detail_delivered'); // Only a typed FORM acknowledgement confirms delivery.
     return data;
   }
