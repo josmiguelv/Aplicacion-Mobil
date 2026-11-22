@@ -572,6 +572,25 @@ function stopAgentDecisionPoll(){
  if(agentDecisionTimer!==null)clearTimeout(agentDecisionTimer);
  agentDecisionTimer=null;
 }
+// Persisted 429 cooldown also governs the next agent-status poll. This
+// prevents rerender, navigation or app restart from creating a POST storm.
+function formPollDelay(entry,delay=3200){
+ let ms=Math.max(1000,Number.isFinite(delay)?delay:3200);
+ if(entry?.messageDelivered!==true){
+  if(Number.isFinite(entry?.messageRetryAt)&&entry.messageRetryAt>Date.now())
+   ms=Math.max(ms,entry.messageRetryAt-Date.now());
+  if(entry?.messageDeliveryBlocked===true||entry?.messageDeliveryUncertain===true)
+   ms=Math.max(ms,30000);
+ }
+ return ms;
+}
+function formWaitingMessage(entry){
+ if(entry?.messageDeliveryBlocked===true)
+  return 'Tu solicitud está registrada, pero no pudimos entregar sus detalles a la sede. Puedes cancelar la solicitud y elegir otra modalidad de entrega.';
+ if(entry?.messageDeliveryUncertain===true)
+  return 'Tu solicitud está registrada. Estamos verificando si la sede recibió los detalles. No volveremos a enviarlos sin confirmación.';
+ return 'Tu solicitud está registrada. Estamos confirmando los detalles con la sede. No necesitas enviarla nuevamente.';
+}
 function scheduleAgentDecisionPoll(delay=3200){
  stopAgentDecisionPoll();
  if(agentDecisionPolling)return;
@@ -580,7 +599,8 @@ function scheduleAgentDecisionPoll(delay=3200){
     st.stage!=='availability'&&(st.stage!=='chat'||!!entry.paymentExpiresAt))return;
  if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
  if(entry.status!=='SUBMITTING'&&!entry.interactionId)return;
- agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},delay);
+ agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},
+  formPollDelay(entry,delay));
 }
 async function completeAcceptedQuote(entry){
  const api=window.B3OrderAvailability;
@@ -588,7 +608,7 @@ async function completeAcceptedQuote(entry){
  if(!interactionMatchesCart(entry,address,district))
   throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
  if(entry.status!=='ACCEPTED')throw Error('Todavía no existe una aceptación válida del agente.');
- if(entry.body?.customer&&entry.messageDelivered!==true)throw Error('El envío del texto de esta solicitud aún no está confirmado.');
+ if(entry.body?.customer&&entry.messageDelivered!==true)throw Error('El formulario de aprobación todavía no tiene entrega confirmada.');
  if(entry.body.catalogRevision!==publishedRevision)throw Error('El catálogo cambió después de la aceptación. Debes cancelar y solicitar una nueva confirmación.');
  const selected=shops.find(s=>s.id===entry.body.storeId);
  if(!selected)throw Error('La sede que aceptó ya no aparece en el catálogo publicado.');
@@ -654,8 +674,9 @@ async function pollAgentDecision(){
   let detailError=null;
   if(entry.body?.customer&&entry.messageDelivered!==true){
    if(st.stage==='availability'){
-    deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
-     message:'Sincronizando los detalles de tu pedido con la sede.'};render();
+    deliveryAvailability={status:'CREATE_UNCERTAIN',
+     storeName:shops.find(s=>s.id===entry.body.storeId)?.name||'',candidateNames:[],
+     message:formWaitingMessage(entry)};render();
    }
    try{await api.sendInteractionMessage(entry)}
    catch(error){detailError=error}
@@ -664,8 +685,7 @@ async function pollAgentDecision(){
    if(st.stage==='availability'){
     if(entry.body?.customer&&entry.messageDelivered!==true){
      deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
-      message:'La sede ya respondió. Confirmando el detalle antes de mostrar el importe final. '+
-       (detailError?.message||'Reintentaremos sin duplicar la solicitud.')};render();
+      message:formWaitingMessage(entry)};render();
     }else await completeAcceptedQuote(entry);
    }else if(st.stage==='chat'&&(!entry.body?.customer||entry.messageDelivered===true)){
     screen('availability');
@@ -691,8 +711,7 @@ async function pollAgentDecision(){
    if(updated.body?.customer&&updated.messageDelivered!==true){
     if(st.stage==='availability'){
      deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:store?.name||'',candidateNames:[],
-      message:'La sede ya respondió ACEPTADO. Terminamos de confirmar el detalle del pedido. '+
-       (detailError?.message||'Continuaremos automáticamente cuando esté confirmado.')};render();
+      message:formWaitingMessage(updated)};render();
     }else if(chatOverlay)refreshChatTimeline();else if(st.stage!=='chat'){render();toast('La sede respondió. Sincronizando los detalles del pedido.')}
    }else if(st.stage==='availability')await completeAcceptedQuote(updated);
    else if(st.stage==='chat'){
@@ -724,12 +743,12 @@ async function pollAgentDecision(){
    // After a failed cancellation, keep the explicit retry action visible while
    // silently polling the SAME interaction for a confirmed terminal status.
    if(deliveryAvailability.reason==='CANCEL_NOT_CONFIRMED')return;
-   deliveryAvailability={status:detailError?'CREATE_UNCERTAIN':'WAITING_APPROVAL',
+   deliveryAvailability={status:entry.body?.customer&&entry.messageDelivered!==true?
+     'CREATE_UNCERTAIN':'WAITING_APPROVAL',
     storeName:store?.name||'',candidateNames:[],
-    message:detailError?
-     'Solicitud creada. No pudimos confirmar la entrega del detalle ('+detailError.message+
-      '). Seguimos consultando al asesor y reintentaremos con la misma solicitud.':
-     'La solicitud está activa. La sede responderá cuando revise tu pedido.'};
+    message:entry.body?.customer&&entry.messageDelivered!==true?
+     formWaitingMessage(api.readInteraction?.()||entry):
+     'La sede responderá cuando revise tu pedido.'};
    render();
   }
  }catch(error){
@@ -742,26 +761,25 @@ async function pollAgentDecision(){
    ['TIMEOUT','CONNECTION_FAILED'].includes(error?.code);
   const quotePending=latest?.status==='ACCEPTED'&&latest.agentDecision==='ACCEPTED'&&
    (!latest.body?.customer||latest.messageDelivered===true)&&transientDeliveryFailure;
-  retryMs=quotePending?(error?.httpStatus===429?65000:12000):8000;
+  retryMs=quotePending?(error?.httpStatus===429?65000:12000):
+   error?.httpStatus===429&&!latest?.messageRetryAt?65000:8000;
   const acceptedStore=quotePending?shops.find(s=>s.id===latest.body?.storeId):null;
   deliveryAvailability={
    status:quotePending?'QUOTE_UNAVAILABLE':recovering||sending?'CREATE_UNCERTAIN':
     pending?'WAITING_APPROVAL':'ERROR',
    storeName:acceptedStore?.name||'',candidateNames:[],
    message:quotePending?
-    'La sede aceptó tu solicitud y recibió el detalle. La tarifa de delivery aún no pudo calcularse ('+
-     (error?.message||'servicio temporalmente no disponible')+
-     '). Reintentaremos sin crear otra interacción ni iniciar el pago.':
-    recovering?'Recuperando confirmación de la solicitud enviada, con la misma clave.':
-    sending?'La interacción existe, pero aún falta confirmar el detalle. '+
-      (error?.message||'Reintentando sin duplicar la solicitud.'):
-    pending?'La consulta tuvo una interrupción. Volveremos a revisar la misma solicitud.':
-     error.message||'No pudimos continuar. Tu pedido no se cobrará.'};
+    'La sede confirmó el pedido. Estamos comprobando la tarifa de Delivery antes del pago.':
+    recovering?'Estamos comprobando que tu solicitud haya quedado registrada. No la enviaremos dos veces.':
+    sending?formWaitingMessage(latest):
+    pending?'Tu solicitud está registrada. Estamos verificando la respuesta de la sede.':
+     'No pudimos continuar con tu pedido. No se realizará ningún cobro.'};
   if(st.stage==='availability')render();
  }finally{
   agentDecisionPolling=false;
   refreshChatTimeline();
   const current=api?.readInteraction?.();
+  retryMs=formPollDelay(current,retryMs);
   if(['PENDING','SUBMITTING'].includes(current?.status)||
      current?.status==='ACCEPTED'&&(current.agentDecision!=='ACCEPTED'||
       st.stage==='availability'||st.stage==='chat'&&!current.paymentExpiresAt))
@@ -866,10 +884,11 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   deliveryValidationStep='ENTREGANDO_DETALLE';
   try{await api.sendInteractionMessage(entry)}
   catch(_){
-   // No new interaction is created. The same message is retried idempotently.
+   // 429 schedules the same FORM after cooldown; uncertain/permanent errors
+   // never trigger another POST without server confirmation.
    deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
-    message:'Solicitud creada. Confirmando el ticket de aprobación. Reintentaremos sin duplicar.'};
-   save();render();scheduleAgentDecisionPoll(8000);return false;
+    message:formWaitingMessage(entry)};
+   save();render();scheduleAgentDecisionPoll(formPollDelay(entry,8000));return false;
   }
  }
  if(!active())return false;
@@ -1635,6 +1654,7 @@ function availability(){
   const responded=request?.agentDecision==='ACCEPTED';
   const relayDone=!request?.body?.customer||request.messageDelivered===true;
   const title=request?.cancelRequested?'Cancelando tu solicitud':responded?'La sede respondió a tu solicitud':
+   confirmed&&!relayDone?'Estamos confirmando tu pedido':
    status==='CREATE_UNCERTAIN'?'Estamos registrando tu solicitud':'Esperando confirmación de la sede';
   const detail=deliveryAvailability.message||
    'Tu solicitud sigue activa y se actualizará automáticamente.';
