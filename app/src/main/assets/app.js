@@ -1539,8 +1539,8 @@ function cart(){
 function availability(){
  const activeEntry=activePersonalCheckout();
  const rejectedEntry=window.B3OrderAvailability?.readInteraction?.();
- const status=rejectedEntry?.status==='REJECTED'?'REJECTED':
-  rejectedEntry?.status==='CANCELLED'?'CANCELLED':deliveryAvailability.status;
+ const status=['IDLE','REJECTED','CANCELLED'].includes(deliveryAvailability.status)&&
+  ['REJECTED','CANCELLED'].includes(rejectedEntry?.status)?rejectedEntry.status:deliveryAvailability.status;
  const checking=status==='CHECKING'||status==='CHECKING_STORES';
  const acceptedQuote=activeEntry?.status==='ACCEPTED'&&
   activeEntry.agentDecision==='ACCEPTED'&&
@@ -1586,7 +1586,7 @@ function availability(){
   const confirmed=!!request?.interactionId;
   const responded=request?.agentDecision==='ACCEPTED';
   const relayDone=!request?.body?.customer||request.messageDelivered===true;
-  const title=responded?'La sede respondió a tu solicitud':
+  const title=request?.cancelRequested?'Cancelando tu solicitud':responded?'La sede respondió a tu solicitud':
    status==='CREATE_UNCERTAIN'?'Estamos registrando tu solicitud':'Esperando confirmación de la sede';
   const detail=deliveryAvailability.message||
    'Tu solicitud sigue activa y se actualizará automáticamente.';
@@ -1613,7 +1613,7 @@ function availability(){
     ${status==='QUOTE_UNAVAILABLE'&&acceptedQuote?
       '<button class="outline full" data-quote-retry="1">Reintentar tarifa de delivery</button>':''}
     ${activeEntry?`<button class="primary full" data-checkout-leave="1">Seguir explorando la app</button>
-      <button class="outline full" data-checkout-cancel="1">Cancelar solicitud</button>`:
+      <button class="outline full" data-checkout-cancel="1" ${checkoutCancelInFlight?'disabled':''}>${checkoutCancelInFlight?'Cancelando solicitud…':'Cancelar solicitud'}</button>`:
       '<p class="smallprint">Verificando la solicitud original. No se enviará una segunda interacción.</p>'}
    </div>
   </div>`;
@@ -1647,19 +1647,15 @@ function availability(){
     <p>${esc(deliveryAvailability.message)}</p>
     ${names.length>1?'<small>Si esta sede rechaza la solicitud, no se enviará automáticamente a otra.</small>':''}
    </div>`:''}
-  ${failed?`<div class="notice" role="alert">${esc(deliveryAvailability.message)}</div><p class="smallprint">Etapa registrada: ${esc(deliveryValidationStep)}. Si el error ocurre antes de CREANDO_INTERACCION, todavía no se solicitó una conversación a TU VERSO.</p>`:''}
-  ${status==='ERROR'?`<button class="outline full" data-availability-health="1" ${deliveryHealthPending?'disabled':''}>${deliveryHealthPending?'Comprobando conexión…':'Verificar conexión con el servidor'}</button>`:''}
-  ${deliveryHealthMessage?`<p class="smallprint" role="status">${esc(deliveryHealthMessage)}</p>`:''}
+  ${failed?`<div class="notice" role="alert">${esc(deliveryAvailability.message)}</div>`:''}
   ${waiting?`<div class="b3-checkout-motion" role="status" aria-label="Solicitud activa en validación"><div class="b3-checkout-orbit"><div class="b3-checkout-orbit-core">${ic('store',31)}</div><i class="b3-orbit-particle first"></i><i class="b3-orbit-particle second"></i></div><strong>Conectados con la sede</strong><span>La solicitud sigue activa. Puedes continuar usando la aplicación mientras la sede responde.</span><div class="b3-checkout-motion-steps"><b>Enviada</b><b>En validación</b><b>Respuesta</b></div></div>`:''}
   ${ready?`<div class="b3-availability-selected">${ic('store',22)}<span><strong>${esc(st.quote.storeName||'Sede disponible')}</strong><small>${st.quote.serverValidated?'Sede y tarifa verificadas por el servidor': 'Delivery referencial · '+Number(st.quote.straightDistanceKm).toFixed(2)+' km en línea recta'}</small></span></div>
    <button class="primary full" data-availability-continue="1">Continuar con mi pedido ${ic('chev',18)}</button>`:''}
-  ${!deliveryRequestPending&&status==='ERROR'?'<button class="primary full" data-availability-retry="1">Reintentar conexión</button>':''}
   ${!deliveryRequestPending&&['UNAVAILABLE','REJECTED'].includes(status)?
     '<button class="primary full" data-change-fulfillment="1">Cambiar método de entrega</button>':''}
   ${deliveryRequestPending?'<div class="b3-availability-wait">'+(waiting?'Esperando la decisión de la sede…':'Consultando locales disponibles…')+'</div>':''}
-  ${activeEntry?`<div class="b3-checkout-wait-actions"><button class="primary full" data-checkout-leave="1">Seguir explorando la app</button><button class="outline full" data-checkout-cancel="1">Cancelar solicitud</button></div>`:''}
+  ${activeEntry?`<div class="b3-checkout-wait-actions"><button class="primary full" data-checkout-leave="1">Seguir explorando la app</button><button class="outline full" data-checkout-cancel="1" ${checkoutCancelInFlight?'disabled':''}>${checkoutCancelInFlight?'Cancelando solicitud…':deliveryAvailability.reason==='CANCEL_NOT_CONFIRMED'?'Reintentar cancelación':'Cancelar solicitud'}</button></div>`:''}
   ${!activeEntry&&!waiting&&status!=='REJECTED'?'<button class="outline full" data-screen="deliveryAddress">Modificar dirección de entrega</button>':''}
-  <p class="smallprint">Se puede enviar una interacción de atención a TU VERSO. No se crea un pedido definitivo ni se realizan cobros; PENDING no significa aprobación.</p>
  </div>`;
 }
 function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" maxlength="60" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" maxlength="60" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
@@ -2205,7 +2201,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Agregado a tu pedido');return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-availability-retry],[data-availability-health],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -2343,7 +2339,7 @@ if(b.hasAttribute('data-modal-save-delivery')){
 if(b.dataset.modalPickstore){void confirmStore('pickup',b.dataset.modalPickstore);return;}
 if(b.hasAttribute('data-gps')){deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.hasAttribute('data-checkout-return')){returnToPersonalCheckout();return}
 if(b.hasAttribute('data-checkout-leave')){nav('inicio');return}
-if(b.hasAttribute('data-checkout-cancel')){void cancelPersonalCheckout('CANCEL');return}
+if(b.hasAttribute('data-checkout-cancel')){void cancelPersonalCheckout('CANCEL',deliveryAvailability.reason==='CANCEL_NOT_CONFIRMED');return}
 if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-marketing-first-later')){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return}
 if(b.hasAttribute('data-marketing-first-accept')){localStorage.setItem(MARKETING_PROMPT_KEY,'accepted');marketingPromptVisible=false;render();window.AndroidBridge?.setMarketingNotificationsEnabled?.(true);return}
 if(b.hasAttribute('data-marketing-toggle')){if(window.AndroidBridge?.setMarketingNotificationsEnabled){window.AndroidBridge.setMarketingNotificationsEnabled(!window.AndroidBridge.marketingNotificationsEnabled());}else toast('Las notificaciones push solo están disponibles en Android.');return}
@@ -2435,7 +2431,6 @@ if(b.hasAttribute('data-availability-pickup')){
    void resolveDelivery();
   return;
  }
-if(b.hasAttribute('data-availability-health')){void checkDeliveryBackendHealth();return}
 if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.mode='delivery';invalidateDeliverySelection();maybeSaveDeliveryAddress();save();void resolveDelivery();return}
 if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2||v('first').length>60||v('last').length>60)return toast('Ingresa nombres y apellidos de hasta 60 caracteres');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
 if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();
