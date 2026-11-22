@@ -537,7 +537,8 @@ function scheduleAgentDecisionPoll(delay=3200){
  stopAgentDecisionPoll();
  if(agentDecisionPolling)return;
  const entry=window.B3OrderAvailability?.readInteraction?.();
- if(entry?.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&st.stage!=='availability')return;
+ if(entry?.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&
+    st.stage!=='availability'&&(st.stage!=='chat'||!!entry.paymentExpiresAt))return;
  if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
  if(st.stage==='availability'&&deliveryAvailability.status==='ERROR'&&entry.status!=='ACCEPTED')return;
  if(entry.status!=='SUBMITTING'&&!entry.interactionId)return;
@@ -589,7 +590,8 @@ async function pollAgentDecision(){
  if(agentDecisionPolling||
     !['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status)||
     (entry.status!=='SUBMITTING'&&!entry.interactionId))return;
- if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&st.stage!=='availability')return;
+ if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&
+    st.stage!=='availability'&&(st.stage!=='chat'||!!entry.paymentExpiresAt))return;
  if(st.stage==='availability'&&deliveryAvailability.status==='ERROR'&&entry.status!=='ACCEPTED')return;
  agentDecisionPolling=true;
  let retryMs=3200;
@@ -627,6 +629,9 @@ async function pollAgentDecision(){
       message:'La sede ya respondió. Confirmando el detalle antes de mostrar el importe final. '+
        (detailError?.message||'Reintentaremos sin duplicar la solicitud.')};render();
     }else await completeAcceptedQuote(entry);
+   }else if(st.stage==='chat'&&(!entry.body?.customer||entry.messageDelivered===true)){
+    screen('availability');
+    await completeAcceptedQuote(entry);
    }
    return;
   }
@@ -645,15 +650,18 @@ async function pollAgentDecision(){
      deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:store?.name||'',candidateNames:[],
       message:'La sede ya respondió ACEPTADO. Terminamos de confirmar el detalle del pedido. '+
        (detailError?.message||'Continuaremos automáticamente cuando esté confirmado.')};render();
-    }else{render();toast('La sede respondió. Sincronizando los detalles del pedido.')}
+    }else if(st.stage!=='chat'){render();toast('La sede respondió. Sincronizando los detalles del pedido.')}
    }else if(st.stage==='availability')await completeAcceptedQuote(updated);
-   else{render();toast('¡La sede aceptó tu pedido! Revisa el total y continúa con el pago.');}
+   else if(st.stage==='chat'){
+    screen('availability');await completeAcceptedQuote(updated);
+   }else{render();toast('¡La sede aceptó tu pedido! Revisa el total y continúa con el pago.');}
    return;
   }
   if(result.decision==='REJECTED'){
    api.markRejectedStore(requestSeriesKey(st.profile.address,st.profile.district),entry.body.storeId);
    deliveryAvailability={status:'CHECKING_STORES',storeName:store?.name||'',candidateNames:[],
     message:'Esta sede no puede atender el pedido. Buscaremos otra sede elegible.'};
+   if(st.stage==='chat')screen('availability');
    if(st.stage==='availability'){
     render();const run=++deliveryValidationGeneration;
     await requestBackendOrderAvailability({address:st.profile.address,district:st.profile.district,
@@ -685,10 +693,11 @@ async function pollAgentDecision(){
   if(st.stage==='availability')render();
  }finally{
   agentDecisionPolling=false;
+  refreshChatTimeline();
   const current=api?.readInteraction?.();
   if(['PENDING','SUBMITTING'].includes(current?.status)||
      current?.status==='ACCEPTED'&&(current.agentDecision!=='ACCEPTED'||
-      st.stage==='availability'))
+      st.stage==='availability'||st.stage==='chat'&&!current.paymentExpiresAt))
    scheduleAgentDecisionPoll(retryMs);
  }
 }
@@ -1843,7 +1852,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','availability','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
+function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','availability','signin-phone','signin-email'].includes(st.stage)?`<button class="persistent-chat" data-screen="chat" aria-label="Abrir chat de ayuda">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
  return {store:String(st.store||''),total:Math.round(orderTotal()*100),
