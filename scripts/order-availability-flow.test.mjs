@@ -360,7 +360,8 @@ test('HTTP 500 al cotizar después de ACEPTADO conserva la interacción y reinte
  assert.equal(run.st.stage,'availability');
  assert.equal(run.st.quote,null);
  assert.equal(run.context.deliveryAvailability.status,'QUOTE_UNAVAILABLE');
- assert.match(run.context.deliveryAvailability.message,/HTTP 500/);
+ assert.match(run.context.deliveryAvailability.message,/comprobando la tarifa de Delivery/);
+ assert.doesNotMatch(run.context.deliveryAvailability.message,/HTTP 500|demasiadas|error/i);
  assert.equal(run.events.filter(x=>x.startsWith('CREATE:')).length,1);
  assert.equal(run.events.filter(x=>x.startsWith('SEND:')).length,1);
  assert.equal(run.events.filter(x=>x==='PAYMENT_WINDOW').length,0);
