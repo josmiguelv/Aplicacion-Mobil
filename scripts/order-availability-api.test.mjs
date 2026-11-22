@@ -539,7 +539,7 @@ test('cierre operativo del agente sin ACEPTADO/RECHAZADO equivale a rechazo solo
  const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
  const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
  const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
- async function attempt({operationalConversationStatus,messagesAvailable=true,agentMessages=[]}){
+ async function attempt({operationalConversationStatus,messagesAvailable=true,agentMessages=[],alreadyApproved=false}){
   const c=client(req=>{
    const data={interactionId,storeId};
    if(req.operation==='INTERACTION_CREATE')return {requestId:req.requestId,status:201,
@@ -557,6 +557,7 @@ test('cierre operativo del agente sin ACEPTADO/RECHAZADO equivale a rechazo solo
     district:'Santa Anita',reference:'',mode:'delivery'}});
   await c.api.createInteraction(entry);
   await c.api.sendInteractionMessage(entry);
+  if(alreadyApproved){entry.agentDecision='ACCEPTED';entry.status='ACCEPTED'}
   const result=await c.api.pollInteraction(entry);
   return {entry,result,requests:c.requests};
  }
@@ -569,8 +570,15 @@ test('cierre operativo del agente sin ACEPTADO/RECHAZADO equivale a rechazo solo
  assert.equal(unresolved.result.decision,null);
  assert.equal(unresolved.entry.status,'PENDING');
  const unavailable=await attempt({operationalConversationStatus:'RESOLVED',messagesAvailable:false});
- assert.equal(unavailable.result.decision,null,'History outage cannot become a rejection');
- assert.equal(unavailable.entry.status,'PENDING');
+ assert.equal(unavailable.result.decision,'REJECTED','Canonical closure ends waiting even when history is inaccessible');
+ assert.equal(unavailable.entry.status,'REJECTED');
+ assert.equal(unavailable.entry.rejectionReason,'AGENT_CLOSED_UNCONFIRMED');
+ const prior=await attempt({operationalConversationStatus:'CLOSED',messagesAvailable:false,alreadyApproved:true});
+ assert.equal(prior.result.decision,'ACCEPTED','Previously verified approval survives temporary history outage');
+ assert.equal(prior.entry.status,'ACCEPTED');
+ const justOutage=await attempt({messagesAvailable:false});
+ assert.equal(justOutage.result.decision,null,'Network outage alone never implies rejection');
+ assert.equal(justOutage.entry.status,'PENDING');
  const approved=await attempt({operationalConversationStatus:'RESOLVED',
   agentMessages:[{id:'c9b7e9d9-a5ed-4261-92ac-f31f74ec545c',text:'ACEPTADO',
    createdAt:'2026-11-22T04:00:00Z'}]});
