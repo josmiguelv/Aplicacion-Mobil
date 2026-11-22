@@ -151,14 +151,14 @@ test('aceptado cotiza únicamente la sede original y avanza automáticamente a r
 test('RECHAZADO no envía interacción a segunda sede ni inicia una nueva validación',async()=>{
  const s=simulation({decisions:['REJECTED','ACCEPTED']});
  await s.start();await s.poll();
- assert.equal(s.st.stage,'choice');
+ assert.equal(s.st.stage,'availability');
  assert.equal(s.api.readInteraction().status,'REJECTED');
  assert.equal(s.context.deliveryAvailability.status,'REJECTED');
  assert.match(s.context.deliveryAvailability.message,/no aceptó tu solicitud/);
  assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA]);
  assert.deepEqual(s.events.filter(x=>x.startsWith('POLL:')),['POLL:REJECTED']);
  await s.poll();
- assert.equal(s.st.stage,'choice');
+ assert.equal(s.st.stage,'availability');
  assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA]);
  assert.equal(s.events.filter(x=>x.startsWith('QUOTE:')).length,0);
  assert.equal(s.events.filter(x=>x==='PAYMENT_WINDOW').length,0);
@@ -445,7 +445,7 @@ test('activación GPS es voluntaria, abre solo los ajustes nativos elegidos y no
  assert.match(source,/deliveryGpsRequested=forDelivery;\s*showLocationSettingsPrompt\(error\)/);
 });
 
-test('sin disponibilidad muestra motivo y reintento manual; rechazo conserva cambio de modalidad',()=>{
+test('sin disponibilidad muestra motivo y reintento manual; rechazo terminal ofrece recojo',()=>{
  const st={mode:'delivery',profile:{address:'Calle de prueba 123',district:'Santa Anita'},quote:null};
  for(const status of ['UNAVAILABLE','REJECTED']){
   const entry=status==='REJECTED'?{status:'REJECTED',body:{storeId:storeA}}:null;
@@ -469,9 +469,10 @@ test('sin disponibilidad muestra motivo y reintento manual; rechazo conserva cam
     assert.match(html,/No se ha creado una nueva solicitud/);
     assert.doesNotMatch(html,/data-change-fulfillment="1"/);
    }else{
-    assert.match(html,/Cambiar método de entrega/);
-    assert.match(html,/data-change-fulfillment="1"/);
+    assert.match(html,/Elegir Recojo en tienda/);
+    assert.match(html,/data-availability-pickup="1"/);
     assert.doesNotMatch(html,/data-availability-retry/);
+    assert.doesNotMatch(html,/data-change-fulfillment="1"/);
    }
  }
  assert.match(source,/if\(b\.hasAttribute\('data-change-fulfillment'\)\)/);
