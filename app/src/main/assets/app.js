@@ -724,6 +724,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   }
   throw error;
  }
+ if(entry.interactionId)window.AndroidBridge?.requestPersonalPushToken?.();
  if(!active())return false;
  if(response.status!=='PENDING')throw Error('No se confirmó la solicitud pendiente.');
  // The interactionId was saved before attempting the second HTTP request.
@@ -962,12 +963,14 @@ function activePersonalCheckout(){
  return ['SUBMITTING','PENDING','ACCEPTED'].includes(entry?.status)?entry:null;
 }
 function personalCheckoutBanner(){
- const entry=activePersonalCheckout();if(!entry)return '';
- const pending=entry.status!=='ACCEPTED';
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry||!['SUBMITTING','PENDING','ACCEPTED','REJECTED'].includes(entry.status))return '';
+ const rejected=entry.status==='REJECTED';
+ const pending=entry.status!=='ACCEPTED'&&!rejected;
  return `<button type="button" class="b3-checkout-floating" data-checkout-return="1" aria-label="Ver estado de mi solicitud">
    <span class="b3-checkout-floating-icon">${ic(pending?'clock':'check',20)}</span>
-   <span><strong>${pending?'Tu pedido está en validación':'¡Tu pedido fue aceptado!'}</strong>
-   <small>${pending?'Sigue activo. Toca para ver el estado.':'Continúa con el total y el pago.'}</small></span>
+   <span><strong>${rejected?'La sede no pudo atender el pedido':pending?'Tu pedido está en validación':'¡Tu pedido fue aceptado!'}</strong>
+   <small>${rejected?'Revisa si hay otra sede disponible.':pending?'Sigue activo. Toca para ver el estado.':'Continúa con el total y el pago.'}</small></span>
    ${ic('chev',16)}</button>`;
 }
 function returnToPersonalCheckout(){
@@ -2155,6 +2158,26 @@ setInterval(()=>{
 // Android App Link /abrir: keep the current single-page navigation, do not require sign-in.
 window.b3MarketingStatus=(enabled,message)=>{if(enabled)localStorage.setItem(MARKETING_PROMPT_KEY,'enabled');if(st.stage==='notifications'){render();if(message)toast(message)}else if(message&&st.stage==='app')toast(message)};
 window.b3OpenNotifications=(id)=>{openPushNotification(id)};
+window.b3PersonalPushToken=(token)=>{
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry?.interactionId||!['PENDING','SUBMITTING','ACCEPTED'].includes(entry.status))return;
+ void window.B3OrderAvailability.registerPersonalDevice(entry,token).catch(()=>{
+  // Push is optional; the authorized interaction remains available in-app.
+ });
+};
+window.b3OpenPersonalOrderNotification=(id)=>{
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry||entry.interactionId!==id)return;
+ if(entry.paymentExpiresAt){
+  void window.B3OrderAvailability.readPaymentWait(entry).then(result=>{
+   if(result.status==='EXPIRED'){
+    deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
+     message:'El plazo de pago terminó. Puedes iniciar un nuevo pedido.'};
+    st.quote=null;st.store='';save();screen('availability');
+   }else returnToPersonalCheckout();
+  }).catch(()=>returnToPersonalCheckout());
+ }else returnToPersonalCheckout();
+};
 window.b3OpenFromLink=()=>{
   reviewSheetOrderId=null;
   favoritePromptOrderId=null;
@@ -2182,9 +2205,37 @@ window.handleB3Back=()=>{
   screen(previous[st.stage]||'app');return true
 };
 render();
+const activeAtLaunch=window.B3OrderAvailability?.readInteraction?.();
+if(activeAtLaunch&&['PENDING','SUBMITTING','ACCEPTED'].includes(activeAtLaunch.status))
+ window.AndroidBridge?.requestPersonalPushToken?.();
 fetchConfig();
 // Refresh inbox silently; individual offers are still validated when opened.
 void fetchNotifications();
+// FCM is used in the background; server time is authoritative for expiration.
+let lastExpirySync=0,expirySyncBusy=false;
+setInterval(()=>{
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ const deadline=Date.parse(entry?.paymentExpiresAt||'');
+ if(!Number.isFinite(deadline)||entry?.status!=='ACCEPTED')return;
+ const label=personalCheckoutCountdown();
+ document.querySelectorAll('[data-checkout-remaining]').forEach(node=>{if(node.textContent!==label)node.textContent=label});
+ if(Date.now()<deadline||expirySyncBusy||Date.now()-lastExpirySync<30000)return;
+ expirySyncBusy=true;lastExpirySync=Date.now();
+ void window.B3OrderAvailability.readPaymentWait(entry).then(data=>{
+  if(data.status!=='EXPIRED')return;
+  st.quote=null;st.store='';deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
+   message:'El plazo de pago terminó. Puedes comenzar una nueva solicitud.'};
+  save();
+  if(['payment','prepaymentReview'].includes(st.stage))screen('availability');else render();
+ }).catch(()=>{}).finally(()=>{expirySyncBusy=false});
+},1000);
+document.addEventListener('visibilitychange',()=>{
+ if(document.visibilityState!=='visible')return;
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry)return;
+ if(['SUBMITTING','PENDING'].includes(entry.status))scheduleAgentDecisionPoll(500);
+ if(['SUBMITTING','PENDING','ACCEPTED'].includes(entry.status))window.AndroidBridge?.requestPersonalPushToken?.();
+});
 // Present branded artwork only on cold launch, then clear it from the navigation stack.
 setTimeout(()=>{if(st.stage==='splash')screen(enteredBefore?'app':'login')},3000);
 })();
