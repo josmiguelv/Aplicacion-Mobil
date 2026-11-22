@@ -73,6 +73,11 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   hasDeliveryDestination:()=>true,eligibleDeliveryCandidates:()=>allStores.map(store=>({store,km:1})),
   storeAvailabilitySetting:store=>store.consultOrderAvailability,
   publishedOrderItems:()=>items,subtotal:()=>24.7,
+  deliveryOrderTicketForm:()=>({title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',
+   fields:[{variable:'Productos',value:'1 x Producto publicado — S/ 24.70'},
+    {variable:'Subtotal',value:'S/ 24.70'},{variable:'Delivery',value:'Por calcular'},
+    {variable:'Total final',value:'Pendiente de confirmación'},
+    {variable:'Dirección',value:'Av. Ejemplo 123, Santa Anita'}]}),
   save:()=>{},render:()=>{},refreshChatTimeline:()=>{},screen:name=>{st.stage=name;events.push('SCREEN:'+name)},
   deliveryAddressKey:(a,b)=>a+'|'+b,
   geocodeDeliveryDestination:async()=>({latitude:-12.05,longitude:-77.12,source:'address'}),
@@ -596,4 +601,39 @@ test('cliente no ve botones de diagnóstico, y cancelación fallida ofrece acci�
  assert.match(html,/data-checkout-cancel="1"/);
  assert.doesNotMatch(html,/Reintentar conexión|Verificar conexión con el servidor|Etapa registrada/);
  assert.equal((html.match(/data-checkout-cancel="1"/g)||[]).length,1);
+});
+
+test('ticket FORM usa únicamente productos publicados, subtotal y destino; nunca repite identidad',()=>{
+ const p1={id:'api:'+productId,name:'Pollo a la brasa',price:45,isPublished:true,disabled:false};
+ const p2={id:'api:eeacc37f-7199-4b8f-bb1d-d1338e4f82f8',name:'Papas adicionales',price:8.5,isPublished:true,disabled:false};
+ const list=[{productId,quantity:2},{productId:p2.id.slice(4),quantity:1}];
+ const context={
+  st:{cart:[{id:p1.id,qty:2},{id:p2.id,qty:1}],profile:{reference:'Portón negro'}},
+  publishedOrderItems:()=>list,
+  product:id=>[p1,p2].find(x=>x.id===id),
+  cash:n=>'S/ '+Number(n).toFixed(2),
+  subtotal:()=>98.5
+ };
+ vm.runInNewContext(extract('deliveryOrderTicketForm'),context);
+ const form=JSON.parse(JSON.stringify(context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita')));
+ assert.equal(form.title,'VALIDACIÓN DE PEDIDO');
+ assert.equal(form.subtitle,'Confirmar disponibilidad para delivery');
+ assert.deepEqual(form.fields,[
+  {variable:'Productos',value:'2 x Pollo a la brasa — S/ 90.00\n1 x Papas adicionales — S/ 8.50'},
+  {variable:'Subtotal',value:'S/ 98.50'},
+  {variable:'Delivery',value:'Por calcular'},
+  {variable:'Total final',value:'Pendiente de confirmación'},
+  {variable:'Dirección',value:'Av. Principal 123, Santa Anita'},
+  {variable:'Referencia',value:'Portón negro'}
+ ]);
+ assert.equal(form.fields.some(x=>/cliente|tel[eé]fono/i.test(x.variable)),false);
+ assert.throws(()=>context.deliveryOrderTicketForm('x','Santa Anita'),/dirección válida/);
+ context.st.profile.reference='';
+ const withoutRef=JSON.parse(JSON.stringify(context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita')));
+ assert.equal(withoutRef.fields.length,5);
+ context.subtotal=()=>90;
+ assert.throws(()=>context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita'),/subtotal.*no coincide/);
+ context.subtotal=()=>98.5;
+ context.product=()=>({id:'demo',name:'Inventado',price:47,isPublished:false,disabled:false});
+ assert.throws(()=>context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita'),/catálogo publicado/);
 });
