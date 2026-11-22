@@ -2167,7 +2167,14 @@ if(b.dataset.repeatOrder||b.hasAttribute('data-fav-reorder')){
  st.cart=from.map(x=>({id:x.id,qty:x.qty}));
  st.store='';st.quote=null;save();screen('choice');return;
 }
-if(b.hasAttribute('data-fav-remove')){if(window.confirm('¿Quitar el pedido favorito?')){st.favorite=null;save();render()}return}
+if(b.hasAttribute('data-fav-remove')){
+ void confirmB3({title:'¿Quitar el pedido favorito?',
+  description:'Dejará de aparecer en tus favoritos. Tu carrito actual no cambiará.',
+  confirmLabel:'Quitar de favoritos',danger:true}).then(yes=>{
+   if(yes){st.favorite=null;save();render()}
+  });
+ return;
+}
 if(b.hasAttribute('data-accept-favorite')||b.hasAttribute('data-decline-favorite')){
  const o=findLocalOrder(favoritePromptOrderId);if(!o)return;
  if(b.hasAttribute('data-accept-favorite'))st.favorite={items:o.items.map(x=>({id:x.id,qty:x.qty})),createdAt:Date.now()};
@@ -2199,7 +2206,15 @@ if(b.hasAttribute('data-review-send')){
  reviewSheetOrderId=null;save();render();toast('Opinión guardada localmente; no enviada a Pollos B3');return;
 }
 if(b.hasAttribute('data-privacy-law')){openPrivacyLaw();return}
-if(b.hasAttribute('data-privacy-clear')){if(!window.confirm('¿Borrar definitivamente los datos guardados en este dispositivo? Se eliminarán perfil, direcciones, carrito y datos de prueba.'))return;window.B3OrderAvailability?.eraseLocalIdentity();localStorage.removeItem(K);location.reload();return}
+if(b.hasAttribute('data-privacy-clear')){
+ void confirmB3({title:'¿Eliminar tus datos locales?',
+  description:'Se borrarán el perfil, las direcciones, el carrito y los datos guardados en este teléfono. Esta acción no cancela una solicitud real en la sede.',
+  confirmLabel:'Sí, eliminar mis datos',danger:true}).then(yes=>{
+   if(!yes)return;
+   window.B3OrderAvailability?.eraseLocalIdentity();localStorage.removeItem(K);location.reload();
+  });
+ return;
+}
 if(b.hasAttribute('data-book-open')){openComplaintsUrl(false);return}
 if(b.hasAttribute('data-book-guidance')){openComplaintsUrl(true);return}
 if(b.dataset.vacancy){selectedVacancyId=b.dataset.vacancy;screen('vacancyDetail');return}
@@ -2222,10 +2237,16 @@ if(b.dataset.addressCreate){addressEditId=null;screen('addressEdit');return}
 if(b.dataset.addressEdit){addressEditId=b.dataset.addressEdit;screen('addressEdit');return}
 if(b.dataset.addressDelete){
  const item=savedAddresses().find(a=>a.id===b.dataset.addressDelete);
- if(!item||!window.confirm('¿Eliminar esta dirección guardada?'))return;
- st.addresses=savedAddresses().filter(a=>a.id!==item.id);
- if(st.defaultAddressId===item.id)st.defaultAddressId=st.addresses[0]?.id||null;
- save();render();return
+ if(!item)return;
+ void confirmB3({title:'¿Eliminar esta dirección?',
+  description:'La dirección guardada dejará de aparecer en tu cuenta. No modificará una solicitud ya enviada.',
+  confirmLabel:'Eliminar dirección',danger:true}).then(yes=>{
+   if(!yes)return;
+   st.addresses=savedAddresses().filter(a=>a.id!==item.id);
+   if(st.defaultAddressId===item.id)st.defaultAddressId=st.addresses[0]?.id||null;
+   save();render();
+  });
+ return;
 }
 if(b.dataset.addressDefault){if(!savedAddresses().some(a=>a.id===b.dataset.addressDefault))return;st.defaultAddressId=b.dataset.addressDefault;save();render();return}
 if(b.dataset.addressChoose){pickSavedAddress(b.dataset.addressChoose,true);return}
@@ -2337,9 +2358,20 @@ if(b.dataset.social){toast('Facebook requiere una integración real. Usa invitad
 if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin==='phone'?!/^9\d{8}$/.test(x):!/^\S+@\S+\.\S+$/.test(x))return toast('Completa el dato con un formato válido');st.registered=true;if(b.dataset.demoSignin==='phone')st.profile.phone=x;else st.profile.email=x;save();enterApp();return}
 if(b.hasAttribute('data-logout')){st.registered=false;save();render();return}
 if(b.dataset.openmaps){if(window.AndroidBridge?.openMaps)window.AndroidBridge.openMaps(b.dataset.openmaps);else window.open(b.dataset.openmaps,'_blank');return}
-if(b.hasAttribute('data-clear')){if(!window.confirm('¿Eliminar los datos locales de demostración?'))return;localStorage.removeItem(K);location.reload();return}
+if(b.hasAttribute('data-clear')){
+ void confirmB3({title:'¿Eliminar datos de prueba?',
+  description:'Se eliminarán los datos locales de demostración guardados en este teléfono.',
+  confirmLabel:'Eliminar datos de prueba',danger:true}).then(yes=>{
+   if(yes){localStorage.removeItem(K);location.reload()}
+  });
+ return;
+}
 });
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&chatOverlay){e.preventDefault();closeChatOverlay()}});
+document.addEventListener('keydown',e=>{
+ if(e.key!=='Escape')return;
+ if(b3ConfirmDismiss){e.preventDefault();b3ConfirmDismiss();return}
+ if(chatOverlay){e.preventDefault();closeChatOverlay()}
+});
 root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target.matches('.hero-card[role=button],.promo-card[role=button]'))){e.preventDefault();e.target.click()}});
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();toast('El chat se habilitará después de confirmar el pago.')}});
 root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){
@@ -2531,6 +2563,7 @@ window.b3OpenFromLink=()=>{
   nav('inicio');
 };
 window.handleB3Back=()=>{
+  if(b3ConfirmDismiss){b3ConfirmDismiss();return true}
   if(chatOverlay){closeChatOverlay();return true}
   if(marketingPromptVisible){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return true}
   if(fulfillmentModal){checkoutPending=false;fulfillmentModal=null;render();return true}
