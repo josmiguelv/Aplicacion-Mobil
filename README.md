@@ -24,20 +24,16 @@ La app lee `API_BASE` desde `AndroidBridge.getApiBase()`; configura la URL HTTPS
 Focused verification: `node scripts/order-experience-smoke.mjs`, followed by `gradle :app:assembleDebug`. GitHub Actions runs both checks.
 
 
-## Ticket de pedido FORM (Android, 22/11/2026)
+## Solicitud de aprobación de pedido por Delivery — FORM obligatorio (22/11/2026)
 
-El flujo conserva la creación de la interacción mediante `POST /api/v1/mobile/interactions` y utiliza el endpoint ya existente `POST /api/v1/mobile/interactions/{interactionId}/message` para el detalle.
+Exclusivamente en **Android Pollos B3**: después de crear una interacción mediante `POST /api/v1/mobile/interactions`, la solicitud de **aprobación comercial del pedido** se envía por `POST /api/v1/mobile/interactions/{interactionId}/message` con `type: "FORM"`. No existen bandera de activación, modo `TEXT` ni fallback en este flujo.
 
-El nuevo cuerpo opcional tiene exclusivamente `type: FORM`, `appId`, `storeId` y `form`, que contiene título `VALIDACIÓN DE PEDIDO`, subtítulo `Confirmar disponibilidad para delivery` y campos ordenados `Productos`, `Subtotal`, `Delivery`, `Total final`, `Dirección` y `Referencia` (esta última solo si existe). **No se repiten Cliente ni Teléfono**: la identidad se envía previamente dentro de `customer` en la creación de la interacción.
+El formulario contiene `title: "VALIDACIÓN DE PEDIDO"`, `subtitle: "Confirmar disponibilidad para delivery"` y campos ordenados: **Productos** (cantidades, nombres e importes por línea), **Subtotal**, **Delivery** (por calcular), **Total final** (pendiente de confirmación), **Dirección** y **Referencia** solo cuando el usuario la proporciona. No incluye **Cliente** ni **Teléfono**: los datos del cliente ya están en `customer` al crear la interacción.
 
-Las líneas de productos y subtotal se derivan de productos publicados y cantidades del carrito. Son una **vista informativa del catálogo del móvil**: el administrador debe recalcular importes desde su catálogo autorizado, y el costo de Delivery y total final permanecen pendientes de confirmación.
+Los campos de productos/precios son una representación de la carta publicada en el móvil, **no son autoridad para pagos**. El administrador debe recalcular desde su catálogo antes de validar un importe. La respuesta del asesor debe leerse desde los mensajes verificados `OUTBOUND`: `aceptar/acepto/aceptado/aceptada` equivale a `ACCEPTED`; `rechazar/rechazado/rechazada` a `REJECTED`. Que la interacción esté técnicamente `ACCEPTED` no implica que el pedido haya sido aprobado. El cierre sin respuesta comercial es no confirmado.
 
-**Compatibilidad:** la versión del administrador revisada todavía rechaza `FORM` en el endpoint `/message`, así que Android mantiene el formato anterior por defecto. El FORM se activa solo para pruebas con un administrador compatible:
+**Alcance:** `FORM` se utiliza únicamente para solicitar aprobación del pedido de Delivery. Cancelaciones, seguimiento, cotizaciones, pagos y notificaciones no lo usan. En caso de timeout el mismo formulario y la misma interacción se reintentan sin generar otra conversación.
 
-```powershell
-.\gradlew.bat assembleDebug -PB3_ORDER_FORM_ENABLED=true
-```
+**Compilación estándar:** `.\gradlew.bat assembleDebug`. La URL predeterminada del administrador es `https://back-neutral-rogers-switched.trycloudflare.com`; `-PB3_API_BASE=...` puede sobrescribirla. Se retiró `B3_ORDER_FORM_ENABLED`.
 
-La compilación estándar `./gradlew assembleDebug` conserva el formato anterior; `B3_ORDER_FORM_ENABLED` vale `false` por defecto. `B3_API_BASE` sigue pudiendo sobrescribirse por Gradle. URL configurada predeterminada: `https://back-neutral-rogers-switched.trycloudflare.com`.
-
-El formato se fija al preparar una nueva interacción; los reintentos mantienen el mismo interactionId, token de seguimiento y ticket. No se habilita un FORM a mitad de una interacción existente. Hasta actualizar y certificar el administrador, no se puede confirmar el renderizado del formulario ni los botones de decisión de TU VERSO.
+**Dependencia externa conocida:** la última implementación del administrador revisada todavía valida el cuerpo antiguo del endpoint `/message` y puede rechazar un `FORM`. No se ha modificado el administrador ni TU VERSO en este cambio. Hasta verificar compatibilidad en el administrador, no afirmar entrega real del FORM ni botones renderizados.
