@@ -15,7 +15,7 @@ const sampleForm=(address='Av. Ejemplo 123',district='Santa Anita')=>({
  fields:[
   {variable:'Productos',value:'1 x Producto publicado — S/ 30.00'},
   {variable:'Subtotal',value:'S/ 30.00'},
-  {variable:'Delivery',value:'Por calcular'},
+  
   {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección',value:address+', '+district}
  ]
@@ -608,7 +608,7 @@ test('FORM usa el POST existente, cliente solo en CREATE y ticket sin nombre ni 
  const form={title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',fields:[
   {variable:'Productos',value:'2 x Pollo a la brasa — S/ 90.00'},
   {variable:'Subtotal',value:'S/ 90.00'},
-  {variable:'Delivery',value:'Por calcular'},
+  
   {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección',value:'Av. Principal 123, Santa Anita'},
   {variable:'Referencia',value:'Portón negro'}
@@ -635,6 +635,8 @@ test('FORM usa el POST existente, cliente solo en CREATE y ticket sin nombre ni 
  assert.equal('phone' in c.requests[1].body,false);
  assert.equal('items' in c.requests[1].body,false);
  assert.equal('catalogRevision' in c.requests[1].body,false);
+ assert.equal(c.requests[1].body.form.fields.length,5);
+ assert.equal(c.requests[1].body.form.fields.some(f=>f.variable==='Delivery'),false);
  await c.api.sendInteractionMessage(entry);
  assert.equal(c.requests.length,2,'A delivered ticket is never duplicated');
 });
@@ -646,7 +648,7 @@ test('FORM reintenta la misma ficha y la misma interacción ante HTTP 503',async
   address:'Av. Principal 123',district:'Santa Anita',reference:'',mode:'delivery'};
  const form={title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',fields:[
   {variable:'Productos',value:'1 x Producto publicado — S/ 30.00'},
-  {variable:'Subtotal',value:'S/ 30.00'},{variable:'Delivery',value:'Por calcular'},
+  {variable:'Subtotal',value:'S/ 30.00'},
   {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección',value:'Av. Principal 123, Santa Anita'}]};
  let attempts=0;
@@ -680,7 +682,7 @@ test('FORM inválido o repetición de cliente y teléfono se rechaza antes de en
    address:'Av. Principal 123',district:'Santa Anita',mode:'delivery'}};
  const valid={title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',
   fields:[{variable:'Productos',value:'1 x Pollo'},{variable:'Subtotal',value:'S/ 30.00'},
-   {variable:'Delivery',value:'Por calcular'},
+   
    {variable:'Total final',value:'Pendiente de confirmación'},
    {variable:'Dirección',value:'Av. Principal 123, Santa Anita'}]};
  const a=client(()=>{});
@@ -735,4 +737,52 @@ test('FORM: palabras del asesor determinan ACCEPTED / REJECTED, no el estado té
   assert.equal(c.requests[1].body.type,'FORM');
   assert.equal(c.requests[1].body.form.title,'VALIDACIÓN DE PEDIDO');
  }
+});
+
+test('FORM de aprobación nunca supera cinco variables, incluso con seis en caché anterior',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const messageId='1e96145a-90e3-4836-9e69-399312c89b11';
+ const legacy={title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',fields:[
+  {variable:'Productos',value:'1 x Pollo de prueba — S/ 30.00'},
+  {variable:'Subtotal',value:'S/ 30.00'},
+  {variable:'Delivery',value:'Por calcular'},
+  {variable:'Total final',value:'Pendiente de confirmación'},
+  {variable:'Dirección',value:'Av. Ejemplo 123, Santa Anita'},
+  {variable:'Referencia',value:'Portón negro'}
+ ]};
+ const c=client(req=>req.operation==='INTERACTION_CREATE'?
+  {requestId:req.requestId,status:201,
+   data:{status:'PENDING',storeId,interactionId,externalReference:'mobile:ref'}}:
+  {requestId:req.requestId,status:200,data:{interactionId,delivered:true,messageId}});
+ const entry=c.api.prepareInteraction({
+  appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],
+  address:'Av. Ejemplo 123',district:'Santa Anita',
+  customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',
+   address:'Av. Ejemplo 123',district:'Santa Anita',reference:'Portón negro',mode:'delivery'},
+  orderForm:legacy
+ });
+ assert.equal(entry.orderForm.fields.length,5);
+ await c.api.createInteraction(entry);
+ await c.api.sendInteractionMessage(entry);
+ assert.deepEqual(c.requests.map(r=>r.operation),['INTERACTION_CREATE','INTERACTION_MESSAGE']);
+ assert.equal(c.requests[1].body.form.fields.length,5);
+ assert.ok(!c.requests[1].body.form.fields.some(f=>f.variable==='Delivery'));
+ assert.equal(c.requests[1].body.form.fields.at(-1).variable,'Referencia');
+ assert.equal(c.requests[1].interactionId,interactionId);
+});
+test('rechaza un sexto campo distinto del legado conocido',()=>{
+ const c=client(), storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const form=sampleForm('Av. Ejemplo 123','Santa Anita');
+ form.fields.push({variable:'Referencia',value:'Portón negro'});
+ form.fields.push({variable:'Nota adicional',value:'texto'});
+ assert.throws(()=>c.api.prepareInteraction({
+  appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita',
+  customer:{firstName:'Ana',lastName:'Quispe',phone:'912345678',
+   address:'Av. Ejemplo 123',district:'Santa Anita',mode:'delivery'},
+  orderForm:form
+ }),/máximo de cinco variables/);
+ assert.equal(c.requests.length,0);
 });
