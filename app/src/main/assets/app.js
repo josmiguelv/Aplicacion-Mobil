@@ -526,9 +526,11 @@ function stopAgentDecisionPoll(){
 }
 function scheduleAgentDecisionPoll(delay=3200){
  stopAgentDecisionPoll();
- if(st.stage!=='availability'||agentDecisionPolling)return;
+ if(agentDecisionPolling)return;
  const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(entry?.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&st.stage!=='availability')return;
  if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
+ if(st.stage==='availability'&&deliveryAvailability.status==='ERROR')return;
  if(entry.status!=='SUBMITTING'&&!entry.interactionId)return;
  agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},delay);
 }
@@ -570,70 +572,86 @@ async function completeAcceptedQuote(entry){
 }
 async function pollAgentDecision(){
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
- if(agentDecisionPolling||st.stage!=='availability'||
+ if(agentDecisionPolling||
     !['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status)||
     (entry.status!=='SUBMITTING'&&!entry.interactionId))return;
+ if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&st.stage!=='availability')return;
+ if(st.stage==='availability'&&deliveryAvailability.status==='ERROR')return;
  agentDecisionPolling=true;
  let retryMs=3200;
  try{
   if(entry.status==='SUBMITTING'&&!entry.interactionId){
-   // The create may already have reached the assigned agent; recover only
-   // its acknowledgement with the same stored idempotency key.
-   deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
-    message:'Recuperando confirmación de la solicitud enviada. No se creará una nueva.'};
-   render();
+   if(st.stage==='availability'){
+    deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
+     message:'Recuperando la solicitud original sin duplicarla.'};render();
+   }
    await api.createInteraction(entry);
-   if(st.stage!=='availability')return;
+   window.AndroidBridge?.requestPersonalPushToken?.();
+  }
+  if(entry.cancelRequested){
+   if(!entry.interactionId)throw Error('Esperando identificar la solicitud antes de cancelarla.');
+   await api.cancelInteraction(entry,{reason:'CANCEL'});
+   stopAgentDecisionPoll();
+   ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
+   clearDeliveryAvailability();save();nav('inicio');toast('Solicitud cancelada.');return;
   }
   if(entry.body?.customer&&entry.messageDelivered!==true){
-   deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
-    message:'La interacción existe. Confirmando el envío del texto al asesor, sin duplicarla.'};
-   render();
+   if(st.stage==='availability'){
+    deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
+     message:'Confirmando entrega del detalle al asesor sin abrir otra conversación.'};render();
+   }
    await api.sendInteractionMessage(entry);
-   if(st.stage!=='availability')return;
+  }
+  if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'){
+   if(st.stage==='availability')await completeAcceptedQuote(entry);
+   return;
   }
   const result=await api.pollInteraction(entry);
-  if(st.stage!=='availability')return;
-  const store=shops.find(s=>s.id===entry.body.storeId);
+  const store=shops.find(x=>x.id===entry.body.storeId);
   if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
    deliveryAvailability={status:'ERROR',storeName:store?.name||'',candidateNames:[],
     message:'La solicitud dejó de estar vigente. No se continuará al pago.'};
-   render();return;
+   if(st.stage==='availability')render();else toast('La solicitud dejó de estar vigente.');
+   return;
   }
   if(result.decision==='ACCEPTED'){
-   await completeAcceptedQuote(api.readInteraction());return;
+   if(st.stage==='availability')await completeAcceptedQuote(api.readInteraction());
+   else{render();toast('¡La sede aceptó tu pedido! Revisa el total y continúa con el pago.');}
+   return;
   }
   if(result.decision==='REJECTED'){
    api.markRejectedStore(requestSeriesKey(st.profile.address,st.profile.district),entry.body.storeId);
    deliveryAvailability={status:'CHECKING_STORES',storeName:store?.name||'',candidateNames:[],
-    message:'La sede no pudo atender el pedido. Consultamos el siguiente local disponible.'};
-   render();
-   const run=++deliveryValidationGeneration;
-   await requestBackendOrderAvailability({address:st.profile.address,district:st.profile.district,
-    run,silent:false});
+    message:'Esta sede no puede atender el pedido. Buscaremos otra sede elegible.'};
+   if(st.stage==='availability'){
+    render();const run=++deliveryValidationGeneration;
+    await requestBackendOrderAvailability({address:st.profile.address,district:st.profile.district,
+     run,silent:false});
+   }else{render();toast('La sede no pudo atender tu pedido. Revisa el estado de tu solicitud.');}
    return;
   }
-
-  deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'',candidateNames:[],
-   message:'Esperando confirmación del local. Continuaremos automáticamente cuando responda.'};
-  render();
+  if(st.stage==='availability'){
+   deliveryAvailability={status:'WAITING_APPROVAL',storeName:store?.name||'',candidateNames:[],
+    message:'La solicitud está activa. La sede responderá cuando revise tu pedido.'};
+   render();
+  }
  }catch(error){
   const latest=api?.readInteraction?.();
-  // After an explicit agent decision, validation/quote errors must remain errors.
   const pending=['PENDING','SUBMITTING'].includes(latest?.status);
   const recovering=pending&&!latest?.interactionId;
   const sending=pending&&latest?.interactionId&&latest.body?.customer&&latest.messageDelivered!==true;
   retryMs=8000;
   deliveryAvailability={status:recovering||sending?'CREATE_UNCERTAIN':pending?'WAITING_APPROVAL':'ERROR',storeName:'',candidateNames:[],
-   message:recovering?'Recuperando la confirmación de la interacción enviada, con la misma clave.':
-    sending?'La interacción existe, pero todavía no se confirmó el texto. Reintentaremos con la misma clave.':
-    pending?'La consulta al local tuvo una interrupción. Reintentaremos sin duplicar tu solicitud.':
-     error.message||'No se pudo actualizar el pedido. No continuaremos al pago.'};
-  render();
+   message:recovering?'Recuperando confirmación de la solicitud enviada, con la misma clave.':
+    sending?'La interacción existe. Verificando entrega del detalle sin duplicarlo.':
+    pending?'La consulta tuvo una interrupción. Volveremos a revisar la misma solicitud.':
+     error.message||'No pudimos continuar. Tu pedido no se cobrará.'};
+  if(st.stage==='availability')render();
  }finally{
   agentDecisionPolling=false;
-  if(st.stage==='availability'&&['PENDING','ACCEPTED','SUBMITTING'].includes(api?.readInteraction?.()?.status)&&
-     ['WAITING_APPROVAL','CREATE_UNCERTAIN'].includes(deliveryAvailability.status))
+  const current=api?.readInteraction?.();
+  if(['PENDING','SUBMITTING'].includes(current?.status)||
+     current?.status==='ACCEPTED'&&current.agentDecision!=='ACCEPTED')
    scheduleAgentDecisionPoll(retryMs);
  }
 }
