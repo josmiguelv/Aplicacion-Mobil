@@ -502,7 +502,7 @@ function deliveryOrderTicketForm(address,district){
  if(Math.abs(subtotalCents/100-subtotal())>.015)
   throw Error('El subtotal del ticket no coincide con el carrito publicado.');
  const productsValue=lines.join('\n');
- if(productsValue.length>3900)throw Error('El detalle del pedido excede el tamaño permitido.');
+ if(productsValue.length>500)throw Error('El detalle de Productos supera los 500 caracteres permitidos. Revisa el carrito antes de enviar el pedido.');
  const addr=String(address||'').trim(),area=String(district||'').trim();
  if(addr.length<6||addr.length>180||area.length<2||area.length>80)
   throw Error('Confirma una dirección válida antes de crear el ticket.');
@@ -510,7 +510,7 @@ function deliveryOrderTicketForm(address,district){
  if(reference.length>180||/[\x00-\x1f]/.test(reference))
   throw Error('Revisa la referencia de entrega.');
  const destination=addr+', '+area+(reference?' — '+reference:'');
- if(destination.length>600)throw Error('La dirección y referencia exceden el máximo del formulario.');
+ if(destination.length>500)throw Error('La dirección y referencia superan los 500 caracteres permitidos para el formulario.');
  const fields=[
   {variable:'Productos',value:productsValue},
   {variable:'Subtotal',value:cash(subtotalCents/100)},
@@ -518,7 +518,11 @@ function deliveryOrderTicketForm(address,district){
   {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección y referencia',value:destination}
  ];
- return {title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',fields};
+ const title='VALIDACIÓN DE PEDIDO',subtitle='Confirmar disponibilidad para delivery';
+ if(title.length>180||subtitle.length>350||fields.some(({variable,value})=>
+    variable.length>80||value.length>500))
+  throw Error('El formulario supera los límites permitidos de título, subtítulo o variables.');
+ return {title,subtitle,fields};
 }
 function applyBackendQuote(result,entry,address,district){
  const fee=Number(result.deliveryFee),amount=Number(result.total),serverSubtotal=Number(result.subtotal);
