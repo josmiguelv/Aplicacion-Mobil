@@ -15,6 +15,7 @@ import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -46,6 +47,7 @@ public class MainActivity extends Activity {
     private WebViewAssetLoader assetLoader;
     private LocationManager locationManager;
     private LocationListener currentListener;
+    private boolean resumeLocationAfterSettings = false;
     private boolean appLinkPageReady = false;
     private boolean pendingOpenHome = false;
     private static final String LOCAL_APP_URL = "https://appassets.androidplatform.net/assets/index.html";
@@ -188,6 +190,14 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface public void requestLocation() {
             runOnUiThread(() -> requestOptionalLocation());
+        }
+        /** Explicit user action only; Android must enable device location itself. */
+        @JavascriptInterface public void openLocationSettings() {
+            runOnUiThread(() -> openNativeLocationSettings(false));
+        }
+        /** Direct the user to this app's permissions, never modify permissions silently. */
+        @JavascriptInterface public void openAppLocationSettings() {
+            runOnUiThread(() -> openNativeLocationSettings(true));
         }
         /**
          * Geocode only explicit store addresses supplied by the local app.
@@ -580,18 +590,51 @@ public class MainActivity extends Activity {
         String c = error == null ? "null" : JSONObject.quote(error);
         web.evaluateJavascript("window.b3NativeLocation("+a+","+b+","+c+")", null);
     }
+    private boolean hasLocationPermission() {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+    private void openNativeLocationSettings(boolean appPermissions) {
+        try {
+            resumeLocationAfterSettings = true;
+            Intent action = appPermissions
+                ? new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))
+                : new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+            startActivity(action);
+        } catch (Exception e) {
+            resumeLocationAfterSettings = false;
+            sendLocation(null,null,"No se pudieron abrir los ajustes. Activa Ubicación desde los ajustes de Android.");
+        }
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if (!resumeLocationAfterSettings || web == null) return;
+        resumeLocationAfterSettings = false;
+        web.postDelayed(() -> {
+            if (hasLocationPermission()) requestOptionalLocation();
+            else sendLocation(null,null,"PERMISSION_DENIED");
+        },350);
+    }
     private void requestOptionalLocation() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_REQUEST);
+        if (!hasLocationPermission()) {
+            requestPermissions(new String[]{
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_REQUEST);
             return;
         }
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        String provider = locationManager != null && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        boolean fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED;
+        String provider = locationManager != null && fine &&
+            locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
             ? LocationManager.GPS_PROVIDER
             : locationManager != null && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
                 ? LocationManager.NETWORK_PROVIDER : null;
         if (provider == null) {
-            sendLocation(null,null,"Activa la ubicación del teléfono y vuelve a intentarlo.");
+            boolean anyService = locationManager != null &&
+                (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                 locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER));
+            sendLocation(null,null,anyService ? "LOCATION_PRECISION_REQUIRED" : "LOCATION_DISABLED");
             return;
         }
         try {
@@ -626,8 +669,10 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode == LOCATION_REQUEST) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) requestOptionalLocation();
-            else sendLocation(null,null,"Permiso de ubicación denegado. Puedes escribir tu dirección manualmente.");
+            boolean granted = false;
+            for (int result : grantResults) if (result == PackageManager.PERMISSION_GRANTED) granted = true;
+            if (granted) requestOptionalLocation();
+            else sendLocation(null,null,"PERMISSION_DENIED");
         }
     }
     @Override public void onCreate(Bundle state) {
