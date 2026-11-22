@@ -121,7 +121,7 @@ function marketingPrompt(){
 const enterApp=()=>{
  localStorage.setItem('b3-visitor-entered-v9','1');enteredBefore=true;nav('inicio');
  const pending=window.B3OrderAvailability?.readInteraction?.();
- if(st.mode!=='delivery'||!pending||!['PREPARED','SUBMITTING','PENDING','ACCEPTED','REJECTED'].includes(pending.status))return;
+ if(st.mode!=='delivery'||!pending||!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(pending.status))return;
  void (async()=>{
   try{
    await fetchConfig({strict:true});
@@ -659,15 +659,18 @@ async function pollAgentDecision(){
    return;
   }
   if(result.decision==='REJECTED'){
+   // A verified rejection ends this interaction. No automatic retry or
+   // re-routing to another store without explicit customer action.
    api.markRejectedStore(requestSeriesKey(st.profile.address,st.profile.district),entry.body.storeId);
-   deliveryAvailability={status:'CHECKING_STORES',storeName:store?.name||'',candidateNames:[],
-    message:'Esta sede no puede atender el pedido. Buscaremos otra sede elegible.'};
-   if(st.stage==='chat')screen('availability');
-   if(st.stage==='availability'){
-    render();const run=++deliveryValidationGeneration;
-    await requestBackendOrderAvailability({address:st.profile.address,district:st.profile.district,
-     run,silent:false});
-   }else if(chatOverlay)refreshChatTimeline();else{render();toast('La sede no pudo atender tu pedido. Revisa el estado de tu solicitud.');}
+   stopAgentDecisionPoll();
+   ++deliveryValidationGeneration;
+   deliveryRequestPending=false;
+   deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
+    message:(store?.name||'La sede consultada')+
+      ' no aceptó tu solicitud. No la volveremos a enviar automáticamente. Puedes elegir recojo en tienda.'};
+   if(st.stage==='availability')render();
+   else if(chatOverlay)refreshChatTimeline();
+   else{render();toast('La sede no aceptó el pedido. Puedes cambiar a recojo en tienda.')}
    return;
   }
   if(st.stage==='availability'){
@@ -745,12 +748,23 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   deliveryLocation={...loc,key:deliveryAddressKey(address,district)};
  }
  deliveryValidationStep='COBERTURA_Y_HORARIO';
- const candidates=eligibleDeliveryCandidates(loc);
+ let candidates;
+ try{candidates=eligibleDeliveryCandidates(loc)}
+ catch(error){
+  // Valid location without an eligible store is a business outcome,
+  // not a temporary network failure.
+  if(/^No hay locales habilitados para delivery|^No hay locales con horario abierto|^La dirección está fuera del radio|está cerrado en este momento\./.test(String(error?.message||''))){
+   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
+    message:String(error.message)+' Puedes elegir recojo en tienda u otra modalidad.'};
+   render();return false;
+  }
+  throw error;
+ }
  const tried=new Set(api.rejectedStores(requestSeriesKey(address,district)));
  const consultable=candidates.filter(({store})=>storeAvailabilitySetting(store)===true&&!tried.has(store.id));
  if(!consultable.length){
   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
-   message:'Por ahora no tenemos locales disponibles para realizar tu delivery. Inténtalo más tarde.'};
+   message:'No encontramos una sede disponible para este delivery. Puedes cambiar a recojo en tienda sin volver a enviar la solicitud.'};
   render();return false;
  }
  let selected=null;
@@ -766,7 +780,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  }
  if(!selected){
   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
-   message:'Por ahora no tenemos locales disponibles para realizar tu delivery. Inténtalo más tarde.'};
+   message:'Las sedes elegibles no tienen atención disponible para este delivery. Puedes elegir recojo en tienda.'};
   render();return false;
  }
  st.store=selected.id;st.quote=null;save();
@@ -1138,7 +1152,13 @@ function returnToPersonalCheckout(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry)return;
  if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('prepaymentReview');
- else if(entry.status==='REJECTED'){screen('availability');void resolveDelivery()}
+ else if(entry.status==='REJECTED'){
+  const store=shops.find(x=>x.id===entry.body?.storeId);
+  deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
+   message:(store?.name||'La sede consultada')+
+    ' no aceptó tu solicitud. No la reenviaremos. Puedes cambiar a recojo en tienda.'};
+  screen('availability');
+ }
  else screen('availability');
 }
 function screen(n){
