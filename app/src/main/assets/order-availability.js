@@ -371,6 +371,12 @@
       entry.agentMessages=data.agentMessages.slice(-40).map(m=>({
         id:m.id,text:m.text,createdAt:m.createdAt
       }));
+    // A verified terminal canonical conversation with no commercial decision
+    // is a rejection, not an endlessly pending interaction. Require a readable
+    // agent-message snapshot: a transient history outage cannot reject an order.
+    const canonicalClosed=['RESOLVED','CLOSED'].includes(data.operationalConversationStatus)&&
+      data.messagesAvailable===true;
+    const closureDecision=canonicalClosed?interpretAgentDecision(data.agentMessages):null;
     // A formal TU VERSO status takes precedence over chat text, especially rejection/expiry.
     let decision=null,agentMessageId=null;
     if(data.status==='EXPIRED')entry.status='EXPIRED';
@@ -382,6 +388,12 @@
       entry.status=decision||'PENDING';
     }
     else if(data.status==='REJECTED'){entry.status='REJECTED';decision='REJECTED';}
+    else if(canonicalClosed){
+      decision=closureDecision.decision||'REJECTED';
+      agentMessageId=closureDecision.agentMessageId;
+      entry.status=decision;
+      if(decision==='REJECTED'&&!agentMessageId)entry.rejectionReason='AGENT_CLOSED_WITHOUT_CONFIRMATION';
+    }
     else {
       const agent=interpretAgentDecision(data.agentMessages);
       decision=agent.decision;agentMessageId=agent.agentMessageId;
