@@ -640,9 +640,12 @@ async function pollAgentDecision(){
   const result=await api.pollInteraction(entry);
   const store=shops.find(x=>x.id===entry.body.storeId);
   if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
-   deliveryAvailability={status:'ERROR',storeName:store?.name||'',candidateNames:[],
-    message:'La solicitud dejó de estar vigente. No se continuará al pago.'};
-   if(st.stage==='availability')render();else if(chatOverlay)refreshChatTimeline();else toast('La solicitud dejó de estar vigente.');
+   const cancelled=result.clientStatus==='CANCELLED';
+   deliveryAvailability={status:cancelled?'CANCELLED':'UNAVAILABLE',storeName:store?.name||'',candidateNames:[],
+    message:cancelled?'La solicitud fue cancelada. Conservamos los productos del carrito.':
+     'Esta solicitud de Delivery ya no está vigente. No volveremos a enviarla automáticamente.',
+    reason:cancelled?'CUSTOMER_CANCELLED':'EXPIRED'};
+   if(st.stage==='availability')render();else if(chatOverlay)refreshChatTimeline();else toast('Tu solicitud ya no está activa.');
    return;
   }
   if(result.decision==='ACCEPTED'){
@@ -666,12 +669,15 @@ async function pollAgentDecision(){
    stopAgentDecisionPoll();
    ++deliveryValidationGeneration;
    deliveryRequestPending=false;
+   const closedWithoutDecision=api.readInteraction?.()?.rejectionReason==='AGENT_CLOSED_WITHOUT_CONFIRMATION';
    deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
     message:(store?.name||'La sede consultada')+
-      ' no aceptó tu solicitud. No la volveremos a enviar automáticamente. Puedes elegir recojo en tienda.'};
-   if(st.stage==='availability')openAlternateFulfillment(deliveryAvailability.message);
+     (closedWithoutDecision?' cerró la atención sin confirmar tu pedido.':' no aceptó tu solicitud.')+
+     ' No enviaremos este pedido automáticamente a otra sede. Puedes elegir Recojo en tienda.',
+    reason:closedWithoutDecision?'AGENT_CLOSED':'AGENT_REJECTED'};
+   if(st.stage==='availability')render();
    else if(chatOverlay)refreshChatTimeline();
-   else{render();toast('La sede no aceptó el pedido. Puedes cambiar a recojo en tienda.')}
+   else{render();toast('Delivery no confirmado. Puedes elegir Recojo en tienda.')}
    return;
   }
   if(st.stage==='availability'){
@@ -892,12 +898,17 @@ async function cancelPersonalCheckout(reason='CANCEL'){
   stopAgentDecisionPoll();
   ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
   clearDeliveryAvailability();checkoutReviewNote='';save();
-  if(adding)nav('carta');else nav('inicio');
-  toast(adding?'Solicitud anterior cancelada. Puedes modificar tu carrito.':'Solicitud cancelada.');
+  if(adding){nav('carta');toast('Solicitud anterior cancelada. Puedes modificar tu carrito.');}
+  else{
+   deliveryAvailability={status:'CANCELLED',storeName:'',candidateNames:[],
+    message:'Tu solicitud fue cancelada. Conservamos los productos de tu carrito. No se enviará otro pedido automáticamente.',
+    reason:'CUSTOMER_CANCELLED'};
+   screen('availability');
+  }
  }catch(error){
   checkoutReviewNote=error.message||'No se pudo confirmar la cancelación. Intenta nuevamente.';
-  if(st.stage==='availability')deliveryAvailability={status:'WAITING_APPROVAL',storeName:'',candidateNames:[],
-   message:'La cancelación aún no se confirmó. La solicitud sigue activa.'};
+  if(st.stage==='availability')deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
+   message:'No pudimos confirmar la cancelación. La solicitud puede seguir activa; no enviaremos otra hasta comprobarlo. '+(error?.message||'')};
   render();
  }
 }
@@ -1155,12 +1166,13 @@ function returnToPersonalCheckout(){
  if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('prepaymentReview');
  else if(entry.status==='REJECTED'){
   const store=shops.find(x=>x.id===entry.body?.storeId);
+  const closedWithoutDecision=entry.rejectionReason==='AGENT_CLOSED_WITHOUT_CONFIRMATION';
   deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
    message:(store?.name||'La sede consultada')+
-    ' no aceptó tu solicitud. No la reenviaremos. Puedes cambiar a recojo en tienda.'};
-  openAlternateFulfillment(deliveryAvailability.message);
- }
- else screen('availability');
+    (closedWithoutDecision?' cerró la atención sin confirmar el pedido.':' no aceptó tu solicitud.')+
+    ' No se reenviará automáticamente. Puedes elegir Recojo en tienda.'};
+  screen('availability');
+ }else screen('availability');
 }
 function openAlternateFulfillment(message){
  // Only a terminal decision reaches here; never automatically retry availability.
@@ -1524,7 +1536,8 @@ function cart(){
 function availability(){
  const activeEntry=activePersonalCheckout();
  const rejectedEntry=window.B3OrderAvailability?.readInteraction?.();
- const status=rejectedEntry?.status==='REJECTED'?'REJECTED':deliveryAvailability.status;
+ const status=rejectedEntry?.status==='REJECTED'?'REJECTED':
+  rejectedEntry?.status==='CANCELLED'?'CANCELLED':deliveryAvailability.status;
  const checking=status==='CHECKING'||status==='CHECKING_STORES';
  const acceptedQuote=activeEntry?.status==='ACCEPTED'&&
   activeEntry.agentDecision==='ACCEPTED'&&
@@ -1539,13 +1552,13 @@ function availability(){
  const names=deliveryAvailability.candidateNames||[];
  // No checkout milestones, payment, or retry CTA after a terminal outcome.
  // Preserve the cart and let the customer explicitly choose delivery or pickup.
- if(status==='REJECTED'||status==='UNAVAILABLE'){
-  const rejected=status==='REJECTED';
-  const headingText=rejected?'La sede no aceptó tu pedido':
+ if(['REJECTED','UNAVAILABLE','CANCELLED'].includes(status)){
+  const rejected=status==='REJECTED',cancelled=status==='CANCELLED';
+  const headingText=cancelled?'Solicitud cancelada':rejected?'Delivery no confirmado por la sede':
     deliveryAvailability.reason==='NO_AGENTS'?'Delivery sin atención disponible por ahora':
     'No podemos confirmar tu Delivery por el momento';
-  const note=rejected?'Tu solicitud anterior no se volverá a enviar.':
-   'No se ha creado una nueva solicitud de atención.';
+  const note=cancelled?'No enviaremos otra solicitud automáticamente.':
+   rejected?'Esta solicitud no se volverá a enviar.':'No se ha creado una nueva solicitud de atención.';
   return `<div class="page b3-fulfillment-outcome">
    ${heading('Opciones para tu pedido','app')}
    <section class="b3-fulfillment-outcome-card" role="status">
@@ -1559,9 +1572,8 @@ function availability(){
     <p class="b3-fulfillment-outcome-note">${esc(note)}</p>
    </section>
    <div class="b3-fulfillment-outcome-actions">
-    ${rejected?'<button class="primary full" data-change-fulfillment="1">Cambiar método de entrega</button>':
-      '<button class="primary full" data-availability-pickup="1">Elegir Recojo en tienda</button>'+ 
-      '<button class="outline full" data-availability-retry="1">Volver a intentar Delivery</button>'}
+    <button class="primary full" data-availability-pickup="1">Elegir Recojo en tienda</button>
+    ${!rejected&&!cancelled?'<button class="outline full" data-availability-retry="1">Volver a intentar Delivery</button>':''}
      <button class="outline full" data-checkout-leave="1">Volver al inicio</button>
    </div>
   </div>`;
@@ -2407,7 +2419,8 @@ if(b.hasAttribute('data-change-fulfillment')){
  return;
 }
 if(b.hasAttribute('data-availability-pickup')){
-  if(deliveryRequestPending||activePersonalCheckout()||deliveryAvailability.status!=='UNAVAILABLE')return;
+  if(deliveryRequestPending||activePersonalCheckout()||
+    !['UNAVAILABLE','REJECTED','CANCELLED'].includes(deliveryAvailability.status))return;
   ++deliveryValidationGeneration;
   st.mode='pickup';st.quote=null;st.store='';st.pay='';st.cash='';
   deliveryRequestError='';checkoutPending=false;clearDeliveryAvailability();save();
