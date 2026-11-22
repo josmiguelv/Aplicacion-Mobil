@@ -377,3 +377,60 @@ test('al fallar la tarifa se conserva una sola pantalla de solicitud aceptada',(
  assert.doesNotMatch(page,/Carrito · Dirección · Disponibilidad/);
  assert.doesNotMatch(page,/data-availability-retry/);
 });
+
+test('al revisar un pedido aceptado ambas flechas de pago van a Inicio, sin disponibilidad',()=>{
+ const review=extract('prepaymentReview');
+ assert.match(review,/heading\('Revisa tu pedido','inicio'\)/);
+ const payment=extract('payment');
+ assert.match(payment,/heading\('Método de pago',st\.mode==='delivery'.*?'inicio':'prepaymentReview'\)/);
+ const summary=extract('summary');
+ assert.match(summary,/heading\('Resumen de tu pedido',st\.mode==='delivery'.*?'inicio':'payment'\)/);
+ assert.match(source,/function screen\(n\)\{[\s\S]*?if\(n==='inicio'\)\{nav\('inicio'\);return\}/);
+ assert.match(source,/if\(n==='availability'&&\['prepaymentReview','payment','summary'\]\.includes\(st\.stage\)/);
+ assert.match(source,/if\(\['availability','prepaymentReview','payment','summary'\]\.includes\(st\.stage\)&&activePersonalCheckout\(\)\)/);
+});
+test('activación GPS es voluntaria, abre solo los ajustes nativos elegidos y no reinicia formularios',()=>{
+ const native=readFileSync(new URL('../app/src/main/java/com/integrab2g/pollosb3/MainActivity.java',import.meta.url),'utf8');
+ const manifest=readFileSync(new URL('../app/src/main/AndroidManifest.xml',import.meta.url),'utf8');
+ assert.match(manifest,/android\.permission\.ACCESS_FINE_LOCATION/);
+ assert.match(manifest,/android\.permission\.ACCESS_COARSE_LOCATION/);
+ assert.match(native,/Settings\.ACTION_LOCATION_SOURCE_SETTINGS/);
+ assert.match(native,/Settings\.ACTION_APPLICATION_DETAILS_SETTINGS/);
+ assert.match(native,/@JavascriptInterface public void openLocationSettings\(\)/);
+ assert.match(native,/@JavascriptInterface public void openAppLocationSettings\(\)/);
+ assert.match(native,/if \(!hasLocationPermission\(\)\)/);
+ assert.match(native,/Manifest\.permission\.ACCESS_COARSE_LOCATION\}, LOCATION_REQUEST/);
+ assert.match(native,/if \(hasLocationPermission\(\)\) requestOptionalLocation\(\)/);
+ const calls=[],panels=[];
+ let listener=null;
+ const context={
+  esc:txt=>String(txt),
+  document:{
+   createElement:()=>({innerHTML:'',className:'',remove(){calls.push('CLOSE')},
+    addEventListener:(name,fn)=>{if(name==='click')listener=fn}}),
+   body:{appendChild:el=>panels.push(el)}
+  },
+  window:{AndroidBridge:{
+   openLocationSettings:()=>calls.push('DEVICE_SETTINGS'),
+   openAppLocationSettings:()=>calls.push('APP_PERMISSIONS')
+  }}
+ };
+ vm.runInNewContext('let locationSettingsModal=null,deliveryGpsRequested=true;\n'+
+  extract('showLocationSettingsPrompt'),context);
+ context.showLocationSettingsPrompt('LOCATION_DISABLED');
+ assert.equal(panels.length,1);
+ assert.match(panels[0].innerHTML,/Abrir ajustes de ubicación/);
+ assert.match(panels[0].innerHTML,/continuar sin GPS/);
+ assert.deepEqual(calls,[],'El sistema no puede encender GPS sin una acción del usuario');
+ listener({target:{closest:query=>query==='[data-location-settings]'?{}:null}});
+ assert.deepEqual(calls,['CLOSE','DEVICE_SETTINGS']);
+ context.showLocationSettingsPrompt('PERMISSION_DENIED');
+ assert.match(panels[1].innerHTML,/Abrir permisos de Pollos B3/);
+ listener({target:{closest:query=>query==='[data-location-settings]'?{}:null}});
+ assert.deepEqual(calls,['CLOSE','DEVICE_SETTINGS','CLOSE','APP_PERMISSIONS']);
+ context.showLocationSettingsPrompt('LOCATION_DISABLED');
+ listener({target:{closest:query=>query==='[data-location-later]'?{}:null}});
+ assert.equal(vm.runInNewContext('deliveryGpsRequested',context),false);
+ assert.equal(calls.includes('DEVICE_SETTINGS'),true);
+ assert.match(source,/deliveryGpsRequested=forDelivery;\s*showLocationSettingsPrompt\(error\)/);
+});
