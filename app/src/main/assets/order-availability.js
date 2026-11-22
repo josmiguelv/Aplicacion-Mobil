@@ -244,10 +244,18 @@
     if(!form||typeof form!=='object'||Array.isArray(form)||
       Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
       form.title!=='VALIDACIÓN DE PEDIDO'||
-      form.subtitle!=='Confirmar disponibilidad para delivery'||
-      !Array.isArray(form.fields)||![4,5].includes(form.fields.length))
+      form.subtitle!=='Confirmar disponibilidad para delivery'||!Array.isArray(form.fields))
       throw Error('El ticket de validación tiene un formato inválido.');
-    const fields=form.fields.map((item,index)=>{
+    // Existing in-flight tickets from older APKs may contain the obsolete
+    // Delivery field. Drop only that exact legacy placeholder before sending.
+    const oldDelivery=form.fields[2];
+    const legacyPlaceholder=oldDelivery&&oldDelivery.variable==='Delivery'&&
+      oldDelivery.value==='Por calcular'&&[5,6].includes(form.fields.length);
+    const rawFields=legacyPlaceholder?
+      form.fields.filter((_,index)=>index!==2):form.fields;
+    if(![4,5].includes(rawFields.length))
+      throw Error('El ticket de validación supera el máximo de cinco variables.');
+    const fields=rawFields.map((item,index)=>{
       const expected=labels[index]||(index===4?'Referencia':null);
       if(!item||typeof item!=='object'||Array.isArray(item)||
         Object.keys(item).some(k=>!['variable','value'].includes(k))||
