@@ -463,9 +463,9 @@ public class MainActivity extends Activity {
                             payload.length() != 4 || form == null || form.length() != 3 ||
                             !"VALIDACIÓN DE PEDIDO".equals(form.optString("title", "")) ||
                             !"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
-                            fields == null || (fields.length() != 5 && fields.length() != 6))
+                            fields == null || (fields.length() != 4 && fields.length() != 5))
                             throw new IllegalArgumentException("Invalid Delivery approval FORM");
-                        String[] allowedFields = {"Productos", "Subtotal", "Delivery", "Total final", "Dirección", "Referencia"};
+                        String[] allowedFields = {"Productos", "Subtotal", "Total final", "Dirección", "Referencia"};
                         for (int i = 0; i < fields.length(); i++) {
                             JSONObject field = fields.optJSONObject(i);
                             if (field == null || field.length() != 2 ||
