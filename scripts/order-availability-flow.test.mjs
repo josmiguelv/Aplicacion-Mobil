@@ -87,7 +87,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
  }
  const functions=['currentCartSignature','deliveryContactReady','deliveryRequestCustomer',
  'requestSeriesKey','interactionMatchesCart',
- 'stopAgentDecisionPoll','scheduleAgentDecisionPoll','completeAcceptedQuote',
+ 'stopAgentDecisionPoll','formPollDelay','formWaitingMessage','scheduleAgentDecisionPoll','completeAcceptedQuote',
  'pollAgentDecision','requestBackendOrderAvailability','openAlternateFulfillment']
  vm.runInNewContext('let agentDecisionTimer=null,agentDecisionPolling=false,checkoutPending=false,checkoutCancelInFlight=false,fulfillmentOutcomeNote=\'\';\n'+
   functions.map(extract).join('\n'),context)
@@ -221,7 +221,8 @@ test('respuesta ACEPTADO se detecta aunque el detalle devuelva 503 y solo se pag
  assert.equal(run.api.readInteraction().messageDelivered,false);
  assert.equal(run.st.stage,'availability');
  assert.equal(run.st.quote,null,'Sin texto confirmado no se calcula ni autoriza el pago');
- assert.match(run.context.deliveryAvailability.message,/La sede ya respondió ACEPTADO/);
+ assert.match(run.context.deliveryAvailability.message,/Tu solicitud está registrada/);
+ assert.doesNotMatch(run.context.deliveryAvailability.message,/HTTP|503|429|demasiadas/i);
  assert.equal(run.events.filter(x=>x.startsWith('CREATE:')).length,1);
  await run.poll();
  assert.equal(run.api.readInteraction().interactionId,original);
@@ -640,4 +641,18 @@ test('ticket FORM usa únicamente productos publicados, subtotal y destino; nunc
  context.subtotal=()=>98.5;
  context.product=()=>({id:'demo',name:'Inventado',price:47,isPublished:false,disabled:false});
  assert.throws(()=>context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita'),/catálogo publicado/);
+});
+
+test('cooldown persistido retrasa consulta y pantalla no expone errores HTTP',()=>{
+ const s=simulation();
+ const now=Date.now();
+ const entry={messageDelivered:false,messageRetryAt:now+60000};
+ const delay=s.context.formPollDelay(entry,3200);
+ assert.ok(delay>=59000&&delay<=60000);
+ assert.equal(s.context.formPollDelay({messageDelivered:false,messageDeliveryBlocked:true},3200),30000);
+ assert.equal(s.context.formPollDelay({messageDelivered:true,messageRetryAt:now+60000},3200),3200);
+ assert.match(s.context.formWaitingMessage(entry),/No necesitas enviarla nuevamente/);
+ assert.doesNotMatch(s.context.formWaitingMessage(entry),/HTTP|429|demasiadas|error/i);
+ assert.match(s.context.formWaitingMessage({messageDeliveryBlocked:true}),/Puedes cancelar/);
+ assert.doesNotMatch(s.context.formWaitingMessage({messageDeliveryUncertain:true}),/HTTP|503/i);
 });
