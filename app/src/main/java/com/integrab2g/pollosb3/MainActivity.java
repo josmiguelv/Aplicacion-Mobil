@@ -673,6 +673,15 @@ public class MainActivity extends Activity {
         WebSettings settings=web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        // AppAssets pages have stable URLs across APK upgrades. Always use the
+        // packaged assets, never an old HTML/JS copy left in WebView disk cache.
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        if (getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getInt("b3_ui_bundle_version", 0) != BuildConfig.VERSION_CODE) {
+            web.clearCache(true);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putInt("b3_ui_bundle_version", BuildConfig.VERSION_CODE).apply();
+        }
         settings.setAllowFileAccess(false);
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
