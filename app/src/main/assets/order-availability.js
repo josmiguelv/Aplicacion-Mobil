@@ -294,6 +294,8 @@
     // A submitted Delivery order must have the exact approval ticket before its message POST.
     // Do not change the CREATE payload or reissue an existing interaction.
     const formSnapshot=orderForm===undefined?null:normalizeOrderForm(orderForm);
+    if(safeCustomer&&!formSnapshot)
+      throw Error('La aprobación del pedido requiere un ticket FORM válido.');
     const fingerprint=JSON.stringify({...body,address:String(address||'').trim(),
       district:String(district||'').trim()});
     const prior=readInteraction();
