@@ -251,8 +251,10 @@ test('la respuesta validada mientras el cliente mira el chat avanza al importe s
  assert.ok(sim.events.includes('SCREEN:availability'));
  assert.ok(sim.events.includes('SCREEN:prepaymentReview'));
 });
-test('la espera de Pollos B3 incluye un acceso directo al seguimiento del chat',()=>{
- assert.match(source,/data-screen="chat">Ver seguimiento en el chat/);
+test('la espera no muestra un botón de chat entre las acciones del pedido; conserva icono flotante',()=>{
+ assert.doesNotMatch(source,/data-screen="chat">Ver seguimiento en el chat/);
+ assert.match(source,/b3-wait-chat-fab/);
+ assert.match(source,/data-screen="chat" aria-label="Abrir chat flotante/);
  assert.match(source,/function chatTranscript\(\)/);
  assert.match(source,/function refreshChatTimeline\(\)/);
  assert.match(source,/data-checkout-return="1">Ver estado de mi solicitud/);
