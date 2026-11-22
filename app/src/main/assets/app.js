@@ -506,18 +506,18 @@ function deliveryOrderTicketForm(address,district){
  const addr=String(address||'').trim(),area=String(district||'').trim();
  if(addr.length<6||addr.length>180||area.length<2||area.length>80)
   throw Error('Confirma una dirección válida antes de crear el ticket.');
+ const reference=String(st.profile.reference||'').trim();
+ if(reference.length>180||/[\x00-\x1f]/.test(reference))
+  throw Error('Revisa la referencia de entrega.');
+ const destination=addr+', '+area+(reference?' — '+reference:'');
+ if(destination.length>600)throw Error('La dirección y referencia exceden el máximo del formulario.');
  const fields=[
   {variable:'Productos',value:productsValue},
   {variable:'Subtotal',value:cash(subtotalCents/100)},
+  {variable:'Delivery',value:'Por calcular'},
   {variable:'Total final',value:'Pendiente de confirmación'},
-  {variable:'Dirección',value:addr+', '+area}
+  {variable:'Dirección y referencia',value:destination}
  ];
- const reference=String(st.profile.reference||'').trim();
- if(reference){
-  if(reference.length>180||/[\x00-\x1f]/.test(reference))
-   throw Error('Revisa la referencia de entrega.');
-  fields.push({variable:'Referencia',value:reference});
- }
  return {title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',fields};
 }
 function applyBackendQuote(result,entry,address,district){
