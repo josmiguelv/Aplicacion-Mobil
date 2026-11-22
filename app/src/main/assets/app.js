@@ -669,9 +669,11 @@ async function pollAgentDecision(){
    ++deliveryValidationGeneration;
    deliveryRequestPending=false;
    const closedWithoutDecision=api.readInteraction?.()?.rejectionReason==='AGENT_CLOSED_WITHOUT_CONFIRMATION';
+   const unconfirmedClosure=api.readInteraction?.()?.rejectionReason==='AGENT_CLOSED_UNCONFIRMED';
    deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
     message:(store?.name||'La sede consultada')+
-     (closedWithoutDecision?' cerró la atención sin confirmar tu pedido.':' no aceptó tu solicitud.')+
+     (closedWithoutDecision?' cerró la atención sin confirmar tu pedido.':
+      unconfirmedClosure?' finalizó la atención y el pedido no quedó confirmado.':' no aceptó tu solicitud.')+
      ' No enviaremos este pedido automáticamente a otra sede. Puedes elegir Recojo en tienda.',
     reason:closedWithoutDecision?'AGENT_CLOSED':'AGENT_REJECTED'};
    if(st.stage==='availability')render();
@@ -1174,9 +1176,11 @@ function returnToPersonalCheckout(){
  else if(entry.status==='REJECTED'){
   const store=shops.find(x=>x.id===entry.body?.storeId);
   const closedWithoutDecision=entry.rejectionReason==='AGENT_CLOSED_WITHOUT_CONFIRMATION';
+  const unconfirmedClosure=entry.rejectionReason==='AGENT_CLOSED_UNCONFIRMED';
   deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
    message:(store?.name||'La sede consultada')+
-    (closedWithoutDecision?' cerró la atención sin confirmar el pedido.':' no aceptó tu solicitud.')+
+    (closedWithoutDecision?' cerró la atención sin confirmar el pedido.':
+     unconfirmedClosure?' finalizó la atención y el pedido no quedó confirmado.':' no aceptó tu solicitud.')+
     ' No se reenviará automáticamente. Puedes elegir Recojo en tienda.'};
   screen('availability');
  }else screen('availability');
