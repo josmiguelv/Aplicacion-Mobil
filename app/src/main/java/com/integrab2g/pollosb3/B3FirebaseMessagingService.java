@@ -58,8 +58,11 @@ public final class B3FirebaseMessagingService extends FirebaseMessagingService {
         if ("order_status".equals(type)||"order_reminder".equals(type)||"order_expired".equals(type)) {
             String id=data.get("interactionId");
             if(id==null||!id.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))return;
-            String title="order_status".equals(type)?"Tu sede respondió":"order_expired".equals(type)?"Tiempo de pago terminado":"Tu pedido está pendiente";
-            String body="order_status".equals(type)?"Abre Pollos B3 para revisar tu solicitud.": "order_expired".equals(type)?"Tu solicitud venció. Puedes iniciar una nueva compra.":"Continúa con el pago o cancela tu solicitud.";
+            String hint=data.get("statusHint");
+            String title="order_status".equals(type)?("ACCEPTED".equals(hint)?"¡Tu pedido fue aceptado!":"REJECTED".equals(hint)?"La sede no pudo atender tu pedido":"Tu sede respondió"):
+                "order_expired".equals(type)?"Tiempo de pago terminado":"Tu pedido está pendiente";
+            String body="order_status".equals(type)?("ACCEPTED".equals(hint)?"Revisa el total y continúa con el pago.":"REJECTED".equals(hint)?"Abre Pollos B3 para revisar otras sedes.":"Abre Pollos B3 para revisar tu solicitud."):
+                "order_expired".equals(type)?"Tu solicitud venció. Puedes iniciar una nueva compra.":"Continúa con el pago o cancela tu solicitud.";
             Intent intent=new Intent(this,MainActivity.class);
             intent.setAction(Intent.ACTION_MAIN);
             intent.addCategory(Intent.CATEGORY_LAUNCHER);
