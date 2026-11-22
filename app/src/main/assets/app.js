@@ -509,7 +509,6 @@ function deliveryOrderTicketForm(address,district){
  const fields=[
   {variable:'Productos',value:productsValue},
   {variable:'Subtotal',value:cash(subtotalCents/100)},
-  {variable:'Delivery',value:'Por calcular'},
   {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección',value:addr+', '+area}
  ];
