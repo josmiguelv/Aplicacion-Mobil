@@ -50,7 +50,7 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   pollInteraction:async()=>{
    const decision=decisions.shift()||null
    events.push('POLL:'+String(decision))
-   if(decision==='ACCEPTED')current.status='ACCEPTED'
+   if(decision==='ACCEPTED'){current.status='ACCEPTED';current.agentDecision='ACCEPTED'}
    if(decision==='REJECTED')current.status='REJECTED'
    return {decision,clientStatus:current.status}
   },
@@ -192,3 +192,46 @@ test('la pantalla de espera no requiere continuar y chat permanece bloqueado',()
  assert.match(source,/La confirmación y el cobro quedan para la siguiente fase/)
  assert.doesNotMatch(source,/No decision endpoint, never unlock checkout on PENDING/)
 })
+
+test('respuesta ACEPTADO se detecta aunque el detalle devuelva 503 y solo se paga tras confirmarlo',async()=>{
+ const run=simulation({decisions:['ACCEPTED'],sendFailures:2});
+ await run.start();
+ const original=run.api.readInteraction().interactionId;
+ assert.equal(run.st.stage,'availability');
+ await run.poll();
+ assert.equal(run.api.readInteraction().status,'ACCEPTED');
+ assert.equal(run.api.readInteraction().messageDelivered,false);
+ assert.equal(run.st.stage,'availability');
+ assert.equal(run.st.quote,null,'Sin texto confirmado no se calcula ni autoriza el pago');
+ assert.match(run.context.deliveryAvailability.message,/La sede ya respondió ACEPTADO/);
+ assert.equal(run.events.filter(x=>x.startsWith('CREATE:')).length,1);
+ await run.poll();
+ assert.equal(run.api.readInteraction().interactionId,original);
+ assert.equal(run.api.readInteraction().messageDelivered,true);
+ assert.equal(run.st.stage,'prepaymentReview');
+ assert.equal(run.events.filter(x=>x.startsWith('CREATE:')).length,1);
+ assert.equal(run.events.filter(x=>x.startsWith('SEND:')).length,3);
+ assert.equal(run.events.filter(x=>x.startsWith('QUOTE:')).length,1);
+ assert.equal(run.events.filter(x=>x==='PAYMENT_WINDOW').length,1);
+});
+test('espera pendiente ocupa una vista independiente sin apilar resumen y etapas',()=>{
+ const entry={interactionId:'a2e616af-8c52-4776-b3b1-b446fc9b74a9',
+   body:{customer:{firstName:'Ana'}},messageDelivered:false,status:'PENDING'};
+ const context={
+  st:{profile:{address:'Av Ejemplo 123',district:'Santa Anita'},quote:null},
+  window:{B3OrderAvailability:{readInteraction:()=>entry}},
+  deliveryAvailability:{status:'CREATE_UNCERTAIN',storeName:'Local de prueba',message:'Confirmando detalle'},
+  activePersonalCheckout:()=>entry,
+  heading:()=>'<header>Estado de tu solicitud</header>',
+  ic:()=>'',esc:value=>String(value),cartCount:()=>1,subtotal:()=>13,cash:value=>'S/ '+value,
+  deliveryRequestPending:false,deliveryValidationStep:'CREANDO_INTERACCION'
+ };
+ vm.runInNewContext(extract('availability'),context);
+ const page=context.availability();
+ assert.match(page,/b3-single-wait/);
+ assert.match(page,/Confirmando detalle/);
+ assert.match(page,/Cancelar solicitud/);
+ assert.doesNotMatch(page,/class="b3-availability-order"/);
+ assert.doesNotMatch(page,/class="b3-availability-step"/);
+ assert.doesNotMatch(page,/class="b3-checkout-motion"/);
+});
