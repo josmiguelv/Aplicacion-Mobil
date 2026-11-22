@@ -236,7 +236,7 @@ test('espera pendiente ocupa una vista independiente sin apilar resumen y etapas
   activePersonalCheckout:()=>entry,
   heading:()=>'<header>Estado de tu solicitud</header>',
   ic:()=>'',esc:value=>String(value),cartCount:()=>1,subtotal:()=>13,cash:value=>'S/ '+value,
-  deliveryRequestPending:false,deliveryValidationStep:'CREANDO_INTERACCION'
+  deliveryRequestPending:false,deliveryValidationStep:'CREANDO_INTERACCION',checkoutCancelInFlight:false
  };
  vm.runInNewContext(extract('availability'),context);
  const page=context.availability();
