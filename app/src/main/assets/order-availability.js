@@ -257,14 +257,14 @@
   // Store the exact display ticket once, separate from the CREATE payload.
   // No Cliente or Teléfono fields: identity already travels with customer.
   function normalizeOrderForm(form) {
-    const labels=['Productos','Subtotal','Delivery','Total final','Dirección y referencia'];
+    const labels=['Productos','Subtotal','Dirección y referencia'];
     if(!form||typeof form!=='object'||Array.isArray(form)||
       Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
       form.title!=='VALIDACIÓN DE PEDIDO'||
       form.subtitle!=='Confirmar disponibilidad para delivery'||
       form.title.length>180||form.subtitle.length>350||
-      !Array.isArray(form.fields)||form.fields.length!==5)
-      throw Error('La solicitud de aprobación requiere exactamente cinco variables.');
+      !Array.isArray(form.fields)||form.fields.length!==3)
+      throw Error('La solicitud de aprobación requiere exactamente tres variables.');
     const fields=form.fields.map((item,index)=>{
       if(!item||typeof item!=='object'||Array.isArray(item)||
         Object.keys(item).some(k=>!['variable','value'].includes(k))||
@@ -274,8 +274,6 @@
         throw Error('Los campos del FORM no corresponden al contrato de aprobación.');
       return {variable:labels[index],value:item.value};
     });
-    if(fields[2].value!=='Por calcular'||fields[3].value!=='Pendiente de confirmación')
-      throw Error('Los campos de entrega y total del FORM no son válidos.');
     return {title:form.title,subtitle:form.subtitle,fields};
   }
   // Diagnostic metadata only. No UUIDs, client identity, addresses or JSON bodies.
