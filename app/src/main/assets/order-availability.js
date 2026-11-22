@@ -237,7 +237,29 @@
     }
     return entry;
   }
-  function prepareInteraction({appId,storeId,catalogRevision,items,address,district,customer}) {
+  // Store the exact display ticket once, separate from the CREATE payload.
+  // No Cliente or Teléfono fields: identity already travels with customer.
+  function normalizeOrderForm(form) {
+    const labels=['Productos','Subtotal','Delivery','Total final','Dirección'];
+    if(!form||typeof form!=='object'||Array.isArray(form)||
+      Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
+      form.title!=='VALIDACIÓN DE PEDIDO'||
+      form.subtitle!=='Confirmar disponibilidad para delivery'||
+      !Array.isArray(form.fields)||![5,6].includes(form.fields.length))
+      throw Error('El ticket de validación tiene un formato inválido.');
+    const fields=form.fields.map((item,index)=>{
+      const expected=labels[index]||(index===5?'Referencia':null);
+      if(!item||typeof item!=='object'||Array.isArray(item)||
+        Object.keys(item).some(k=>!['variable','value'].includes(k))||
+        item.variable!==expected||typeof item.value!=='string'||
+        !item.value.trim()||item.value.length>(index===0?3900:320)||
+        /[\x00-\x09\x0b-\x1f]/.test(item.value))
+        throw Error('Los campos del ticket de validación no son válidos.');
+      return {variable:expected,value:item.value};
+    });
+    return {title:form.title,subtitle:form.subtitle,fields};
+  }
+  function prepareInteraction({appId,storeId,catalogRevision,items,address,district,customer,orderForm}) {
     if(typeof appId!=='string'||!UUID.test(storeId)||
       !Number.isSafeInteger(catalogRevision)||catalogRevision<1||
       !Array.isArray(items)||items.length<1||items.length>50||
@@ -269,6 +291,7 @@
       items:items.map(i=>({productId:i.productId,quantity:i.quantity}))
         .sort((a,b)=>a.productId.localeCompare(b.productId))};
     if(safeCustomer)body.customer=safeCustomer;
+    const formSnapshot=orderForm===undefined?null:normalizeOrderForm(orderForm);
     const fingerprint=JSON.stringify({...body,address:String(address||'').trim(),
       district:String(district||'').trim()});
     const prior=readInteraction();
@@ -276,7 +299,12 @@
     if(prior&&!['PREPARED','REJECTED','CANCELLED','EXPIRED'].includes(prior.status))
       throw Error('Ya existe una solicitud de atención iniciada. No enviaremos otro formulario mientras no se confirme su resolución.');
     const now=Date.now();
-    return persistInteraction({fingerprint,body,idempotencyKey:uuid(),interactionId:null,
+    const messageFormat=root.AndroidBridge?.isOrderFormEnabled?.()===true?'FORM':'TEXT';
+    if(messageFormat==='FORM'&&!formSnapshot)
+      throw Error('La validación estructurada requiere un ticket del catálogo publicado.');
+    return persistInteraction({fingerprint,body,
+      ...(formSnapshot?{orderForm:formSnapshot}:{}),messageFormat,
+      idempotencyKey:uuid(),interactionId:null,
       status:'PREPARED',createdAt:now,activity:[{type:'prepared',at:now}]});
   }
   async function createInteraction(entry) {
@@ -311,14 +339,20 @@
        !entry.body?.customer||!['PENDING','ACCEPTED'].includes(entry.status))
       throw Error('No existe una interacción pendiente para enviar el texto.');
     if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
+    const structured=entry.messageFormat==='FORM';
+    if(structured&&!entry.orderForm)
+      throw Error('La solicitud no contiene el ticket estructurado validado.');
+    const messageBody=structured?
+      {type:'FORM',appId:entry.body.appId,storeId:entry.body.storeId,
+        form:normalizeOrderForm(entry.orderForm)}:entry.body;
     const response=await nativeRequest({operation:'INTERACTION_MESSAGE',
-      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,body:entry.body});
+      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,body:messageBody});
     if(Number(response.status)!==200)
-      throw responseError(response,'No se pudo confirmar el texto del pedido');
+      throw responseError(response,'No se pudo confirmar el ticket del pedido');
     const data=response.data||{};
     if(data.interactionId!==entry.interactionId||data.delivered!==true||
        !UUID.test(data.messageId))
-      throw Error('El Administrador no confirmó el mensaje de esta interacción.');
+      throw Error('El Administrador no confirmó el ticket de esta interacción.');
     entry.messageDelivered=true;
     persistInteraction(entry);
     recordActivity(entry,'detail_delivered'); // Message POST confirmed, not merely attempted.
