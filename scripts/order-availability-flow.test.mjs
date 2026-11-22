@@ -76,8 +76,6 @@ function simulation({available=true,decisions=[],allStores=stores,wrongQuote=fal
   deliveryOrderTicketForm:()=>({title:'VALIDACIÓN DE PEDIDO',subtitle:'Confirmar disponibilidad para delivery',
    fields:[{variable:'Productos',value:'1 x Producto publicado — S/ 24.70'},
     {variable:'Subtotal',value:'S/ 24.70'},
-    {variable:'Delivery',value:'Por calcular'},
-    {variable:'Total final',value:'Pendiente de confirmación'},
     {variable:'Dirección y referencia',value:'Av. Ejemplo 123, Santa Anita — Puerta lateral'}]}),
   save:()=>{},render:()=>{},refreshChatTimeline:()=>{},screen:name=>{st.stage=name;events.push('SCREEN:'+name)},
   deliveryAddressKey:(a,b)=>a+'|'+b,
@@ -624,19 +622,16 @@ test('ticket FORM usa únicamente productos publicados, subtotal y destino; nunc
  assert.deepEqual(form.fields,[
   {variable:'Productos',value:'2 x Pollo a la brasa — S/ 90.00\n1 x Papas adicionales — S/ 8.50'},
   {variable:'Subtotal',value:'S/ 98.50'},
-  {variable:'Delivery',value:'Por calcular'},
-  {variable:'Total final',value:'Pendiente de confirmación'},
   {variable:'Dirección y referencia',value:'Av. Principal 123, Santa Anita — Portón negro'}
  ]);
  assert.equal(form.fields.some(x=>/cliente|tel[eé]fono/i.test(x.variable)),false);
  assert.throws(()=>context.deliveryOrderTicketForm('x','Santa Anita'),/dirección válida/);
  context.st.profile.reference='';
  const withoutRef=JSON.parse(JSON.stringify(context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita')));
- assert.equal(withoutRef.fields.length,5);
- assert.equal(form.fields.length,5);
- assert.equal(form.fields[2].variable,'Delivery');
- assert.equal(form.fields[4].variable,'Dirección y referencia');
- assert.equal(withoutRef.fields[4].value,'Av. Principal 123, Santa Anita');
+ assert.equal(withoutRef.fields.length,3);
+ assert.equal(form.fields.length,3);
+ assert.equal(form.fields[2].variable,'Dirección y referencia');
+ assert.equal(withoutRef.fields[2].value,'Av. Principal 123, Santa Anita');
  context.subtotal=()=>90;
  assert.throws(()=>context.deliveryOrderTicketForm('Av. Principal 123','Santa Anita'),/subtotal.*no coincide/);
  context.subtotal=()=>98.5;
