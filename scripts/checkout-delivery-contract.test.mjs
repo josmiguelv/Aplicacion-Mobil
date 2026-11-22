@@ -394,3 +394,26 @@ test('local abierto sin tarifa publicada presenta error de configuración',()=>{
 test('la API solo publica una sede sin delivery habilitado: no se inventan locales',()=>{
  assert.throws(()=>quote([{...tallanes,delivery_enabled:false}],destination(tallanes.latitude,tallanes.longitude)),/No hay locales habilitados/)
 })
+
+test('aviso al cambiar modalidad desaparece y otro aviso reinicia su temporizador',()=>{
+ const pending=new Map(),events=[];
+ let sequence=0;
+ const context={
+  st:{notice:''},noticeTimer:null,
+  render:()=>events.push('render'),
+  setTimeout:(callback,delay)=>{assert.equal(delay,2400);const id=++sequence;pending.set(id,callback);return id},
+  clearTimeout:id=>{pending.delete(id)}
+ };
+ vm.runInNewContext(extract('queueNotice'),context);
+ assert.match(source,/if\(st\.cart\.length\)queueNotice\('Al cambiar de modalidad/);
+ assert.match(source,/if\(st\.cart\.length\)queueNotice\('Modalidad modificada/);
+ assert.doesNotMatch(source,/if\(st\.cart\.length\)st\.notice=/);
+ context.queueNotice('Primera modalidad');
+ assert.equal(context.st.notice,'Primera modalidad');
+ context.queueNotice('Segunda modalidad');
+ assert.equal(pending.size,1,'La primera notificación ya no puede borrar la segunda');
+ const callback=[...pending.values()][0];
+ callback();
+ assert.equal(context.st.notice,'');
+ assert.deepEqual(events,['render']);
+});
