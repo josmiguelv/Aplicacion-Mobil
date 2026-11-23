@@ -777,7 +777,7 @@
   }
 
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
-  root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
+  root.B3OrderAvailability = Object.freeze({getExternalCustomerId:externalCustomerId,prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,readReservationSlots,readReservation,activeReservation,discardTerminalReservation,quoteReservation,prepareReservation,createReservation,recoverReservation,statusReservation,payReservation,cancelReservation,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
