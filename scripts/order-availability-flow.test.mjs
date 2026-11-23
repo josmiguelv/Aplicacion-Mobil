@@ -402,7 +402,7 @@ test('al revisar un pedido aceptado ambas flechas de pago van a Inicio, sin disp
  assert.match(payment,/heading\('Método de pago',st\.mode==='delivery'.*?'inicio':'prepaymentReview'\)/);
  const summary=extract('summary');
  assert.match(summary,/heading\('Resumen de tu pedido',st\.mode==='delivery'.*?'inicio':'payment'\)/);
- assert.match(source,/function screen\(n\)\{[\s\S]*?if\(n==='inicio'\)\{nav\('inicio'\);return\}/);
+ assert.match(source,/function screen\(n\)\{[\s\S]*?if\(n==='inicio'\|\|n==='app'[\s\S]*?nav\('inicio'\);return;/);
  assert.match(source,/if\(n==='availability'&&\['prepaymentReview','payment','summary'\]\.includes\(st\.stage\)/);
  assert.match(source,/if\(\['availability','prepaymentReview','payment','summary'\]\.includes\(st\.stage\)&&activePersonalCheckout\(\)\)/);
 });
