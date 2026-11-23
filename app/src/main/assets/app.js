@@ -1251,6 +1251,10 @@ function returnToPersonalCheckout(){
  }else screen('availability');
 }
 function openAlternateFulfillment(message){
+ // Choosing another fulfillment mode closes only the terminal rejected LOCAL record.
+ const rejected=window.B3OrderAvailability?.readInteraction?.();
+ if(rejected?.status==='REJECTED')
+  window.B3OrderAvailability?.dismissRejectedInteraction?.(rejected.interactionId);
  // Only a terminal decision reaches here; never automatically retry availability.
  fulfillmentOutcomeNote=String(message||'No hay delivery disponible. Elige otra forma de recibir tu pedido.');
  st.quote=null;st.store='';st.pay='';checkoutPending=false;
@@ -1258,7 +1262,9 @@ function openAlternateFulfillment(message){
 }
 function screen(n){
  if(n==='chat'){openChatOverlay();return}
- if(n==='inicio'){nav('inicio');return}
+ if(n==='inicio'||n==='app'&&window.B3OrderAvailability?.readInteraction?.()?.status==='REJECTED'){
+  nav('inicio');return;
+ }
  // The accepted and quoted request is already past availability.
  // Never return to the agent-checking phase from an approved payment screen.
  if(n==='availability'&&['prepaymentReview','payment','summary'].includes(st.stage)&&
@@ -1266,7 +1272,27 @@ function screen(n){
   nav('inicio');return;
  }
  selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications()}
-function nav(tab){if(tab==='chat'){openChatOverlay();return}checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;st.tab=tab;st.stage='app';window.scrollTo({top:0});render()}
+// Returning Home after a confirmed rejection is a NEW order, not a resume.
+// Preserve profile/address/favorites but discard rejected checkout and old cart.
+function beginNewCheckoutAfterRejection(){
+ const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
+ if(entry?.status!=='REJECTED'||!api.dismissRejectedInteraction?.(entry.interactionId))return false;
+ stopAgentDecisionPoll();
+ ++deliveryValidationGeneration;
+ deliveryRequestPending=false;deliveryRequestError='';
+ checkoutRefreshPending=false;checkoutReviewNote='';
+ st.cart=[];st.quote=null;st.store='';st.pay='';st.cash='';
+ st.mode='';st.fulfillment='';st.pickupOrigin='';st.selected='';st.qty=1;st.coords=null;
+ fulfillmentOutcomeNote='';
+ clearDeliveryAvailability();save();
+ return true;
+}
+function nav(tab){
+ if(tab==='chat'){openChatOverlay();return}
+ if(tab==='inicio')beginNewCheckoutAfterRejection();
+ checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;
+ st.tab=tab;st.stage='app';window.scrollTo({top:0});render();
+}
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
 const img=(p,c='')=>{const src=photo(p);return src?`<img class="${c}" src="${src}" loading="lazy" alt="Imagen ${p.isPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
@@ -1643,7 +1669,7 @@ function availability(){
     <h2>${esc(headingText)}</h2>
     <p>${esc(deliveryAvailability.message||'Puedes revisar otras formas de recibir tu pedido.')}</p>
     <div class="b3-fulfillment-outcome-info">${ic('cart',17)}
-      <span>Conservamos tus productos y cantidades en el carrito.</span>
+      <span>${rejected?'Si eliges Recojo en tienda, conservamos tu carrito. Si vuelves al inicio, empezarás un pedido nuevo.':'Conservamos tus productos y cantidades en el carrito.'}</span>
     </div>
     <p class="b3-fulfillment-outcome-note">${esc(note)}</p>
    </section>
@@ -2494,6 +2520,9 @@ if(b.hasAttribute('data-change-fulfillment')){
 if(b.hasAttribute('data-availability-pickup')){
   if(deliveryRequestPending||activePersonalCheckout()||
     !['UNAVAILABLE','REJECTED','CANCELLED'].includes(deliveryAvailability.status))return;
+  const rejected=window.B3OrderAvailability?.readInteraction?.();
+  if(rejected?.status==='REJECTED')
+   window.B3OrderAvailability?.dismissRejectedInteraction?.(rejected.interactionId);
   ++deliveryValidationGeneration;
   st.mode='pickup';st.quote=null;st.store='';st.pay='';st.cash='';
   deliveryRequestError='';checkoutPending=false;clearDeliveryAvailability();save();
@@ -2734,6 +2763,9 @@ window.handleB3Back=()=>{
     return false; // Native Activity exits; never navigate to splash.
   }
   if(st.stage==='splash')return false;
+  if(st.stage==='availability'&&window.B3OrderAvailability?.readInteraction?.()?.status==='REJECTED'){
+    nav('inicio');return true;
+  }
   if(['availability','prepaymentReview','payment','summary'].includes(st.stage)&&activePersonalCheckout()){
     nav('inicio');return true;
   }
