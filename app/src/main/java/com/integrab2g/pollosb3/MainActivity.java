@@ -457,6 +457,16 @@ public class MainActivity extends Activity {
                         body=payload.toString();
                         path="RESERVATION_QUOTE".equals(operation)?
                             "/api/v1/mobile/reservations/quote":"/api/v1/mobile/reservations";
+                    } else if ("RESERVATION_RECOVER".equals(operation)) {
+                        String id=request.optString("idempotencyKey","");
+                        String appId=request.optString("appId","");
+                        accessKey=request.optString("accessKey","");
+                        if(!id.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                           !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                           !appId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}"))
+                            throw new IllegalArgumentException("Invalid reservation recovery");
+                        path="/api/v1/mobile/reservations/by-key/"+id+"?appId="+
+                             java.net.URLEncoder.encode(appId,"UTF-8");
                     } else if ("RESERVATION_STATUS".equals(operation) ||
                                "RESERVATION_PAYMENT".equals(operation) ||
                                "RESERVATION_CANCEL".equals(operation)) {
@@ -620,6 +630,7 @@ public class MainActivity extends Activity {
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
                             "AGENT_AVAILABILITY".equals(operation) || "RESERVATION_SLOTS".equals(operation) ||
                              "RESERVATION_STATUS".equals(operation) ||
+                             "RESERVATION_RECOVER".equals(operation) ||
                              "INTERACTION_STATUS".equals(operation) ||
                             "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
                             "RESERVATION_QUOTE".equals(operation) || "RESERVATION_CREATE".equals(operation) ||
