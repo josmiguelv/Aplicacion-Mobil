@@ -865,6 +865,7 @@ async function pollAgentDecision(){
  }
 }
 async function requestBackendOrderAvailability({address,district,run,silent}){
+ if(st.orderTiming==='SCHEDULED')throw Error('Una reserva no puede crear una interacción inmediata.');
  const api=window.B3OrderAvailability;
  if(!api?.checkAgentAvailability||!api?.quoteDelivery||!api?.createInteraction||
     !api?.sendInteractionMessage||!api?.pollInteraction)
@@ -1083,6 +1084,10 @@ async function checkDeliveryBackendHealth(){
  }finally{deliveryHealthPending=false;render();}
 }
 async function resolveDelivery({silent=false,skipConfig=false}={}){
+ if(st.orderTiming==='SCHEDULED'){
+  deliveryRequestError='Delivery programado requiere validar la fecha, sede y tarifa futura desde el Administrador. No enviaremos un pedido inmediato.';
+  if(!silent){fulfillmentModal='delivery';render()}return false;
+ }
  if(deliveryRequestPending)return false;
  const run=++deliveryValidationGeneration;
  const address=String(st.profile.address||'').trim(),district=String(st.profile.district||'').trim();
@@ -1473,6 +1478,8 @@ function fulfillmentHeader(){
 }
 function orderTimingSelector(){
  const scheduled=st.orderTiming==='SCHEDULED';
+ const canQuery=st.mode==='pickup'&&!!st.store&&shops.some(s=>String(s.id)===String(st.store)&&s.active===true&&s.pickup_enabled===true);
+ const preview=reservationSlots&&reservationSlots.date===st.scheduledDate&&reservationSlots.storeId===st.store&&reservationSlots.mode==='pickup';
  return `<section class="b3-order-timing" aria-label="Cuándo recibir tu pedido">
   <h3>¿Cuándo lo quieres?</h3>
   <div class="b3-order-timing-options">
@@ -1481,9 +1488,18 @@ function orderTimingSelector(){
   </div>
   ${scheduled?`<div class="b3-order-timing-fields">
    <label>Fecha solicitada<input id="b3-scheduled-date" type="date" value="${esc(st.scheduledDate||'')}"></label>
-   <label>Hora solicitada<input id="b3-scheduled-time" type="time" value="${esc(st.scheduledTime||'')}"></label>
-   <p role="status">Los pedidos programados todavía no están habilitados para confirmar. Pollos B3 debe publicar horarios, cupos y validación desde el Administrador. No se enviará ninguna reserva.</p>
-   <button type="button" data-order-timing-save="1" class="outline full">Guardar horario de preferencia</button>
+   ${st.mode==='delivery'?
+     '<p role="status">Delivery programado: el Administrador debe validar sede, tarifa, cobertura y atención para la fecha solicitada. Aún no admite reservas.</p>':
+     !canQuery?'<p role="status">Elige una sede de Recojo en tienda para consultar horarios futuros.</p>':
+     `<button type="button" class="outline full" data-reservation-check="1" ${reservationSlotsPending?'disabled':''}>${reservationSlotsPending?'Consultando horarios...':'Consultar horarios de esta sede'}</button>
+      ${reservationSlotsError?`<p role="alert">${esc(reservationSlotsError)}</p>`:''}
+      ${preview?(reservationSlots.slots.length?
+       `<label>Hora solicitada<select id="b3-scheduled-slot" data-reservation-slot="1"><option value="">Elige un horario</option>${reservationSlots.slots.map(slot=>`<option value="${esc(slot.time)}" ${st.scheduledTime===slot.time?'selected':''}>${esc(slot.time)}</option>`).join('')}</select></label>`:
+       '<p role="status">No se encontraron horarios permitidos para ese día. Elige otra fecha.</p>'):''}
+     `}
+   ${st.mode==='pickup'&&preview&&st.scheduledTime?
+     `<p>Preferencia guardada: ${esc(st.scheduledDate)} a las ${esc(st.scheduledTime)}. Horario preliminar, no confirmado.</p>`:''}
+   <p role="status">El cupo, agente, aceptación y pago aún deben verificarse. No se enviará ninguna reserva en esta fase.</p>
   </div>`:''}
  </section>`;
 }
@@ -1534,7 +1550,7 @@ function fulfillmentOverlay(){
     <button type="button" data-modal-close="1" class="b3-modal-close" aria-label="Cerrar">${ic('close',21)}</button></div>
     ${choice&&fulfillmentOutcomeNote?`<div class="b3-fulfillment-outcome-banner" role="status"><strong>Tu pedido sigue en el carrito</strong><p>${esc(fulfillmentOutcomeNote)}</p></div>`:'' }
     ${!choice?`<button type="button" class="b3-modal-back" data-modal-back="1">${ic('back',17)} Cambiar modalidad</button>`:''}
-    ${choice?modeButtons+orderTimingSelector():delivery?deliveryPanel:pickupPanel}
+    ${choice?modeButtons+orderTimingSelector():delivery?deliveryPanel+orderTimingSelector():pickupPanel+orderTimingSelector()}
    </section></div>`;
 }
 function main(){return `<div class="shell">${demo}<main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${cartCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(subtotal())}</b><span>${cartCount()}</span></button>`:''}${bar()}</div>${selectedHomeStore?homeStoreSheet():fulfillmentOverlay()}`}
@@ -1764,6 +1780,7 @@ function cart(){
    <p class="grand"><b>Total estimado</b><strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Por cotizar':cash(orderTotal())}</strong></p>
   </div>${st.mode==='delivery'&&deliveryQuoteValid()? `<p class="smallprint">Desde ${esc(st.quote.storeName||'sede disponible')} · ${st.quote.serverValidated?'Cotización del servidor':Number(st.quote.straightDistanceKm).toFixed(2)+' km aproximados en línea recta · '+(st.quote.deliveryPricingMode==='FIXED'?'tarifa fija':'tarifa por km')}.</p>`:''}
   ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
+  ${st.orderTiming==='SCHEDULED'?orderTimingSelector():''}
   <p class="smallprint">No se enviarán pedidos reales ni se harán cobros en esta versión de prueba.</p>
   <button class="outline full" data-tab="carta">Seguir pidiendo</button>
   <button class="primary full" data-screen="identity" ${checkoutRefreshPending?"disabled":""}>${checkoutRefreshPending?"Actualizando disponibilidad...":"Continuar con pedido de prueba"}</button>`}
