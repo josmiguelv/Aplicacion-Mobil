@@ -1039,3 +1039,11 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-order-timing-fields label{font-size:12px;font-weight:700;color:#252525;display:grid;gap:6px}
 .b3-order-timing-fields input{width:100%;min-height:44px;max-width:100%;border:1px solid #d9d9d9;border-radius:10px;padding:9px;background:#fff;font-size:14px}
 .b3-order-timing-fields p{margin:0;padding:11px 12px;border-radius:10px;background:#fff7e8;color:#6f4d20;font-size:12px;line-height:1.5}
+
+/* Reservation slot preview + timing from Administrator. Never asserts confirmed booking. */
+.b3-order-timing-fields select{width:100%;min-height:45px;padding:10px 12px;border:1px solid #dadada;border-radius:10px;background:#fff;color:#212121;font-size:14px}
+.b3-order-timing-fields button:disabled{opacity:.6;cursor:not-allowed}
+.b3-preparation-estimate{margin:13px 0;padding:13px 15px;border:1px solid #e7cbb3;border-radius:12px;background:#fffaf5}
+.b3-preparation-estimate strong{display:block;font-size:15px;font-weight:800;color:#712f0d}
+.b3-preparation-estimate p{margin:8px 0;color:#5a4a42;font-size:12px;line-height:1.55}
+.b3-preparation-estimate small{color:#695c56;font-size:11px;line-height:1.5}
