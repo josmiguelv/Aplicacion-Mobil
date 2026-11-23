@@ -158,7 +158,8 @@ test('RECHAZADO no envía interacción a segunda sede ni inicia una nueva valida
  assert.equal(s.st.stage,'availability');
  assert.equal(s.api.readInteraction().status,'REJECTED');
  assert.equal(s.context.deliveryAvailability.status,'REJECTED');
- assert.match(s.context.deliveryAvailability.message,/no aceptó tu solicitud/);
+ assert.match(s.context.deliveryAvailability.message,/no confirmó la disponibilidad de los productos/);
+ assert.doesNotMatch(s.context.deliveryAvailability.message,/Recojo en tienda|Delivery no confirmado/);
  assert.deepEqual(s.events.filter(x=>x.startsWith('CREATE:')),['CREATE:'+storeA]);
  assert.deepEqual(s.events.filter(x=>x.startsWith('POLL:')),['POLL:REJECTED']);
  await s.poll();
@@ -451,7 +452,7 @@ test('activación GPS es voluntaria, abre solo los ajustes nativos elegidos y no
  assert.match(source,/deliveryGpsRequested=forDelivery;\s*showLocationSettingsPrompt\(error\)/);
 });
 
-test('sin disponibilidad muestra motivo y reintento manual; rechazo terminal ofrece recojo',()=>{
+test('sin disponibilidad ofrece recojo; rechazo de productos ofrece comenzar otro pedido',()=>{
  const st={mode:'delivery',profile:{address:'Calle de prueba 123',district:'Santa Anita'},quote:null};
  for(const status of ['UNAVAILABLE','REJECTED']){
   const entry=status==='REJECTED'?{status:'REJECTED',body:{storeId:storeA}}:null;
@@ -459,7 +460,7 @@ test('sin disponibilidad muestra motivo y reintento manual; rechazo terminal ofr
    st,window:{B3OrderAvailability:{readInteraction:()=>entry}},
    activePersonalCheckout:()=>null,
    deliveryAvailability:{status,storeName:'Sede de prueba',
-    message:status==='REJECTED'?'La sede no aceptó tu pedido':'Sin atención disponible'},
+    message:status==='REJECTED'?'La sede no confirmó los productos solicitados':'Sin atención disponible'},
    deliveryRequestPending:false,deliveryHealthPending:false,deliveryHealthMessage:'',
    deliveryValidationStep:'COBERTURA_Y_HORARIO',checkoutPending:false,
    heading:()=>'<header>Estado del pedido</header>',ic:()=>'',esc:s=>String(s),
@@ -475,8 +476,11 @@ test('sin disponibilidad muestra motivo y reintento manual; rechazo terminal ofr
     assert.match(html,/No se ha creado una nueva solicitud/);
     assert.doesNotMatch(html,/data-change-fulfillment="1"/);
    }else{
-    assert.match(html,/Elegir Recojo en tienda/);
-    assert.match(html,/data-availability-pickup="1"/);
+    assert.match(html,/Productos del pedido no confirmados/);
+    assert.match(html,/Elegir otros productos/);
+    assert.match(html,/data-rejected-new-catalog="1"/);
+    assert.match(html,/Volver al inicio/);
+    assert.doesNotMatch(html,/data-availability-pickup|Elegir Recojo en tienda|Delivery no confirmado/);
     assert.doesNotMatch(html,/data-availability-retry/);
     assert.doesNotMatch(html,/data-change-fulfillment="1"/);
    }
@@ -651,4 +655,63 @@ test('cooldown persistido retrasa consulta y pantalla no expone errores HTTP',()
  assert.doesNotMatch(s.context.formWaitingMessage(entry),/HTTP|429|demasiadas|error/i);
  assert.match(s.context.formWaitingMessage({messageDeliveryBlocked:true}),/Puedes cancelar/);
  assert.doesNotMatch(s.context.formWaitingMessage({messageDeliveryUncertain:true}),/HTTP|503/i);
+});
+
+
+test('Inicio despues de RECHAZADO limpia carrito y etiqueta sin tocar el servidor',()=>{
+ const old={status:'REJECTED',interactionId:'a2e616af-8c52-4776-b3b1-b446fc9b74a9'};
+ const effects=[];
+ let current=old;
+ const api={
+  readInteraction:()=>current,
+  dismissRejectedInteraction:id=>{
+   effects.push('DISMISS:'+id);
+   if(current?.status!=='REJECTED'||current.interactionId!==id)return false;
+   current=null;return true
+  }
+ };
+ const st={cart:[{id:'api:synthetic-product',qty:2}],profile:{first:'Persona',address:'Av Ejemplo 123'},
+  favorite:{items:[]},quote:{deliveryFeePen:5},store:'store',pay:'yape',
+  cash:'80',mode:'delivery',fulfillment:'delivery',pickupOrigin:'B3',selected:'producto',
+  qty:2,coords:{latitude:1},tab:'pedidos',stage:'availability'};
+ const context={st,window:{B3OrderAvailability:api,scrollTo:()=>{}},
+   stopAgentDecisionPoll:()=>effects.push('STOP'),save:()=>effects.push('SAVE'),
+   clearDeliveryAvailability:()=>effects.push('CLEAR'),render:()=>effects.push('RENDER'),
+   ic:()=>''};
+ vm.runInNewContext('let deliveryValidationGeneration=0,deliveryRequestPending=false,'+
+  'deliveryRequestError="",checkoutRefreshPending=false,checkoutReviewNote="",'+
+  'fulfillmentOutcomeNote="",checkoutPending=false,selectedHomeStore=null,'+
+  'selectedVacancyId=null,fulfillmentModal=null;'+
+  [extract('beginNewCheckoutAfterRejection'),extract('nav'),
+    extract('personalCheckoutBanner')].join('\n'),context);
+ context.nav('inicio');
+ assert.equal(current,null);
+ assert.deepEqual(st.cart,[]);
+ assert.equal(st.mode,'');
+ assert.equal(st.store,'');
+ assert.equal(st.quote,null);
+ assert.equal(st.stage,'app');
+ assert.equal(st.tab,'inicio');
+ assert.equal(st.profile.first,'Persona');
+ assert.ok(st.favorite);
+ assert.equal(context.personalCheckoutBanner(),'');
+ assert.deepEqual(effects,['DISMISS:'+old.interactionId,'STOP','CLEAR','SAVE','RENDER']);
+ assert.doesNotMatch(source,/data-checkout-leave'\)\)\{[^}]*cancelInteraction/);
+});
+
+test('Inicio NO reinicia una interaccion activa PENDING ni su carrito',()=>{
+ const active={status:'PENDING',interactionId:'a2e616af-8c52-4776-b3b1-b446fc9b74a9'};
+ let dismissed=0;
+ const st={cart:[{id:'api:synthetic-product',qty:1}],mode:'delivery',tab:'carta',stage:'availability'};
+ const context={st,window:{B3OrderAvailability:{
+  readInteraction:()=>active,dismissRejectedInteraction:()=>{dismissed++}
+ },scrollTo:()=>{}},render:()=>{}};
+ vm.runInNewContext('let checkoutPending=false,selectedHomeStore=null,selectedVacancyId=null,'+
+  'fulfillmentModal=null;'+
+  [extract('beginNewCheckoutAfterRejection'),extract('nav')].join('\n'),context);
+ context.nav('inicio');
+ assert.equal(st.cart.length,1);
+ assert.equal(st.mode,'delivery');
+ assert.equal(dismissed,0);
+ assert.equal(st.tab,'inicio');
 });
