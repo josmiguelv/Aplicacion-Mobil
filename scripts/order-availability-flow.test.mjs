@@ -731,6 +731,7 @@ test('cada intento nuevo confirma destinatario y telefono antes de crear interac
   deliveryRequestPending:false,deliveryRequestError:'',deliveryHealthMessage:'',
   deliveryAvailability:{status:'IDLE'},checkoutPending:false,fulfillmentModal:null,
   screen:name=>{st.stage=name;calls.push('SCREEN:'+name)},
+  heading:title=>title,esc:value=>String(value),
   fetchConfig:async()=>{calls.push('GET')},
   render:()=>{},save:()=>{},
   requestBackendOrderAvailability:async()=>{calls.push('CREATE_ATTEMPT');return false;}
