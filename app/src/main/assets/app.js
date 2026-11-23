@@ -1287,13 +1287,13 @@ function activePersonalCheckout(){
 }
 function personalCheckoutBanner(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
- if(!entry||!['SUBMITTING','PENDING','ACCEPTED','REJECTED'].includes(entry.status))return '';
- const rejected=entry.status==='REJECTED';
- const pending=entry.status!=='ACCEPTED'&&!rejected;
+ // Do not keep a pending-order banner after the agent closes without approving.
+ if(!entry||!['SUBMITTING','PENDING','ACCEPTED'].includes(entry.status))return '';
+ const pending=entry.status!=='ACCEPTED';
  return `<button type="button" class="b3-checkout-floating" data-checkout-return="1" aria-label="Ver estado de mi solicitud">
    <span class="b3-checkout-floating-icon">${ic(pending?'clock':'check',20)}</span>
-   <span><strong>${rejected?'Productos no confirmados':pending?'Tu pedido está en validación':'¡Tu pedido fue aceptado!'}</strong>
-   <small>${rejected?'Elige otros productos para un pedido nuevo.':pending?'Sigue activo. Toca para ver el estado.':'Continúa con el total y el pago.'}</small></span>
+   <span><strong>${pending?'Tu pedido está en validación':'¡Tu pedido fue aceptado!'}</strong>
+   <small>${pending?'Sigue activo. Toca para ver el estado.':'Continúa con el total y el pago.'}</small></span>
    ${ic('chev',16)}</button>`;
 }
 function returnToPersonalCheckout(){
