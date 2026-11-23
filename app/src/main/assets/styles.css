@@ -990,3 +990,40 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 }
 .b3-fulfillment-outcome-banner strong{display:block;font-size:13px;font-weight:850;margin-bottom:5px}
 .b3-fulfillment-outcome-banner p{font-size:12px;line-height:1.5;margin:0;color:#6c555d}
+
+
+/* Pollos B3 · Avisos premium independientes de la navegación y del carrito. */
+.b3-toast-premium{
+ position:fixed;z-index:300;top:calc(env(safe-area-inset-top,0px) + 76px);
+ right:max(12px,calc((100vw - 600px)/2 + 16px));
+ width:min(320px,calc(100vw - 30px));max-width:calc(100vw - 30px);
+ display:flex;align-items:center;gap:11px;padding:12px 13px;
+ background:#fff;color:#242329;border:1px solid #ebe6e8;border-radius:15px;
+ box-shadow:0 9px 30px #22141b26,0 2px 7px #26121d0c;
+ font-family:Roboto,Arial,system-ui,sans-serif;
+ opacity:0;transform:translate3d(calc(100% + 28px),0,0);
+ transition:transform 260ms cubic-bezier(.2,.8,.2,1),opacity 260ms ease;
+ will-change:transform,opacity;pointer-events:none;
+}
+.b3-toast-premium.b3-toast-visible{opacity:1;transform:translate3d(0,0,0)}
+.b3-toast-premium.b3-toast-leaving{
+ opacity:0;transform:translate3d(calc(100% + 28px),0,0);
+ transition-duration:220ms;
+}
+.b3-toast-icon{
+ width:35px;height:35px;flex:0 0 35px;
+ display:grid;place-items:center;border-radius:11px;
+ background:#e8f7ed;color:#168342;
+}
+.b3-toast-warning .b3-toast-icon{background:#fff2dd;color:#96600b}
+.b3-toast-info .b3-toast-icon{background:#fff0f1;color:#b52131}
+.b3-toast-content{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px}
+.b3-toast-content strong{font-size:12.5px;font-weight:800;line-height:1.35;overflow-wrap:anywhere}
+.b3-toast-content small{font-size:11px;color:#736b70;line-height:1.3}
+.b3-toast-close{pointer-events:auto;flex:0 0 32px;height:32px;display:grid;place-items:center;
+ border:0;border-radius:9px;background:#f7f3f3;color:#51484b;padding:0}
+.b3-toast-close:focus-visible{outline:2px solid #b52131;outline-offset:2px}
+@media(max-height:500px){.b3-toast-premium{top:calc(env(safe-area-inset-top,0px) + 12px)}}
+@media(prefers-reduced-motion:reduce){
+ .b3-toast-premium,.b3-toast-premium.b3-toast-leaving{transition:none!important;will-change:auto}
+}
