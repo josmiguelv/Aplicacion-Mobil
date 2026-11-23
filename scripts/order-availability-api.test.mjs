@@ -494,7 +494,7 @@ test('puente Android exclusivo para HTTPS rutas permitidas; scripts en orden',()
   assert.match(java,/connection\.setInstanceFollowRedirects\(false\)/);
   assert.match(java,/connection\.setRequestProperty\("Authorization", "Bearer " \+ token\)/);
   assert.match(java,/connection\.setRequestProperty\("Idempotency-Key", key\)/);
-  assert.match(checkoutSource,/\[data-availability-continue\],\[data-quote-retry\],\[data-change-fulfillment\],\[data-availability-pickup\],\[data-availability-retry\]/);
+  assert.match(checkoutSource,/\[data-availability-continue\],\[data-quote-retry\],\[data-change-fulfillment\],\[data-availability-pickup\],\[data-rejected-new-catalog\],\[data-availability-retry\]/);
 });
 
 test('chat persiste únicamente hitos confirmados y respuestas verificadas sin reabrir la interacción',async()=>{
