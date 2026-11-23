@@ -732,3 +732,37 @@ test('rechaza variables adicionales ajenas al FORM de tres campos',()=>{
  }),/exactamente tres variables/);
  assert.equal(c.requests.length,0);
 });
+
+
+test('pedido rechazado se descarta solo localmente y permite una NUEVA interaccion con otro producto',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const c=client(req=>req.operation==='INTERACTION_CREATE'?
+  {requestId:req.requestId,status:201,data:{interactionId,storeId,status:'PENDING',externalReference:'mobile:ref'}}:
+  {requestId:req.requestId,status:200,data:{interactionId,storeId,status:'PENDING',
+   agentMessages:[{id:'1e96145a-90e3-4836-9e69-399312c89b11',
+    text:'Rechazado',createdAt:'2026-11-21T18:30:00Z'}]}});
+ const args={appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'};
+ const first=c.api.prepareInteraction(args);
+ assert.equal(c.api.dismissRejectedInteraction(interactionId),false,'una solicitud pendiente no se elimina');
+ await c.api.createInteraction(first);
+ assert.equal(c.api.dismissRejectedInteraction(interactionId),false,'PENDING sigue protegida');
+ const reply=await c.api.pollInteraction(first);
+ assert.equal(reply.decision,'REJECTED');
+ assert.equal(c.api.readInteraction().status,'REJECTED');
+ c.api.markRejectedStore('orden-cerrada',storeId);
+ assert.equal(c.api.rejectedStores('orden-cerrada').length,1);
+ assert.equal(c.api.dismissRejectedInteraction('11111111-1111-4111-8111-111111111111'),false);
+ assert.equal(c.api.readInteraction().interactionId,interactionId,'id incorrecto no borra pedido');
+ assert.equal(c.api.dismissRejectedInteraction(interactionId),true);
+ assert.equal(c.api.readInteraction(),null);
+ assert.equal(c.api.rejectedStores('orden-cerrada').length,0);
+ const otherProduct='00000000-0000-4000-8000-000000000009';
+ const next=c.api.prepareInteraction({...args,items:[{productId:otherProduct,quantity:1}]});
+ assert.notEqual(next.idempotencyKey,first.idempotencyKey);
+ assert.notEqual(next.messageIdempotencyKey,first.messageIdempotencyKey);
+ assert.equal(next.status,'PREPARED');
+ assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_STATUS'],
+  'el cierre local nunca llama a DELETE, CANCEL ni hace POST automatico');
+});
