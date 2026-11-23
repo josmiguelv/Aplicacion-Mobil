@@ -1684,7 +1684,8 @@ function orderTimingSelector(){
   ${scheduled?`<div class="b3-order-timing-fields">
    <label>Fecha solicitada<input id="b3-scheduled-date" type="date" value="${esc(st.scheduledDate||'')}"></label>
    ${st.mode==='delivery'?
-     '<p role="status">Delivery programado: el Administrador debe validar sede, tarifa, cobertura y atención para la fecha solicitada. Aún no admite reservas.</p>':
+     `<label>Hora solicitada<input id="b3-scheduled-delivery-time" type="time" value="${esc(st.scheduledTime||'')}"></label>
+       <p role="status">Delivery programado utiliza la cobertura, tarifa y sede existentes; el Administrador validará la hora futura y disponibilidad del agente.</p>`:
      !canQuery?'<p role="status">Elige una sede de Recojo en tienda para consultar horarios futuros.</p>':
      `<button type="button" class="outline full" data-reservation-check="1" ${reservationSlotsPending?'disabled':''}>${reservationSlotsPending?'Consultando horarios...':'Consultar horarios de esta sede'}</button>
       ${reservationSlotsError?`<p role="alert">${esc(reservationSlotsError)}</p>`:''}
@@ -2687,6 +2688,10 @@ root.addEventListener('change',e=>{
   const date=String(node.value||'');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return;
   st.scheduledDate=date;st.scheduledTime='';resetReservationSlots();save();render();return;
+ }
+ if(node?.id==='b3-scheduled-delivery-time'){
+  st.scheduledTime=/^([01]\d|2[0-3]):[0-5]\d$/.test(node.value)?node.value:'';
+  reservationQuote=null;reservationError='';save();render();return;
  }
  if(node?.id==='b3-scheduled-slot'){
   const time=String(node.value||'');
