@@ -2272,6 +2272,11 @@ function finalizeDemoOrder(){
  st.orders.unshift(order);st.cart=[];save();screen('success');
 }
 async function revalidateCheckout(next){
+ // The immediate-only Administrator APIs cannot validate or reserve future slots.
+ if(st.orderTiming==='SCHEDULED'){
+  checkoutReviewNote='La reserva todavía no está habilitada. Selecciona Lo antes posible.';
+  screen('choice');return false;
+ }
  if(checkoutRefreshPending)return false;
  checkoutRefreshPending=true;checkoutReviewNote='';render();
  const before=checkoutSnapshot();
@@ -2576,7 +2581,7 @@ if(b.dataset.orderTiming){
  if(b.hasAttribute('data-order-timing-save')){
   const date=root.querySelector('#b3-scheduled-date')?.value||'';
   const time=root.querySelector('#b3-scheduled-time')?.value||'';
-  if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)||!/^([01]\\d|2[0-3]):[0-5]\\d$/.test(time)){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)){
    toast('Elige una fecha y hora válidas para programar tu pedido.');return;
   }
   st.scheduledDate=date;st.scheduledTime=time;save();
