@@ -1618,7 +1618,7 @@ function reservationTrackingScreen(){
   AWAITING_AGENT:'Esperando respuesta del local',AWAITING_PAYMENT:'Pedido aceptado; elige pago',
   CONFIRMED:'Reserva confirmada',REJECTED:'El local no aceptó el pedido',
   CANCELLED:'Solicitud cancelada',EXPIRED:'La solicitud venció'};
- const modes=reservationQuote?.paymentMethods||
+ const modes=entry?.quote?.paymentMethods||reservationQuote?.paymentMethods||
   (entry?.body?.mode&&shops.find(x=>x.id===r?.storeId)?.paymentMethods?.[entry.body.mode])||[];
  return `<div class="page">${heading('Estado de mi reserva','app')}
   <div class="summary-card"><h2>${esc(names[status]||'Reserva en revisión')}</h2>
