@@ -441,3 +441,19 @@ test('avisos animados: un nuevo aviso cancela el cierre anterior sin reconstruir
  assert.equal(nodes[1].removed,true);
  assert.deepEqual(events,[],'Los avisos no deben reconstruir ni interrumpir la interfaz');
 });
+
+test('el banner no mantiene un pedido pendiente cuando la conversación termina rechazada',()=>{
+ const run=status=>{
+  const context={
+   window:{B3OrderAvailability:{readInteraction:()=>({status})}},
+   ic:()=>'<svg></svg>'
+  };
+  vm.runInNewContext(extract('personalCheckoutBanner'),context);
+  return context.personalCheckoutBanner();
+ };
+ assert.match(run('PENDING'),/Tu pedido está en validación/);
+ assert.match(run('ACCEPTED'),/Tu pedido fue aceptado/);
+ assert.equal(run('REJECTED'),'');
+ assert.equal(run('CANCELLED'),'');
+ assert.equal(run('EXPIRED'),'');
+});
