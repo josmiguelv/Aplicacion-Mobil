@@ -434,6 +434,19 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid store or app ID");
                         path = "/api/v1/mobile/stores/" + storeId +
                             "/agent-availability?appId=" + java.net.URLEncoder.encode(appId, "UTF-8");
+                    } else if ("RESERVATION_SLOTS".equals(operation)) {
+                        String storeId = request.optString("storeId", "");
+                        String appId = request.optString("appId", "");
+                        String date = request.optString("date", "");
+                        String mode = request.optString("mode", "");
+                        if (!storeId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !appId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                            !date.matches("[0-9]{4}-[0-9]{2}-[0-9]{2}") ||
+                            !("delivery".equals(mode) || "pickup".equals(mode)))
+                            throw new IllegalArgumentException("Invalid scheduled slot request");
+                        path = "/api/v1/mobile/stores/" + storeId + "/reservation-slots?appId=" +
+                            java.net.URLEncoder.encode(appId, "UTF-8") + "&date=" +
+                            java.net.URLEncoder.encode(date, "UTF-8") + "&mode=" + mode;
                     } else if ("DELIVERY_QUOTE".equals(operation)) {
                         JSONObject payload = request.optJSONObject("body");
                         if (payload == null || !"delivery".equals(payload.optString("mode")) ||
@@ -557,7 +570,8 @@ public class MainActivity extends Activity {
                         // This timeout covers only transport, never waiting for an agent.
                         connection.setReadTimeout("INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
-                            "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ||
+                            "AGENT_AVAILABILITY".equals(operation) || "RESERVATION_SLOTS".equals(operation) ||
+                             "INTERACTION_STATUS".equals(operation) ||
                             "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
                             "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||

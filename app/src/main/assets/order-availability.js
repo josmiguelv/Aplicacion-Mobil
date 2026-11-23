@@ -188,6 +188,26 @@
       throw Error('La disponibilidad de TU VERSO no corresponde a la sede solicitada.');
     return {storeId,status:data.status,available:data.available,checkedAt:data.checkedAt};
   }
+  async function readReservationSlots({appId,storeId,date,mode}){
+    if(typeof appId!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,149}$/.test(appId)||
+       !UUID.test(storeId)||typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||
+       !['delivery','pickup'].includes(mode))
+      throw Error('Sede, fecha o modalidad de programación inválidas.');
+    const response=await nativeRequest({operation:'RESERVATION_SLOTS',appId,storeId,date,mode});
+    if(Number(response.status)!==200)
+      throw responseError(response,'No se pudieron consultar los horarios de programación');
+    const data=response.data||{};
+    if(data.appId!==appId||data.storeId!==storeId||data.date!==date||data.mode!==mode||
+       !Number.isSafeInteger(data.revision)||data.revision<1||
+       typeof data.enabled!=='boolean'||!Array.isArray(data.slots)||
+       data.capacityVerified!==false||data.acceptingRequests!==false||
+       data.slots.length>96||
+       !data.slots.every(s=>s&&typeof s.time==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(s.time)&&
+         typeof s.scheduledAt==='string'&&!Number.isNaN(Date.parse(s.scheduledAt))))
+      throw Error('El Administrador devolvió horarios incompatibles o no verificados.');
+    // The scheduling backend is read-only in this phase: never imply a slot is held.
+    return data;
+  }
   async function quoteDelivery({appId,storeId,address,district,latitude,longitude,useGps}) {
     if(typeof appId!=='string'||!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,149}$/.test(appId))
       throw Error('Identificador de aplicación inválido.');
@@ -646,7 +666,7 @@
   }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
-    checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
+    checkAgentAvailability,readReservationSlots,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
