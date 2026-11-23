@@ -1232,18 +1232,17 @@ const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configRea
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?.price||0),0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 // Toast independiente del render: las respuestas de la app no reconstruyen la pantalla.
-let noticeTimer=null,noticeExitTimer=null,noticeNode=null,noticeKind='',noticeText='';
+let noticeTimer=null,noticeNode=null,noticeKind='',noticeText='';
 let noticeCount=0,noticeLastAt=0;
 const B3_TOAST_ENTER_MS=260,B3_TOAST_EXIT_MS=220;
 function dismissNotice(){
  if(noticeTimer!==null){clearTimeout(noticeTimer);noticeTimer=null}
- if(noticeExitTimer!==null){clearTimeout(noticeExitTimer);noticeExitTimer=null}
  const node=noticeNode;
  if(!node)return;
  noticeNode=null;noticeKind='';noticeText='';noticeCount=0;
  node.classList.remove('b3-toast-visible');
  node.classList.add('b3-toast-leaving');
- noticeExitTimer=setTimeout(()=>{node.remove();noticeExitTimer=null},B3_TOAST_EXIT_MS);
+ setTimeout(()=>node.remove(),B3_TOAST_EXIT_MS);
 }
 function queueNotice(t,options={}){
  const text=String(t||'').trim();
@@ -1256,7 +1255,6 @@ function queueNotice(t,options={}){
  const same=noticeNode&&noticeKind===kind&&
   (kind==='cart'||noticeText===text)&&now-noticeLastAt<1800;
  if(noticeTimer!==null){clearTimeout(noticeTimer);noticeTimer=null}
- if(noticeExitTimer!==null){clearTimeout(noticeExitTimer);noticeExitTimer=null}
  if(noticeNode&&!same){noticeNode.remove();noticeNode=null}
  noticeCount=same&&kind==='cart'?noticeCount+Math.max(1,Number(options.quantity)||1):
   kind==='cart'?Math.max(1,Number(options.quantity)||1):1;
