@@ -20,6 +20,7 @@ const items=[{productId,quantity:1}]
 function simulation({available=true,decisions=[],allStores=stores,wrongQuote=false,sendFailures=0,createFailures=0,quoteFailures=0}={}){
  const st={mode:'delivery',profile:{first:'Ana',last:'Quispe',phone:'912345678',
   address:'Av. Ejemplo 123',district:'Santa Anita',reference:'Puerta lateral'},
+  orderContactDraft:{first:'Ana',last:'Quispe',phone:'912345678'},deliveryContactConfirmed:true,
   store:'',quote:null,stage:'availability',pay:''}
  const events=[],rejects=new Map()
  let current=null
