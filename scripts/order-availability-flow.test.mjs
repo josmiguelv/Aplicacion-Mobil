@@ -716,3 +716,83 @@ test('Inicio NO reinicia una interaccion activa PENDING ni su carrito',()=>{
  assert.equal(dismissed,0);
  assert.equal(st.tab,'inicio');
 });
+
+
+test('cada intento nuevo confirma destinatario y telefono antes de crear interaccion',async()=>{
+ const st={mode:'delivery',configReady:true,
+  profile:{first:'Titular',last:'Cuenta',phone:'912345678',doc:'DNI',
+   address:'Av. Ejemplo 123',district:'Santa Anita',reference:'Porton'},
+  orderContactDraft:null,deliveryContactConfirmed:false,stage:'deliveryAddress',
+  quote:null,store:'',cart:[{id:'api:sample',qty:1}]};
+ const calls=[];
+ const context={
+  st,window:{B3OrderAvailability:{readInteraction:()=>null}},
+  deliveryValidationGeneration:0,deliveryValidationStep:'INICIO',
+  deliveryRequestPending:false,deliveryRequestError:'',deliveryHealthMessage:'',
+  deliveryAvailability:{status:'IDLE'},checkoutPending:false,fulfillmentModal:null,
+  screen:name=>{st.stage=name;calls.push('SCREEN:'+name)},
+  fetchConfig:async()=>{calls.push('GET')},
+  render:()=>{},save:()=>{},
+  requestBackendOrderAvailability:async()=>{calls.push('CREATE_ATTEMPT');return false;}
+ };
+ for(const name of ['currentDeliveryOrderContact','resetDeliveryOrderContact',
+  'deliveryContactReady','deliveryRequestCustomer','resolveDelivery','identity','phone'])
+  vm.runInNewContext(extract(name),context);
+ const first=await context.resolveDelivery();
+ assert.equal(first,false);
+ assert.equal(st.stage,'identity','nueva solicitud no salta pantalla de nombres');
+ assert.deepEqual(calls,['SCREEN:identity'],'sin consultas antes de confirmar contacto');
+ const draft=context.currentDeliveryOrderContact();
+ assert.equal(draft.first,'Titular');
+ draft.first='Otro';draft.last='Destinatario';draft.phone='987654321';
+ assert.equal(context.deliveryContactReady(),false,'datos editados no confirman el pedido');
+ st.deliveryContactConfirmed=true;
+ assert.equal(context.deliveryContactReady(),true);
+ const buyer=context.deliveryRequestCustomer(st.profile.address,st.profile.district);
+ assert.equal(buyer.firstName,'Otro');
+ assert.equal(buyer.lastName,'Destinatario');
+ assert.equal(buyer.phone,'987654321');
+ assert.equal(st.profile.phone,'912345678','pedido ajeno no sobrescribe Mi Perfil');
+ assert.equal(st.profile.first,'Titular');
+ assert.match(context.identity(),/Datos de este pedido/);
+ assert.match(context.phone(),/987654321/);
+ const second=await context.resolveDelivery();
+ assert.equal(second,false);
+ assert.equal(calls.filter(x=>x==='CREATE_ATTEMPT').length,1);
+ context.resetDeliveryOrderContact();
+ assert.equal(st.orderContactDraft,null);
+ assert.equal(st.deliveryContactConfirmed,false);
+ await context.resolveDelivery();
+ assert.equal(st.stage,'identity','otro intento vuelve a pedir nombre y telefono');
+ assert.equal(calls.filter(x=>x==='CREATE_ATTEMPT').length,1,'no crea una segunda solicitud automaticamente');
+});
+
+test('reanudar interaccion activa no solicita otro destinatario ni cambia CREATE',async()=>{
+ const st={mode:'delivery',configReady:true,profile:{
+  address:'Av. Ejemplo 123',district:'Santa Anita'},orderContactDraft:null,
+  deliveryContactConfirmed:false,stage:'deliveryAddress',quote:null,store:''};
+ const calls=[],entry={status:'PENDING'};
+ const context={st,window:{B3OrderAvailability:{readInteraction:()=>entry}},
+  deliveryValidationGeneration:0,deliveryValidationStep:'INICIO',deliveryRequestPending:false,
+  deliveryRequestError:'',deliveryHealthMessage:'',deliveryAvailability:{status:'IDLE'},
+  checkoutPending:false,fulfillmentModal:null,
+  screen:name=>{st.stage=name;calls.push('SCREEN:'+name)},
+  fetchConfig:async()=>{calls.push('GET')},render:()=>{},save:()=>{},
+  deliveryContactReady:()=>false,
+  requestBackendOrderAvailability:async()=>{calls.push('RESUME_EXISTING');return false;}
+ };
+ vm.runInNewContext(extract('resolveDelivery'),context);
+ await context.resolveDelivery();
+ assert.equal(calls.includes('SCREEN:identity'),false,'identidad de interaccion activa es inmutable');
+ assert.equal(calls.includes('RESUME_EXISTING'),true);
+});
+
+test('formulario de contacto permite otro telefono sin modificar el perfil guardado',()=>{
+ assert.match(source,/st\.orderContactDraft=null;[\s\S]*?st\.deliveryContactConfirmed=false;/);
+ assert.match(source,/function identity\(\)[\s\S]*?st\.mode==='delivery'\?currentDeliveryOrderContact\(\):st\.profile/);
+ assert.match(source,/function phone\(\)[\s\S]*?st\.mode==='delivery'\?currentDeliveryOrderContact\(\):st\.profile/);
+ assert.match(source,/currentDeliveryOrderContact\(\)\.phone=v\('phone'\)/);
+ assert.match(source,/st\.deliveryContactConfirmed=true/);
+ assert.match(source,/function startCheckout\(\)[\s\S]*?resetDeliveryOrderContact\(\)/);
+ assert.match(source,/function beginNewCheckoutAfterRejection\(\)[\s\S]*?resetDeliveryOrderContact\(\)/);
+});
