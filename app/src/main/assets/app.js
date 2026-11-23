@@ -1936,6 +1936,17 @@ function personalCheckoutTimeHtml(){
  if(!entry?.paymentExpiresAt)return '';
  return `<div class="b3-checkout-clock" role="status">Tiempo disponible para el pago: <strong data-checkout-remaining>${personalCheckoutCountdown()}</strong></div>`;
 }
+function preparationEstimateHtml(){
+ const store=shops.find(s=>String(s.id)===String(st.store));
+ const minutes=Number(store?.preparationMinutes);
+ if(!Number.isInteger(minutes)||minutes<1||minutes>240)return '';
+ return `<div class="b3-preparation-estimate" role="status">
+  <strong>Preparación estimada: ${minutes} minutos</strong>
+  <p>La preparación comienza después de confirmar el pago o registrar una modalidad de pago al recibir aceptada. No comienza cuando el agente acepta.</p>
+  ${st.mode==='delivery'?'<small>La hora de llegada también depende del reparto; este valor no incluye traslado.</small>':
+    '<small>La hora de recojo se calculará desde la confirmación comercial.</small>'}
+ </div>`;
+}
 function prepaymentReview(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  const valid=entry?.status==='ACCEPTED'&&deliveryQuoteValid();
@@ -1951,6 +1962,7 @@ function prepaymentReview(){
    <p class="grand">Total a pagar <strong>${valid?cash(orderTotal()):'Pendiente'}</strong></p>
   </div>
   ${personalCheckoutTimeHtml()}
+  ${preparationEstimateHtml()}
   <p class="b3-checkout-price-note">El delivery se estima por la distancia en línea recta y la tarifa publicada de la sede, sin Google Routes. El importe se muestra antes de elegir cómo pagar.</p>
   ${checkoutReviewNote?'<div class="notice" role="alert">'+esc(checkoutReviewNote)+'</div>':''}
   <p class="smallprint">No se realizará ningún cobro. Solo podrás revisar los métodos de pago disponibles.</p>
