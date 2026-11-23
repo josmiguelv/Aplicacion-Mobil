@@ -21,9 +21,11 @@ assert.match(java,/onPageFinished\(WebView view, String url\)/);
 assert.match(java,/web\.evaluateJavascript\("window\.b3OpenFromLink && window\.b3OpenFromLink\(\)"/);
 assert.match(js,/window\.b3OpenFromLink=\(\)=>\{/);
 assert.match(js,/nav\('inicio'\);/);
-assert.match(page,/<h1>Bienvenido a Pollos B3<\/h1>/);
-assert.match(page,/const OFFICIAL_GOOGLE_PLAY_URL = '';/);
-assert.doesNotMatch(page,/location\.(replace|assign)\s*\(/);
+// The existing Pollos B3 web fallback intentionally redirects directly to its
+// carta, without the old "Bienvenido" intermediary or app-store placeholder.
+assert.match(page,/<h1>Abriendo nuestra carta\.\.\.<\/h1>/);
+assert.match(page,/<meta http-equiv="refresh" content="0;url=https:\/\/[^"]+\/carta">/);
+assert.match(page,/window\.location\.replace\('https:\/\/[^']+\/carta'\)/);
 assert.match(htaccess,/RewriteRule \^abrir\/\?\$ index\.html \[L\]/);
 assert.equal(links[0].relation[0],'delegate_permission/common.handle_all_urls');
 assert.equal(links[0].target.package_name,'com.integrab2g.pollosb3');

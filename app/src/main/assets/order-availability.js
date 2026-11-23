@@ -9,6 +9,8 @@
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const TOKEN = /^ordv1_[A-Za-z0-9_-]{43}$/;
   const requests = new Map();
+  // Prevent simultaneous FORM POSTs when checkout and the status poll overlap.
+  const formPostsInFlight = new Map();
   let sequence = 0;
   const secureBytes = length => {
     if (!root.crypto || typeof root.crypto.getRandomValues !== 'function')
@@ -87,7 +89,9 @@
     root.clearTimeout(pending.timer);
     requests.delete(reply.requestId);
     if (reply.error) {
-      const error = Error('No fue posible conectar con el servidor de validación.');
+      const error = Error(reply.error==='LOCAL_CONTRACT_REJECTED'?
+        'Android rechazó el formato del FORM antes de emitir la petición HTTP.':
+        'No fue posible completar la comunicación con el Administrador.');
       error.code = String(reply.error);
       pending.reject(error);
     } else {
@@ -190,12 +194,12 @@
     if(typeof address!=='string'||address.trim().length<6||typeof district!=='string'||
        district.trim().length<2) throw Error('Confirma la dirección para cotizar delivery.');
     const body={appId,mode:'delivery',address:address.trim(),district:district.trim(),
-      city:'Lima',country:'Perú',useGps:useGps===true};
+      city:'Lima',country:'Perú',useGps:useGps===true||Number.isFinite(latitude)&&Number.isFinite(longitude)};
     if(storeId!==undefined){
       if(!UUID.test(storeId))throw Error('La sede a cotizar no es válida.');
       body.storeId=storeId;
     }
-    if(useGps===true&&Number.isFinite(latitude)&&Number.isFinite(longitude)){
+    if(Number.isFinite(latitude)&&Number.isFinite(longitude)){
       body.latitude=latitude;body.longitude=longitude;
     }
     const response=await nativeRequest({operation:'DELIVERY_QUOTE',body});
@@ -222,7 +226,64 @@
   function persistInteraction(entry) {
     root.localStorage.setItem(INTERACTION_KEY,JSON.stringify(entry));return entry;
   }
-  function prepareInteraction({appId,storeId,catalogRevision,items,address,district,customer}) {
+  // Poll and FORM POST can hold different snapshots of the same interaction.
+  // Never let a stale status read erase an in-flight message's cooldown or ACK.
+  function syncFormDeliveryState(entry) {
+    const current=readInteraction();
+    if(!entry||!current||current.interactionId!==entry.interactionId||
+       current.idempotencyKey!==entry.idempotencyKey)return entry;
+    for(const key of ['messageDelivered','messageIdempotencyKey','messageRetryAt',
+      'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked']){
+      if(Object.prototype.hasOwnProperty.call(current,key))entry[key]=current[key];
+      else delete entry[key];
+    }
+    return entry;
+  }
+  // Only locally confirmed milestones are recorded; no simulated server replies.
+  // Records stay within the same private, per-device interaction entry.
+  const ACTIVITY_TYPES=new Set(['prepared','created','detail_delivered','accepted',
+    'rejected','expired','cancelled','cancel_requested','cancelled_before_send','payment_window']);
+  function recordActivity(entry,type) {
+    if(!entry||!ACTIVITY_TYPES.has(type))return entry;
+    const events=Array.isArray(entry.activity)?entry.activity.filter(e=>e&&
+      ACTIVITY_TYPES.has(e.type)&&Number.isFinite(e.at)).slice(-39):[];
+    if(!events.some(e=>e.type===type)){
+      events.push({type,at:Date.now()});
+      entry.activity=events;
+      persistInteraction(entry);
+    }
+    return entry;
+  }
+  // Store the exact display ticket once, separate from the CREATE payload.
+  // No Cliente or Teléfono fields: identity already travels with customer.
+  function normalizeOrderForm(form) {
+    const labels=['Productos','Subtotal','Dirección y referencia'];
+    if(!form||typeof form!=='object'||Array.isArray(form)||
+      Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
+      form.title!=='VALIDACIÓN DE PEDIDO'||
+      form.subtitle!=='Confirmar disponibilidad para delivery'||
+      form.title.length>180||form.subtitle.length>350||
+      !Array.isArray(form.fields)||form.fields.length!==3)
+      throw Error('La solicitud de aprobación requiere exactamente tres variables.');
+    const fields=form.fields.map((item,index)=>{
+      if(!item||typeof item!=='object'||Array.isArray(item)||
+        Object.keys(item).some(k=>!['variable','value'].includes(k))||
+        item.variable!==labels[index]||item.variable.length>80||
+        typeof item.value!=='string'||!item.value.trim()||item.value.length>500||
+        /[\x00-\x09\x0b-\x1f]/.test(item.value))
+        throw Error('Los campos del FORM no corresponden al contrato de aprobación.');
+      return {variable:labels[index],value:item.value};
+    });
+    return {title:form.title,subtitle:form.subtitle,fields};
+  }
+  // Diagnostic metadata only. No UUIDs, client identity, addresses or JSON bodies.
+  function formTrace(stage,fieldCount,status=0,returnedType='NONE',outcome='UNKNOWN') {
+    try{
+      root.AndroidBridge?.orderFormDiagnostic?.(stage,fieldCount,status,
+        returnedType==='FORM'?'FORM':returnedType==='TEXT'?'TEXT':'OTHER',outcome);
+    }catch(_){/* Diagnostics cannot interrupt checkout. */}
+  }
+  function prepareInteraction({appId,storeId,catalogRevision,items,address,district,customer,orderForm}) {
     if(typeof appId!=='string'||!UUID.test(storeId)||
       !Number.isSafeInteger(catalogRevision)||catalogRevision<1||
       !Array.isArray(items)||items.length<1||items.length>50||
@@ -254,14 +315,34 @@
       items:items.map(i=>({productId:i.productId,quantity:i.quantity}))
         .sort((a,b)=>a.productId.localeCompare(b.productId))};
     if(safeCustomer)body.customer=safeCustomer;
+    // A submitted Delivery order must have the exact approval ticket before its message POST.
+    // Do not change the CREATE payload or reissue an existing interaction.
+    const formSnapshot=orderForm===undefined?null:normalizeOrderForm(orderForm);
+    if(safeCustomer&&!formSnapshot)
+      throw Error('La aprobación del pedido requiere un ticket FORM válido.');
     const fingerprint=JSON.stringify({...body,address:String(address||'').trim(),
       district:String(district||'').trim()});
     const prior=readInteraction();
-    if(prior?.fingerprint===fingerprint&&!['REJECTED','CANCELLED','EXPIRED'].includes(prior.status))return prior;
+    if(prior?.fingerprint===fingerprint&&!['REJECTED','CANCELLED','EXPIRED'].includes(prior.status)){
+      // An older pending request may lack the ticket; upgrade the same request in place.
+      // Never replace a snapshot that has already been sent or prepared.
+      if(safeCustomer&&formSnapshot&&!prior.orderForm&&prior.messageDelivered!==true){
+        prior.orderForm=formSnapshot;
+        persistInteraction(prior);
+      }
+      return prior;
+    }
     if(prior&&!['PREPARED','REJECTED','CANCELLED','EXPIRED'].includes(prior.status))
       throw Error('Ya existe una solicitud de atención iniciada. No enviaremos otro formulario mientras no se confirme su resolución.');
-    return persistInteraction({fingerprint,body,idempotencyKey:uuid(),interactionId:null,
-      status:'PREPARED',createdAt:Date.now()});
+    const now=Date.now();
+    const creationKey=uuid();
+    let formKey=uuid();
+    while(formKey===creationKey)formKey=uuid();
+    return persistInteraction({fingerprint,body,
+      ...(formSnapshot?{orderForm:formSnapshot}:{}),
+      idempotencyKey:creationKey,messageIdempotencyKey:formKey,
+      interactionId:null,status:'PREPARED',createdAt:now,
+      activity:[{type:'prepared',at:now}]});
   }
   async function createInteraction(entry) {
     if(!entry||!UUID.test(entry.idempotencyKey)||!entry.body)
@@ -287,26 +368,122 @@
     entry.status='PENDING';entry.interactionId=data.interactionId;
     entry.messageDelivered=!entry.body.customer;
     persistInteraction(entry);
+    recordActivity(entry,'created'); // Confirmed by the Administrator's 200/201 response.
     return {...data,status:'PENDING'};
   }
   async function sendInteractionMessage(entry) {
+    const interactionId=entry?.interactionId;
+    if(UUID.test(interactionId)&&formPostsInFlight.has(interactionId))
+      return formPostsInFlight.get(interactionId);
+    const task=sendInteractionMessageOnce(entry);
+    if(UUID.test(interactionId))formPostsInFlight.set(interactionId,task);
+    try{return await task;}
+    finally{
+      if(formPostsInFlight.get(interactionId)===task)formPostsInFlight.delete(interactionId);
+    }
+  }
+  async function sendInteractionMessageOnce(entry) {
+    syncFormDeliveryState(entry);
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
-       !entry.body?.customer||!['PENDING','ACCEPTED'].includes(entry.status))
-      throw Error('No existe una interacción pendiente para enviar el texto.');
+       !entry.body?.customer||entry.body.customer.mode!=='delivery'||
+       !['PENDING','ACCEPTED'].includes(entry.status))
+      throw Error('No existe una solicitud de aprobación de Delivery pendiente.');
     if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
-    const response=await nativeRequest({operation:'INTERACTION_MESSAGE',
-      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,body:entry.body});
-    if(Number(response.status)!==200)
-      throw responseError(response,'No se pudo confirmar el texto del pedido');
+    if(entry.messageDeliveryUncertain===true){
+      const error=Error('La entrega del FORM no se pudo comprobar. No se reenviará automáticamente: se requiere confirmación del servidor.');
+      error.code='FORM_DELIVERY_UNCERTAIN';throw error;
+    }
+    if(entry.messageDeliveryBlocked===true){
+      const error=Error('El Administrador no confirmó el tipo FORM; no reenviamos el pedido.');
+      error.code='FORM_CONTRACT_REJECTED';throw error;
+    }
+    // Persisted cooldown survives app restarts; no repeated POST during HTTP 429.
+    if(Number.isFinite(entry.messageRetryAt)&&entry.messageRetryAt>Date.now()){
+      const error=Error('El FORM tiene un reintento programado, sin crear otra interacción.');
+      error.code='FORM_RETRY_DELAY';
+      error.retryAfterMs=entry.messageRetryAt-Date.now();
+      throw error;
+    }
+    if(!entry.orderForm)
+      throw Error('Falta el ticket FORM obligatorio para la aprobación del pedido.');
+    const messageBody={type:'FORM',appId:entry.body.appId,storeId:entry.body.storeId,
+      form:normalizeOrderForm(entry.orderForm)};
+    // Store a separate stable idempotency key BEFORE making any network request.
+    if(!UUID.test(entry.messageIdempotencyKey)||entry.messageIdempotencyKey===entry.idempotencyKey){
+      let next=uuid();
+      while(next===entry.idempotencyKey)next=uuid();
+      entry.messageIdempotencyKey=next;
+      persistInteraction(entry);
+    }
+    formTrace('JS_BUILD',messageBody.form.fields.length,0,'FORM');
+    let response;
+    try{
+      response=await nativeRequest({operation:'INTERACTION_MESSAGE',
+        interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
+        idempotencyKey:entry.messageIdempotencyKey,body:messageBody});
+    }catch(error){
+      // Timeout / transport failures could happen after the server accepted FORM.
+      if(['TIMEOUT','NETWORK_OR_CONTRACT_ERROR','CONNECTION_FAILED','REDIRECT_BLOCKED'].includes(error?.code)){
+        entry.messageDeliveryUncertain=true;persistInteraction(entry);
+      }
+      if(error?.code==='LOCAL_CONTRACT_REJECTED'){
+        entry.messageDeliveryBlocked=true;persistInteraction(entry);
+      }
+      throw error;
+    }
     const data=response.data||{};
+    formTrace('JS_RESPONSE',messageBody.form.fields.length,Number(response.status),
+      data.type,data.delivered===true?'ACK':'NO_ACK');
+    if(Number(response.status)!==200){
+      const status=Number(response.status);
+      if([400,409].includes(status)){
+        entry.messageDeliveryBlocked=true;persistInteraction(entry);
+      }
+      if(status===429){
+        // Each 429 increases the delay: 30 s, 60 s, 120 s, 240 s, then 5 min.
+        // The message payload, interaction and idempotency key do not change.
+        const attempts=Math.min(20,(Number.isInteger(entry.message429Attempts)?
+          Math.max(0,entry.message429Attempts):0)+1);
+        const backoffMs=Math.min(300000,30000*Math.pow(2,Math.min(4,attempts-1)));
+        entry.message429Attempts=attempts;
+        entry.messageRetryAt=Date.now()+backoffMs;
+        persistInteraction(entry);
+      }
+      if(status===503){
+        entry.messageDeliveryUncertain=true;persistInteraction(entry);
+      }
+      if(status===400&&data.error==='Datos de solicitud de texto inválidos'){
+        const error=Error('HTTP 400: el Administrador solo admite el contrato TEXT en /message y rechaza type FORM.');
+        error.httpStatus=400;error.code='ADMIN_FORM_UNSUPPORTED';throw error;
+      }
+      throw responseError(response,'No se pudo confirmar el ticket del pedido');
+    }
     if(data.interactionId!==entry.interactionId||data.delivered!==true||
-       !UUID.test(data.messageId))
-      throw Error('El Administrador no confirmó el mensaje de esta interacción.');
+       !UUID.test(data.messageId)||data.type!=='FORM'){
+      // A 200 without explicit FORM acknowledgement is NOT proof of delivery.
+      entry.messageDeliveryBlocked=true;persistInteraction(entry);
+      const error=Error('El Administrador respondió HTTP 200 pero no certificó type FORM y los identificadores del mensaje.');
+      error.httpStatus=200;error.code='FORM_ACK_INVALID';throw error;
+    }
     entry.messageDelivered=true;
+    delete entry.messageRetryAt;
+    delete entry.message429Attempts;
     persistInteraction(entry);
+    recordActivity(entry,'detail_delivered'); // Only a typed FORM acknowledgement confirms delivery.
     return data;
   }
   const SERIES_KEY='b3-mobile-rejected-stores-v1';
+  // A rejected interaction is terminal. Dismiss only the local checkout record
+  // after an explicit customer navigation; never cancel/reopen it on the server.
+  function dismissRejectedInteraction(interactionId){
+    const entry=readInteraction();
+    if(entry?.status!=='REJECTED'||!UUID.test(interactionId)||
+       entry.interactionId!==interactionId)return false;
+    root.localStorage.removeItem(INTERACTION_KEY);
+    // A new order is a new consultation, even if the address and store match.
+    root.localStorage.removeItem(SERIES_KEY);
+    return true;
+  }
   function rejectedStores(fingerprint){
     try{
       const data=JSON.parse(root.localStorage.getItem(SERIES_KEY)||'null');
@@ -325,9 +502,9 @@
   function interpretAgentDecision(agentMessages) {
     for(const message of agentMessages) {
       const text=message.text.trim().toLocaleLowerCase('es-PE').replace(/[.!]+$/,'').trim();
-      if(['acepto','aceptado','aceptada'].includes(text))
+      if(['aceptar','acepto','aceptado','aceptada'].includes(text))
         return {decision:'ACCEPTED',agentMessageId:message.id};
-      if(['rechazado','rechazada'].includes(text))
+      if(['rechazar','rechazado','rechazada'].includes(text))
         return {decision:'REJECTED',agentMessageId:message.id};
     }
     return {decision:null,agentMessageId:null};
@@ -347,17 +524,43 @@
        data.agentMessages.some(m=>!m||!UUID.test(m.id)||typeof m.text!=='string'||
          m.text.length>8000||typeof m.createdAt!=='string'))
       throw Error('La respuesta del asesor no coincide con esta interacción.');
+    // FORM delivery state can have changed while the status GET was in flight.
+    syncFormDeliveryState(entry);
+    // The Administrator returns only verified OUTBOUND conversation messages.
+    // Never replace a verified snapshot after a transient history-read outage.
+    if(data.messagesAvailable===true)
+      entry.agentMessages=data.agentMessages.slice(-40).map(m=>({
+        id:m.id,text:m.text,createdAt:m.createdAt
+      }));
+    // A verified terminal canonical conversation with no commercial decision
+    // is a rejection, not an endlessly pending interaction. Require a readable
+    // agent-message snapshot: a transient history outage cannot reject an order.
+    const canonicalClosed=['RESOLVED','CLOSED'].includes(data.operationalConversationStatus);
+    // Closure is an authoritative S2S fact even if message history is down.
+    // Preserve any previously verified ACEPTADO; never infer one from an outage.
+    const verifiedMessages=data.messagesAvailable===true?data.agentMessages:
+      Array.isArray(entry.agentMessages)?entry.agentMessages:[];
+    const closureDecision=canonicalClosed?interpretAgentDecision(verifiedMessages):null;
     // A formal TU VERSO status takes precedence over chat text, especially rejection/expiry.
     let decision=null,agentMessageId=null;
     if(data.status==='EXPIRED')entry.status='EXPIRED';
     else if(data.status==='CANCELLED')entry.status='CANCELLED';
+    else if(data.status==='REJECTED'){entry.status='REJECTED';decision='REJECTED';}
+    else if(canonicalClosed){
+      decision=closureDecision.decision||(entry.agentDecision==='ACCEPTED'?'ACCEPTED':'REJECTED');
+      agentMessageId=closureDecision.agentMessageId||
+        (decision==='ACCEPTED'?entry.agentMessageId:null);
+      entry.status=decision;
+      if(decision==='REJECTED'&&!agentMessageId)
+        entry.rejectionReason=data.messagesAvailable===true?'AGENT_CLOSED_WITHOUT_CONFIRMATION':
+          'AGENT_CLOSED_UNCONFIRMED';
+    }
     else if(data.status==='ACCEPTED'){
-      // This is interaction acceptance/assignment, not approval of the order.
+      // Technical acceptance/assignment does not confirm the commercial order.
       const agent=interpretAgentDecision(data.agentMessages);
       decision=agent.decision;agentMessageId=agent.agentMessageId;
       entry.status=decision||'PENDING';
     }
-    else if(data.status==='REJECTED'){entry.status='REJECTED';decision='REJECTED';}
     else {
       const agent=interpretAgentDecision(data.agentMessages);
       decision=agent.decision;agentMessageId=agent.agentMessageId;
@@ -365,21 +568,70 @@
       else if(decision==='REJECTED')entry.status='REJECTED';
       else entry.status='PENDING';
     }
+    if(decision){entry.agentDecision=decision;entry.agentMessageId=agentMessageId;}
     persistInteraction(entry);
+    if(entry.status==='EXPIRED')recordActivity(entry,'expired');
+    else if(entry.status==='CANCELLED')recordActivity(entry,'cancelled');
+    else if(decision==='ACCEPTED')recordActivity(entry,'accepted');
+    else if(decision==='REJECTED')recordActivity(entry,'rejected');
     return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
       decision,agentMessageId,clientStatus:entry.status};
   }
-  async function cancelInteraction(entry){
+  async function registerPersonalDevice(entry,fcmToken){
+    if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey))
+      throw Error('No existe una solicitud a la cual asociar el dispositivo.');
+    if(typeof fcmToken!=='string'||fcmToken.length<50||fcmToken.length>4096||
+       !/^[A-Za-z0-9_:.-]+$/.test(fcmToken))throw Error('Token de notificación inválido.');
+    const response=await nativeRequest({operation:'INTERACTION_DEVICE',interactionId:entry.interactionId,
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,fcmToken});
+    if(Number(response.status)!==200||response.data?.registered!==true)
+      throw responseError(response,'No se pudo registrar la notificación individual');
+    return response.data;
+  }
+  async function beginPaymentWait(entry){
+    if(!entry||entry.status!=='ACCEPTED'||!UUID.test(entry.interactionId))
+      throw Error('Todavía no se confirmó el pedido.');
+    const response=await nativeRequest({operation:'INTERACTION_PAYMENT',interactionId:entry.interactionId,
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200||response.data?.status!=='PAYMENT_PENDING'||
+      !Number.isFinite(Date.parse(response.data.expiresAt)))
+      throw responseError(response,'No se pudo confirmar el plazo del pago');
+    entry.paymentExpiresAt=response.data.expiresAt;
+    persistInteraction(entry);
+    recordActivity(entry,'payment_window');
+    return response.data;
+  }
+  async function readPaymentWait(entry){
+    if(!entry||!UUID.test(entry.interactionId))throw Error('Interacción inválida.');
+    const response=await nativeRequest({operation:'INTERACTION_PAYMENT_STATUS',interactionId:entry.interactionId,
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200)throw responseError(response,'No se pudo actualizar el estado del pago');
+    if(response.data?.status==='EXPIRED'){
+      entry.status='EXPIRED';entry.paymentExpiresAt=response.data.expiresAt;
+      persistInteraction(entry);recordActivity(entry,'expired');
+    }
+    return response.data;
+  }
+  function requestCancelWhenRecovered(entry){
+    if(!entry||entry.status!=='SUBMITTING'||entry.interactionId)throw Error('La solicitud ya permite cancelación directa.');
+    entry.cancelRequested=true;
+    persistInteraction(entry);
+    return recordActivity(entry,'cancel_requested');
+  }
+  async function cancelInteraction(entry,{reason='MODIFY'}={}){
     if(!entry||!UUID.test(entry.idempotencyKey))throw Error('No hay solicitud que cancelar.');
     if(entry.status==='CANCELLED')return {status:'CANCELLED'};
     if(!UUID.test(entry.interactionId)){
-      entry.status='CANCELLED';persistInteraction(entry);return {status:'CANCELLED'};
+      entry.status='CANCELLED';persistInteraction(entry);
+      recordActivity(entry,'cancelled_before_send');
+      return {status:'CANCELLED'};
     }
     const response=await nativeRequest({operation:'INTERACTION_CANCEL',interactionId:entry.interactionId,
-      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
+      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,reason});
     if(Number(response.status)!==200||response.data?.status!=='CANCELLED')
       throw responseError(response,'No se pudo notificar la cancelación de la solicitud');
     entry.status='CANCELLED';persistInteraction(entry);
+    recordActivity(entry,'cancelled');
     return response.data;
   }
   function eraseLocalIdentity() {
@@ -391,5 +643,6 @@
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
-    pollInteraction,cancelInteraction,rejectedStores,markRejectedStore,eraseLocalIdentity});
+    pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
+    rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);

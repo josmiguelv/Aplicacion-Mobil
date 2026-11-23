@@ -1,4 +1,58 @@
-plugins { id 'com.android.application'; id 'com.google.gms.google-services' }
-android { namespace 'com.integrab2g.pollosb3'; compileSdk 35; defaultConfig { applicationId 'com.integrab2g.pollosb3'; minSdk 24; targetSdk 35; versionCode 11; versionName '1.1-demo.11'; resValue "string", "b3_api_base", (project.findProperty("B3_API_BASE") ?: "https://ratios-represents-signals-allergy.trycloudflare.com").toString(); resValue "string", "b3_notifications_api_base", (project.findProperty("B3_API_BASE") ?: "https://ratios-represents-signals-allergy.trycloudflare.com").toString() } }
+import java.net.URI
+import java.util.Properties
 
-dependencies { implementation "androidx.webkit:webkit:1.14.0"; implementation platform("com.google.firebase:firebase-bom:35.2.0"); implementation "com.google.firebase:firebase-messaging" }
+plugins {
+    id 'com.android.application'
+    id 'com.google.gms.google-services'
+}
+
+// Edit only <project>/.env to point Android at a different Administrador API.
+// The .env file is local and ignored by Git; CI uses .env.example unless
+// B3_API_BASE is provided as a Gradle property or environment variable.
+def readEnv = { File file ->
+    def values = new Properties()
+    if (file.isFile()) file.withInputStream { stream -> values.load(stream) }
+    return values
+}
+def localEnvFile = rootProject.file('.env')
+def localEnv = readEnv(localEnvFile)
+def exampleEnv = readEnv(rootProject.file('.env.example'))
+def configuredApi = project.findProperty('B3_API_BASE') ?:
+        System.getenv('B3_API_BASE') ?:
+        (localEnvFile.isFile() ? localEnv.getProperty('B3_API_BASE') : exampleEnv.getProperty('B3_API_BASE'))
+def apiBase = configuredApi == null ? '' : configuredApi.toString().trim()
+def apiUri
+try {
+    apiUri = new URI(apiBase)
+} catch (Exception ignored) {
+    throw new GradleException('B3_API_BASE inválida: configura una URL HTTPS válida en .env.')
+}
+if (apiUri.scheme != 'https' || !apiUri.host || apiUri.rawUserInfo != null ||
+        apiUri.rawQuery != null || apiUri.rawFragment != null ||
+        (apiUri.rawPath && apiUri.rawPath != '/')) {
+    throw new GradleException('B3_API_BASE debe ser un origen HTTPS sin ruta, parámetros ni credenciales (ej. https://api.ejemplo.com).')
+}
+apiBase = apiUri.toString().replaceAll('/+$', '')
+
+android {
+    namespace 'com.integrab2g.pollosb3'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.integrab2g.pollosb3'
+        minSdk 24
+        targetSdk 35
+        versionCode 19
+        versionName '1.9.0-b3-fulfillment'
+
+        // One origin for all Android API calls (catalog, quotes, orders, FORM, notifications).
+        resValue 'string', 'b3_api_base', apiBase
+        resValue 'string', 'b3_notifications_api_base', apiBase
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.14.0'
+    implementation platform('com.google.firebase:firebase-bom:35.2.0')
+    implementation 'com.google.firebase:firebase-messaging'
+}

@@ -1,3 +1,5 @@
+import './android-api-env.test.mjs'
+import './order-form-audit-focus.test.mjs'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {test} from 'node:test'
@@ -105,7 +107,7 @@ test('deliveryQuoteValid solo admite cotización reciente y vinculada al servido
 });
 test('dirección abre disponibilidad y siempre solicita cotización al backend',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,store:'',quote:null,stage:'deliveryAddress'};
- const events=[],context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
+ const events=[],context={st,deliveryValidationGeneration:0,deliveryValidationStep:'INICIO',deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},
   deliveryLocation:null,fulfillmentModal:null,checkoutPending:true,
   render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},deliveryAddressKey:(a,d)=>a+'|'+d,
   fetchConfig:async()=>{events.push('GET')},
@@ -122,7 +124,7 @@ test('dirección abre disponibilidad y siempre solicita cotización al backend',
 });
 test('sin cobertura del servidor conserva dirección y bloquea checkout',async()=>{
  const st={mode:'delivery',profile:{address:'Av. Argentina 1653',district:'Callao'},configReady:true,quote:null,store:'',stage:'deliveryAddress'};
- const events=[],context={st,deliveryValidationGeneration:0,deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
+ const events=[],context={st,deliveryValidationGeneration:0,deliveryValidationStep:'INICIO',deliveryRequestPending:false,deliveryRequestError:'',deliveryAvailability:{status:'IDLE'},fulfillmentModal:null,
   deliveryLocation:null,render:()=>{},save:()=>{},screen:x=>{st.stage=x;events.push(x)},
   fetchConfig:async()=>{},requestBackendOrderAvailability:async()=>{throw Error('Fuera del radio de cobertura')}
  };
@@ -394,3 +396,26 @@ test('local abierto sin tarifa publicada presenta error de configuración',()=>{
 test('la API solo publica una sede sin delivery habilitado: no se inventan locales',()=>{
  assert.throws(()=>quote([{...tallanes,delivery_enabled:false}],destination(tallanes.latitude,tallanes.longitude)),/No hay locales habilitados/)
 })
+
+test('aviso al cambiar modalidad desaparece y otro aviso reinicia su temporizador',()=>{
+ const pending=new Map(),events=[];
+ let sequence=0;
+ const context={
+  st:{notice:''},noticeTimer:null,
+  render:()=>events.push('render'),
+  setTimeout:(callback,delay)=>{assert.equal(delay,2400);const id=++sequence;pending.set(id,callback);return id},
+  clearTimeout:id=>{pending.delete(id)}
+ };
+ vm.runInNewContext(extract('queueNotice'),context);
+ assert.match(source,/if\(st\.cart\.length\)queueNotice\('Al cambiar de modalidad/);
+ assert.match(source,/if\(st\.cart\.length\)queueNotice\('Modalidad modificada/);
+ assert.doesNotMatch(source,/if\(st\.cart\.length\)st\.notice=/);
+ context.queueNotice('Primera modalidad');
+ assert.equal(context.st.notice,'Primera modalidad');
+ context.queueNotice('Segunda modalidad');
+ assert.equal(pending.size,1,'La primera notificación ya no puede borrar la segunda');
+ const callback=[...pending.values()][0];
+ callback();
+ assert.equal(context.st.notice,'');
+ assert.deepEqual(events,['render']);
+});

@@ -8,3 +8,6 @@ local.properties
 *.keystore
 *.apk
 *.aab
+
+# Local API endpoint. Keep private machine overrides out of Git.
+.env

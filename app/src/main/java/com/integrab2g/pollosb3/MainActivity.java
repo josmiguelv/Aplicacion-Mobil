@@ -15,6 +15,7 @@ import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -34,8 +35,11 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 41;
     private static final int NOTIFICATION_REQUEST = 42;
+    private static final int PERSONAL_NOTIFICATION_REQUEST = 43;
     static final String MARKETING_TOPIC = "pollosb3_promotions";
     static final String NOTIFICATION_CHANNEL = "pollosb3_promotions";
+    static final String PERSONAL_ORDER_CHANNEL = "pollosb3_personal_orders";
+    private String pendingPersonalInteractionId = "";
     static final String PREFS = "b3_push_settings";
     private boolean pendingNotificationsScreen = false;
     private String pendingNotificationId = "";
@@ -43,6 +47,7 @@ public class MainActivity extends Activity {
     private WebViewAssetLoader assetLoader;
     private LocationManager locationManager;
     private LocationListener currentListener;
+    private boolean resumeLocationAfterSettings = false;
     private boolean appLinkPageReady = false;
     private boolean pendingOpenHome = false;
     private static final String LOCAL_APP_URL = "https://appassets.androidplatform.net/assets/index.html";
@@ -65,6 +70,17 @@ public class MainActivity extends Activity {
         pendingNotificationId = "";
         web.evaluateJavascript("window.b3OpenNotifications && window.b3OpenNotifications("+JSONObject.quote(id)+")", null);
     }
+    private void dispatchPendingPersonalCheckout() {
+        if (pendingPersonalInteractionId.isEmpty() || !appLinkPageReady || web == null) return;
+        String id=pendingPersonalInteractionId;
+        pendingPersonalInteractionId="";
+        web.evaluateJavascript("window.b3OpenPersonalOrderNotification && window.b3OpenPersonalOrderNotification("+JSONObject.quote(id)+")",null);
+    }
+    private static String personalInteractionFromIntent(Intent intent){
+        if(intent==null || !intent.getBooleanExtra("b3_open_personal_order",false))return "";
+        String id=intent.getStringExtra("interactionId");
+        return id!=null&&id.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")?id:"";
+    }
     private void dispatchPendingAppLink() {
         if (!pendingOpenHome || !appLinkPageReady || web == null) return;
         pendingOpenHome = false;
@@ -74,6 +90,8 @@ public class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        pendingPersonalInteractionId=personalInteractionFromIntent(intent);
+        dispatchPendingPersonalCheckout();
         if (isMarketingNotificationIntent(intent)) {
             pendingNotificationId = getNotificationId(intent);
             pendingNotificationsScreen = true;
@@ -148,6 +166,15 @@ public class MainActivity extends Activity {
             String configured = getString(R.string.b3_notifications_api_base).trim();
             return configured.startsWith("https://") ? configured : "";
         }
+        /** Metadata-only audit marker: never logs payloads, keys, names or addresses. */
+        @JavascriptInterface public void orderFormDiagnostic(String stage,int count,int status,String type,String result){
+            if(!("JS_BUILD".equals(stage)||"JS_RESPONSE".equals(stage))||count!=3||
+               status<0||status>599)return;
+            String safeType="FORM".equals(type)?"FORM":"TEXT".equals(type)?"TEXT":"OTHER";
+            String safeResult="ACK".equals(result)?"ACK":"NO_ACK".equals(result)?"NO_ACK":"UNKNOWN";
+            android.util.Log.i("B3FormAudit","stage="+stage+" type="+safeType+
+                " fields="+count+" httpStatus="+status+" result="+safeResult);
+        }
         @JavascriptInterface public boolean marketingNotificationsEnabled() {return marketingEnabled();}
         @JavascriptInterface public void markMarketingNotificationRead(String id) {
             if(id==null||id.length()>128||!id.matches("[a-zA-Z0-9_-]+"))return;
@@ -159,8 +186,27 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void setMarketingNotificationsEnabled(boolean enabled) {
             runOnUiThread(()->setMarketingOptIn(enabled));
         }
+        /** Personal FCM token is used only with the server-authorized interaction; never a topic. */
+        @JavascriptInterface public void requestPersonalPushToken() {
+            FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task->{
+                if(!task.isSuccessful()||task.getResult()==null)return;
+                final String value=task.getResult();
+                runOnUiThread(()->{if(web!=null)web.evaluateJavascript("window.b3PersonalPushToken && window.b3PersonalPushToken("+JSONObject.quote(value)+")",null);});
+            });
+            if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){
+                runOnUiThread(()->requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},PERSONAL_NOTIFICATION_REQUEST));
+            }
+        }
         @JavascriptInterface public void requestLocation() {
             runOnUiThread(() -> requestOptionalLocation());
+        }
+        /** Explicit user action only; Android must enable device location itself. */
+        @JavascriptInterface public void openLocationSettings() {
+            runOnUiThread(() -> openNativeLocationSettings(false));
+        }
+        /** Direct the user to this app's permissions, never modify permissions silently. */
+        @JavascriptInterface public void openAppLocationSettings() {
+            runOnUiThread(() -> openNativeLocationSettings(true));
         }
         /**
          * Geocode only explicit store addresses supplied by the local app.
@@ -348,6 +394,7 @@ public class MainActivity extends Activity {
             new Thread(() -> {
                 JSONObject reply = new JSONObject();
                 String requestId = "";
+                String operation = "";
                 try {
                     JSONObject request = new JSONObject(requestJson);
                     requestId = request.optString("requestId", "");
@@ -361,12 +408,13 @@ public class MainActivity extends Activity {
                         (base.getRawPath() != null && !base.getRawPath().isEmpty()) ||
                         base.getRawQuery() != null || base.getRawFragment() != null)
                         throw new IllegalArgumentException("Invalid HTTPS backend");
-                    String operation = request.optString("operation", "");
+                    operation = request.optString("operation", "");
                     String path;
                     String body = null;
                     String token = null;
                     String key = null;
                     String accessKey = null;
+                    int approvalFormFields=0;
                     if ("POST".equals(operation)) {
                         key = request.optString("idempotencyKey", "");
                         JSONObject payload = request.optJSONObject("body");
@@ -412,18 +460,47 @@ public class MainActivity extends Activity {
                         JSONObject payload = request.optJSONObject("body");
                         String interactionId = request.optString("interactionId", "");
                         accessKey = request.optString("accessKey", "");
+                        key = request.optString("idempotencyKey", "");
                         if (payload == null ||
+                            !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            key.equalsIgnoreCase(accessKey) ||
                             !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
                             !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
                             !payload.optString("appId", "").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
-                            !payload.optString("storeId", "").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
-                            payload.optInt("catalogRevision", payload.optInt("quoteRevision", 0)) < 1 ||
-                            payload.optJSONArray("items") == null || payload.optJSONObject("customer") == null)
-                            throw new IllegalArgumentException("Invalid interaction message request");
+                            !payload.optString("storeId", "").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid interaction message identifiers");
+                        // Only the approval ticket for a Delivery order may use this operation.
+                        // Reject all legacy text or other message types at the native boundary.
+                        JSONObject form = payload.optJSONObject("form");
+                        JSONArray fields = form == null ? null : form.optJSONArray("fields");
+                        if (!"FORM".equals(payload.optString("type", "")) ||
+                            payload.length() != 4 || form == null || form.length() != 3 ||
+                            form.optString("title", "").length() > 180 ||
+                            form.optString("subtitle", "").length() > 350 ||
+                            !"VALIDACIÓN DE PEDIDO".equals(form.optString("title", "")) ||
+                            !"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
+                            fields == null || fields.length() != 3)
+                            throw new IllegalArgumentException("Invalid Delivery approval FORM");
+                        String[] allowedFields = {"Productos", "Subtotal", "Dirección y referencia"};
+                        for (int i = 0; i < fields.length(); i++) {
+                            JSONObject field = fields.optJSONObject(i);
+                            if (field == null || field.length() != 2 ||
+                                !allowedFields[i].equals(field.optString("variable", "")) ||
+                                field.optString("variable", "").length() > 80 ||
+                                field.optString("value", "").trim().isEmpty() ||
+                                field.optString("value", "").length() > 500)
+                                throw new IllegalArgumentException("Invalid order FORM fields");
+                        }
+                        approvalFormFields=fields.length();
+                        android.util.Log.i("B3FormAudit","stage=NATIVE_VALIDATED type=FORM fields="+approvalFormFields+
+                            " endpoint=/api/v1/mobile/interactions/{id}/message");
                         body = payload.toString();
                         path = "/api/v1/mobile/interactions/" + interactionId + "/message";
                     } else if ("INTERACTION_STATUS".equals(operation) ||
-                               "INTERACTION_CANCEL".equals(operation)) {
+                               "INTERACTION_CANCEL".equals(operation) ||
+                               "INTERACTION_DEVICE".equals(operation) ||
+                               "INTERACTION_PAYMENT".equals(operation) ||
+                               "INTERACTION_PAYMENT_STATUS".equals(operation)) {
                         String appId = request.optString("appId", "");
                         String storeId = request.optString("storeId", "");
                         String interactionId = request.optString("interactionId", "");
@@ -434,15 +511,22 @@ public class MainActivity extends Activity {
                             !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
                             throw new IllegalArgumentException("Invalid interaction tracking");
                         path = "/api/v1/mobile/interactions/" + interactionId;
-                        if ("INTERACTION_STATUS".equals(operation)) {
-                            path += "/status?appId=" + java.net.URLEncoder.encode(appId, "UTF-8") +
+                        if ("INTERACTION_STATUS".equals(operation) || "INTERACTION_PAYMENT_STATUS".equals(operation)) {
+                            path += ("INTERACTION_STATUS".equals(operation)?"/status?appId=":"/payment?appId=") + java.net.URLEncoder.encode(appId, "UTF-8") +
                                 "&storeId=" + java.net.URLEncoder.encode(storeId, "UTF-8");
                         } else {
-                            path += "/cancel";
-                            JSONObject cancellation = new JSONObject();
-                            cancellation.put("appId", appId);
-                            cancellation.put("storeId", storeId);
-                            body = cancellation.toString();
+                            path += "INTERACTION_CANCEL".equals(operation)?"/cancel":"INTERACTION_DEVICE".equals(operation)?"/device":"/payment";
+                            JSONObject payload = new JSONObject();
+                            payload.put("appId",appId);
+                            payload.put("storeId",storeId);
+                            if("INTERACTION_DEVICE".equals(operation)){
+                                String fcmToken=request.optString("fcmToken","");
+                                if(fcmToken.length()<50||fcmToken.length()>4096||!fcmToken.matches("[A-Za-z0-9_:.-]+"))
+                                    throw new IllegalArgumentException("Invalid personal FCM token");
+                                payload.put("fcmToken",fcmToken);
+                            }
+                            if("INTERACTION_CANCEL".equals(operation))payload.put("reason",request.optString("reason","MODIFY"));
+                            body=payload.toString();
                         }
                     } else if ("GET".equals(operation)) {
                         String id = request.optString("validationId", "");
@@ -469,14 +553,20 @@ public class MainActivity extends Activity {
                     try {
                         connection.setInstanceFollowRedirects(false);
                         connection.setConnectTimeout(12000);
-                        // Message relay validates the remote interaction first, then sends text.
+                        // Transmits the exact FORM object; it is never serialized as TEXT.
                         // This timeout covers only transport, never waiting for an agent.
                         connection.setReadTimeout("INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
-                            "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ? "GET" :
+                            "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ||
+                            "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
-                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ? "POST" : operation;
+                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
+                            "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
+                        if ("INTERACTION_MESSAGE".equals(operation))
+                            android.util.Log.i("B3FormAudit","stage=HTTP_OUTBOUND type=FORM fields="+approvalFormFields+
+                                " method=POST endpoint=/api/v1/mobile/interactions/{id}/message"+
+                                " contentType=application/json accessKeyValid=true messageKeyDistinct=true");
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
                         if (accessKey != null) connection.setRequestProperty("X-Order-Access-Key", accessKey);
@@ -487,6 +577,8 @@ public class MainActivity extends Activity {
                             try (java.io.OutputStream output = connection.getOutputStream()) {
                                 output.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                             }
+                            if ("INTERACTION_MESSAGE".equals(operation))
+                                android.util.Log.i("B3FormAudit","stage=HTTP_BODY_WRITTEN type=FORM fields="+approvalFormFields);
                         } else if ("GET".equals(operation)) {
                             connection.setRequestProperty("Authorization", "Bearer " + token);
                         }
@@ -509,12 +601,28 @@ public class MainActivity extends Activity {
                                     bytes.write(buffer, 0, count);
                                 }
                             }
-                            reply.put("data", new JSONObject(bytes.toString("UTF-8")));
+                            JSONObject remote = new JSONObject(bytes.toString("UTF-8"));
+                            reply.put("data", remote);
+                            if("INTERACTION_MESSAGE".equals(operation)){
+                                String responseType=remote.optString("type","");
+                                String safeType="FORM".equals(responseType)?"FORM":
+                                    "TEXT".equals(responseType)?"TEXT":"OTHER";
+                                android.util.Log.i("B3FormAudit","stage=HTTP_RESPONSE httpStatus="+status+
+                                    " responseType="+safeType+" delivered="+remote.optBoolean("delivered",false)+
+                                    " hasInteractionId="+remote.has("interactionId")+
+                                    " hasMessageId="+remote.has("messageId"));
+                            }
                         }
                     } finally {
                         connection.disconnect();
                     }
+                } catch (IllegalArgumentException ignored) {
+                    if ("INTERACTION_MESSAGE".equals(operation))
+                        android.util.Log.w("B3FormAudit","stage=LOCAL_REJECT httpStatus=NONE");
+                    try { reply.put("error", "LOCAL_CONTRACT_REJECTED"); } catch (Exception ignored2) {}
                 } catch (Exception ignored) {
+                    if ("INTERACTION_MESSAGE".equals(operation))
+                        android.util.Log.w("B3FormAudit","stage=TRANSPORT_ERROR httpStatus=UNKNOWN");
                     try { reply.put("error", "NETWORK_OR_CONTRACT_ERROR"); } catch (Exception ignored2) {}
                 }
                 final String payload = reply.toString();
@@ -541,18 +649,51 @@ public class MainActivity extends Activity {
         String c = error == null ? "null" : JSONObject.quote(error);
         web.evaluateJavascript("window.b3NativeLocation("+a+","+b+","+c+")", null);
     }
+    private boolean hasLocationPermission() {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+    private void openNativeLocationSettings(boolean appPermissions) {
+        try {
+            resumeLocationAfterSettings = true;
+            Intent action = appPermissions
+                ? new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))
+                : new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+            startActivity(action);
+        } catch (Exception e) {
+            resumeLocationAfterSettings = false;
+            sendLocation(null,null,"No se pudieron abrir los ajustes. Activa Ubicación desde los ajustes de Android.");
+        }
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if (!resumeLocationAfterSettings || web == null) return;
+        resumeLocationAfterSettings = false;
+        web.postDelayed(() -> {
+            if (hasLocationPermission()) requestOptionalLocation();
+            else sendLocation(null,null,"PERMISSION_DENIED");
+        },350);
+    }
     private void requestOptionalLocation() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, LOCATION_REQUEST);
+        if (!hasLocationPermission()) {
+            requestPermissions(new String[]{
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_REQUEST);
             return;
         }
         locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        String provider = locationManager != null && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+        boolean fine = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED;
+        String provider = locationManager != null && fine &&
+            locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
             ? LocationManager.GPS_PROVIDER
             : locationManager != null && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
                 ? LocationManager.NETWORK_PROVIDER : null;
         if (provider == null) {
-            sendLocation(null,null,"Activa la ubicación del teléfono y vuelve a intentarlo.");
+            boolean anyService = locationManager != null &&
+                (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                 locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER));
+            sendLocation(null,null,anyService ? "LOCATION_PRECISION_REQUIRED" : "LOCATION_DISABLED");
             return;
         }
         try {
@@ -579,24 +720,32 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // Private order push permission must never opt the customer into marketing.
+        if(requestCode==PERSONAL_NOTIFICATION_REQUEST)return;
         if(requestCode==NOTIFICATION_REQUEST){
             if(grantResults.length>0&&grantResults[0]==PackageManager.PERMISSION_GRANTED)setMarketingOptIn(true);
             else sendMarketingStatus(false,"Android no autorizó mostrar avisos. Puedes habilitarlos en Ajustes.");
             return;
         }
         if (requestCode == LOCATION_REQUEST) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) requestOptionalLocation();
-            else sendLocation(null,null,"Permiso de ubicación denegado. Puedes escribir tu dirección manualmente.");
+            boolean granted = false;
+            for (int result : grantResults) if (result == PackageManager.PERMISSION_GRANTED) granted = true;
+            if (granted) requestOptionalLocation();
+            else sendLocation(null,null,"PERMISSION_DENIED");
         }
     }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         pendingOpenHome = isPollosB3OpenLink(getIntent());
         pendingNotificationsScreen = isMarketingNotificationIntent(getIntent());
+        pendingPersonalInteractionId = personalInteractionFromIntent(getIntent());
         pendingNotificationId = pendingNotificationsScreen ? getNotificationId(getIntent()) : "";
         if(Build.VERSION.SDK_INT>=26){
             NotificationManager manager=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
-            if(manager!=null)manager.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL,"Ofertas Pollos B3",NotificationManager.IMPORTANCE_DEFAULT));
+            if(manager!=null){
+                manager.createNotificationChannel(new NotificationChannel(NOTIFICATION_CHANNEL,"Ofertas Pollos B3",NotificationManager.IMPORTANCE_DEFAULT));
+                manager.createNotificationChannel(new NotificationChannel(PERSONAL_ORDER_CHANNEL,"Estado de mis pedidos",NotificationManager.IMPORTANCE_HIGH));
+            }
         }
         if(marketingEnabled())FirebaseMessaging.getInstance().subscribeToTopic(MARKETING_TOPIC);
         web = new WebView(this);
@@ -611,6 +760,7 @@ public class MainActivity extends Activity {
                     appLinkPageReady = true;
                     dispatchPendingAppLink();
                     dispatchPendingNotificationsScreen();
+                    dispatchPendingPersonalCheckout();
                 }
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -627,6 +777,15 @@ public class MainActivity extends Activity {
         WebSettings settings=web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        // AppAssets pages have stable URLs across APK upgrades. Always use the
+        // packaged assets, never an old HTML/JS copy left in WebView disk cache.
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        if (getSharedPreferences(PREFS, MODE_PRIVATE)
+                .getInt("b3_ui_bundle_version", 0) != 19 /* Android B3 fulfillment outcomes V19 bundle */) {
+            web.clearCache(true);
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putInt("b3_ui_bundle_version", 19 /* Android B3 fulfillment outcomes V19 bundle */).apply();
+        }
         settings.setAllowFileAccess(false);
         settings.setAllowFileAccessFromFileURLs(false);
         settings.setAllowUniversalAccessFromFileURLs(false);
@@ -645,6 +804,7 @@ public class MainActivity extends Activity {
         pendingOpenHome = false;
         pendingNotificationsScreen = false;
         pendingNotificationId = "";
+        pendingPersonalInteractionId = "";
         if (locationManager != null && currentListener != null) try {locationManager.removeUpdates(currentListener);}catch(Exception ignored){}
         if (web != null) { web.removeJavascriptInterface("AndroidBridge"); web.destroy(); web=null; }
         super.onDestroy();
