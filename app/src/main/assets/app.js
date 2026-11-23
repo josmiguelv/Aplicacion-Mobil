@@ -577,7 +577,7 @@ async function checkScheduledSlots(){
   if(data.revision!==publishedRevision)throw Error('La carta cambió. Actualiza los horarios.');
   reservationSlots=data;st.scheduledDate=date;st.scheduledTime='';save();return true;
  }catch(e){
-  if(run===reservationSlotsGeneration)reservationSlotsError=e?.message||'No se pudieron consultar horarios.';
+  if(run===reservationSlotsGeneration)reservationSlotsError=e?.httpStatus?'No pudimos consultar los horarios de esta sede. Intenta más tarde.':e?.message||'No se pudieron consultar horarios.';
   return false;
  }finally{if(run===reservationSlotsGeneration){reservationSlotsPending=false;render()}}
 }
@@ -1751,14 +1751,14 @@ function locations(){
      ${straightDistanceKm(s)?`<p class="pickup-distance">${ic('map',16)} ${esc(straightDistanceKm(s))}</p>`:''}
      ${pickupPaymentWarning(s)}
      <div class="pickup-actions">
-      ${eligibleForPickup(s)?`<button class="primary" data-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'}</button>`:'<span class="smallprint">No disponible para recojo inmediato</span>'}
+      ${(st.orderTiming==='SCHEDULED'?s.active===true&&s.pickup_enabled===true&&s.reservationSettings?.enabled===true:eligibleForPickup(s))?`<button class="primary" data-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'}</button>`:'<span class="smallprint">No disponible para recojo inmediato</span>'}
      </div>
    </div>`).join(''):'<div class="notice">No hay locales publicados por la administración. Consulta más adelante.</div>'}
  </div></div>`;
 }
 function localDetail(){
  const s=shops.find(x=>x.id===st.store);
- if(!s||!eligibleForPickup(s))return locations();
+ if(!s||!(st.orderTiming==='SCHEDULED'?s.active===true&&s.pickup_enabled===true&&s.reservationSettings?.enabled===true:eligibleForPickup(s)))return locations();
  const addr=s.addr||s.address||'';
  const url='https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(addr);
  return `<div class="page pickup-page">${heading('Tu local de retiro','locations')}
