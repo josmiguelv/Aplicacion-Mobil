@@ -1541,6 +1541,10 @@ async function scheduledDeliveryAddressNext(){
  screen('reservationContact');
 }
 function startScheduledCheckout(){
+ if(!reservationEnabledForSelection()){
+  st.orderTiming='NOW';toast('Esta sede no tiene reservas habilitadas. Elige un pedido inmediato.');
+  save();render();return;
+ }
  const api=window.B3OrderAvailability;
  if(api?.activeReservation?.()){
   reservationError='Ya tienes una reserva solicitada; consulta su estado antes de crear otra.';
@@ -1630,7 +1634,7 @@ function reservationTrackingScreen(){
   CONFIRMED:'Reserva confirmada',REJECTED:'El local no aceptó el pedido',
   CANCELLED:'Solicitud cancelada',EXPIRED:'La solicitud venció'};
  const modes=entry?.quote?.paymentMethods||reservationQuote?.paymentMethods||
-  (entry?.body?.mode&&shops.find(x=>x.id===r?.storeId)?.paymentMethods?.[entry.body.mode])||[];
+  (shops.find(x=>x.id===r?.storeId)?.paymentMethods?.reservation)||[];
  return `<div class="page">${heading('Estado de mi reserva','app')}
   <div class="summary-card"><h2>${esc(names[status]||'Reserva en revisión')}</h2>
   ${r?`<p>${esc(r.storeName||'Sede del pedido')} · ${esc(r.date)} · ${esc(r.time)}</p>
@@ -1642,7 +1646,7 @@ function reservationTrackingScreen(){
    ${status==='CONFIRMED'?'<p>La reserva está registrada para la hora elegida. No comienza ahora la preparación de un pedido futuro.</p>':''}
    ${r?.cancellationNoticePending?'<p role="alert">La cancelación quedó registrada, pero todavía no hemos podido verificar la notificación al asesor. Consulta el estado nuevamente o contacta al local.</p>':''}
    ${status==='AWAITING_PAYMENT'&&r?.paymentStatus==='AWAITING_VERIFICATION'?
-     '<p>El medio digital está seleccionado, pero el administrador debe verificar el pago real para confirmar la reserva. Contacta al local para completar el pago.</p>':''}
+     '<p>Pago digital pendiente de verificación real. La reserva no está confirmada hasta validar el cobro.</p>':''}
   </div>
   ${reservationError?'<div class="notice" role="alert">'+esc(reservationError)+'</div>':''}
   <button class="outline full" data-reservation-refresh="1" ${reservationBusy?'disabled':''}>Consultar estado</button>
@@ -1683,7 +1687,16 @@ async function cancelScheduledReservation(){
  catch(e){reservationError=e.message||'No se confirmó la cancelación. Consulta su estado.';}
  finally{reservationBusy=false;render();}
 }
+function reservationEnabledForSelection(){
+ return shops.some(store=>store.active===true&&
+  store.reservationSettings?.enabled===true&&
+  store.reservationSettings?.acceptingRequests===true&&
+  (st.mode==='pickup'?store.pickup_enabled===true&&String(store.id)===String(st.store):
+   st.mode==='delivery'?store.delivery_enabled===true:
+   store.delivery_enabled===true||store.pickup_enabled===true));
+}
 function orderTimingSelector(){
+ if(!reservationEnabledForSelection())return '';
  const scheduled=st.orderTiming==='SCHEDULED';
  const canQuery=st.mode==='pickup'&&!!st.store&&shops.some(s=>String(s.id)===String(st.store)&&s.active===true&&s.pickup_enabled===true);
  const preview=reservationSlots&&reservationSlots.date===st.scheduledDate&&reservationSlots.storeId===st.store&&reservationSlots.mode==='pickup';
