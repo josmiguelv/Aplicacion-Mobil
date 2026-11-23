@@ -1629,6 +1629,7 @@ function reservationTrackingScreen(){
    <p>Pago: ${esc(r.paymentStatus||'Sin seleccionar')}</p>`:
    '<p>Guardamos tu solicitud localmente. Consulta el estado; no crees otra hasta verificarla.</p>'}
    ${status==='CONFIRMED'?'<p>La reserva está registrada para la hora elegida. No comienza ahora la preparación de un pedido futuro.</p>':''}
+   ${r?.cancellationNoticePending?'<p role="alert">La cancelación quedó registrada, pero todavía no hemos podido verificar la notificación al asesor. Consulta el estado nuevamente o contacta al local.</p>':''}
    ${status==='AWAITING_PAYMENT'&&r?.paymentStatus==='AWAITING_VERIFICATION'?
      '<p>El medio digital está seleccionado, pero el administrador debe verificar el pago real para confirmar la reserva. Contacta al local para completar el pago.</p>':''}
   </div>
