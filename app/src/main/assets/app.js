@@ -718,6 +718,7 @@ async function pollAgentDecision(){
   if(checkoutCancelInFlight)return;
   const store=shops.find(x=>x.id===entry.body.storeId);
   if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
+   resetDeliveryOrderContact();
    const cancelled=result.clientStatus==='CANCELLED';
    deliveryAvailability={status:cancelled?'CANCELLED':'UNAVAILABLE',storeName:store?.name||'',candidateNames:[],
     message:cancelled?'La solicitud fue cancelada. Conservamos los productos del carrito.':
@@ -2466,6 +2467,8 @@ if(b.hasAttribute('data-address-save')){
 if(b.hasAttribute('data-modal-save-delivery')){
  if(deliveryRequestPending)return;
  if(v('address').length<6||v('district').length<2)return toast('Completa la dirección y el distrito');
+ if(!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(
+    window.B3OrderAvailability?.readInteraction?.()?.status))resetDeliveryOrderContact();
  st.mode='delivery';st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');invalidateDeliverySelection();maybeSaveDeliveryAddress();
  save();void resolveDelivery();return;
 }
@@ -2565,11 +2568,14 @@ if(b.hasAttribute('data-availability-pickup')){
  }
  if(b.hasAttribute('data-availability-retry')){
   if(!deliveryRequestPending&&['ERROR','UNAVAILABLE'].includes(deliveryAvailability.status)&&
-     !activePersonalCheckout()&&window.B3OrderAvailability?.readInteraction?.()?.status!=='REJECTED')
+     !activePersonalCheckout()&&window.B3OrderAvailability?.readInteraction?.()?.status!=='REJECTED'){
+   if(!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(
+      window.B3OrderAvailability?.readInteraction?.()?.status))resetDeliveryOrderContact();
    void resolveDelivery();
+  }
   return;
  }
-if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.mode='delivery';invalidateDeliverySelection();maybeSaveDeliveryAddress();save();void resolveDelivery();return}
+if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');if(!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status))resetDeliveryOrderContact();st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.mode='delivery';invalidateDeliverySelection();maybeSaveDeliveryAddress();save();void resolveDelivery();return}
 if(b.hasAttribute('data-identity-next')){
  if(v('first').length<2||v('last').length<2||v('first').length>60||v('last').length>60)
   return toast('Ingresa nombres y apellidos de hasta 60 caracteres');
