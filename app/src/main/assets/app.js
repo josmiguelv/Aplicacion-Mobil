@@ -1232,14 +1232,14 @@ const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configRea
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?.price||0),0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 // Toast independiente del render: las respuestas de la app no reconstruyen la pantalla.
-let noticeTimer=null,noticeNode=null,noticeKind='',noticeText='';
+let noticeTimer=null,noticeNode=null,noticeKind='',noticeText='',noticeCritical=false;
 let noticeCount=0,noticeLastAt=0;
 const B3_TOAST_ENTER_MS=260,B3_TOAST_EXIT_MS=220;
 function dismissNotice(){
  if(noticeTimer!==null){clearTimeout(noticeTimer);noticeTimer=null}
  const node=noticeNode;
  if(!node)return;
- noticeNode=null;noticeKind='';noticeText='';noticeCount=0;
+ noticeNode=null;noticeKind='';noticeText='';noticeCount=0;noticeCritical=false;
  node.classList.remove('b3-toast-visible');
  node.classList.add('b3-toast-leaving');
  setTimeout(()=>node.remove(),B3_TOAST_EXIT_MS);
@@ -1249,6 +1249,8 @@ function queueNotice(t,options={}){
  if(!text)return;
  const critical=options.critical===true||
   /no pudimos confirmar (?:el pago|la cancelaci[oó]n)|pedido rechazado|pago (?:rechazado|fallido)/i.test(text);
+ // Un aviso crítico permanece visible hasta que el usuario lo cierre.
+ if(noticeNode&&noticeCritical&&!critical)return;
  const kind=options.kind==='cart'?'cart':
   critical||/^(?:no |error|primero |ingresa |completa |verifica |selecciona )|no pudimos|no fue posible/i.test(text)?'warning':'info';
  const now=Date.now();
@@ -1258,7 +1260,7 @@ function queueNotice(t,options={}){
  if(noticeNode&&!same){noticeNode.remove();noticeNode=null}
  noticeCount=same&&kind==='cart'?noticeCount+Math.max(1,Number(options.quantity)||1):
   kind==='cart'?Math.max(1,Number(options.quantity)||1):1;
- noticeLastAt=now;noticeKind=kind;noticeText=text;
+ noticeLastAt=now;noticeKind=kind;noticeText=text;noticeCritical=critical;
  const title=kind==='cart'?(noticeCount===1?'Producto agregado':noticeCount+' productos agregados'):text;
  const description=kind==='cart'?'Tu carrito se actualizó':'';
  const icon=kind==='cart'?ic('check',19):kind==='warning'?ic('info',19):ic('check',19);
