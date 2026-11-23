@@ -446,6 +446,7 @@ test('el banner no mantiene un pedido pendiente cuando la conversación termina 
  const run=status=>{
   const context={
    window:{B3OrderAvailability:{readInteraction:()=>({status})}},
+   scheduledReservationBanner:()=>'',
    ic:()=>'<svg></svg>'
   };
   vm.runInNewContext(extract('personalCheckoutBanner'),context);
