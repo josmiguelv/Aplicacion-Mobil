@@ -56,6 +56,7 @@ let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,revi
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let fulfillmentOutcomeNote=''; // Terminal outcome only; never initiates a new request.
 let reservationSlots=null,reservationSlotsPending=false,reservationSlotsError='',reservationSlotsGeneration=0;
+let reservationQuote=null,reservationBusy=false,reservationError='',reservationContact={firstName:'',lastName:'',phone:'',email:''};
 function resetReservationSlots(){reservationSlotsGeneration++;reservationSlots=null;reservationSlotsPending=false;reservationSlotsError=''};
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
 let checkoutCancelInFlight=false; // prevent duplicate cancellation calls to the same request
@@ -1481,6 +1482,194 @@ function fulfillmentHeader(){
    </button>
    <button class="b3-header-edit" type="button" data-open-fulfillment="1" aria-label="Editar destino">${ic('chev',19)}</button>
  </header>`;
+}
+function reservationDraftPayload(quote=false){
+ if(st.orderTiming!=='SCHEDULED'||!['pickup','delivery'].includes(st.mode)||
+    !/^\d{4}-\d{2}-\d{2}$/.test(st.scheduledDate)||
+    !/^([01]\d|2[0-3]):[0-5]\d$/.test(st.scheduledTime))
+   throw Error('Selecciona la fecha y hora programadas.');
+ const base={appId:APP_ID,catalogRevision:publishedRevision,mode:st.mode,
+   date:st.scheduledDate,time:st.scheduledTime};
+ if(st.mode==='pickup'){
+  if(!st.store)throw Error('Selecciona la sede de Recojo.');
+  base.storeId=st.store;
+ }else{
+  if(!hasDeliveryDestination(st.profile.address,st.profile.district))
+   throw Error('Verifica la dirección y su ubicación antes de programar Delivery.');
+  Object.assign(base,{address:st.profile.address.trim(),district:st.profile.district.trim(),
+   reference:st.profile.reference||'',latitude:deliveryLocation.latitude,
+   longitude:deliveryLocation.longitude,useGps:true});
+ }
+ if(quote)return base;
+ if(!reservationQuote||reservationQuote.revision!==publishedRevision||
+    reservationQuote.date!==st.scheduledDate||reservationQuote.time!==st.scheduledTime||
+    reservationQuote.mode!==st.mode)throw Error('La cotización programada debe actualizarse.');
+ return {...base,storeId:reservationQuote.storeId,
+   ...(st.mode==='delivery'?{expectedDeliveryFeePen:Math.round(reservationQuote.deliveryFeePen*100)}:{}),
+   items:publishedOrderItems(),customer:reservationContact,
+   customerExternalId:window.B3OrderAvailability.getExternalCustomerId()};
+}
+async function scheduledDeliveryAddressNext(){
+ if(v('address').length<6||v('district').length<2){
+  toast('Completa tu dirección y distrito.');return;
+ }
+ st.profile.address=v('address');st.profile.district=v('district');
+ st.profile.reference=v('reference');st.mode='delivery';
+ invalidateDeliverySelection();maybeSaveDeliveryAddress();save();
+ if(!hasDeliveryDestination(st.profile.address,st.profile.district)){
+  reservationBusy=true;reservationError='';render();
+  try{
+   const location=await geocodeDeliveryDestination(st.profile.address,st.profile.district);
+   deliveryLocation={...location,key:deliveryAddressKey(st.profile.address,st.profile.district)};
+  }catch(_){
+   reservationError='No pudimos verificar las coordenadas del destino. Usa GPS en el domicilio o corrige la dirección.';
+   reservationBusy=false;render();return;
+  }
+  reservationBusy=false;
+ }
+ screen('reservationContact');
+}
+function startScheduledCheckout(){
+ const api=window.B3OrderAvailability;
+ if(api?.activeReservation?.()){
+  reservationError='Ya tienes una reserva solicitada; consulta su estado antes de crear otra.';
+  screen('reservationTracking');return;
+ }
+ const issue=checkoutCartIssue();if(issue){toast(issue);return}
+ try{
+  scheduledOrderTicketForm();
+  if(st.mode==='pickup'&&(!reservationSlots||reservationSlots.date!==st.scheduledDate||
+    reservationSlots.storeId!==st.store||!reservationSlots.slots.some(x=>x.time===st.scheduledTime)))
+   throw Error('Consulta y selecciona una hora disponible para recojo.');
+  if(st.mode==='delivery'&&!hasDeliveryDestination(st.profile.address,st.profile.district)){
+   screen('deliveryAddress');return;
+  }
+  reservationContact={firstName:'',lastName:'',phone:'',email:''};
+  reservationQuote=null;reservationError='';
+  screen('reservationContact');
+ }catch(e){toast(e.message||'Revisa los datos de tu reserva.')}
+}
+function reservationContactScreen(){
+ return `<div class="page form">${heading('Persona que recibirá el pedido','cart')}
+ <p class="sub">Confirma nombres y teléfono para cada reserva. Puedes solicitar para otra persona.</p>
+ <label>Nombres<input id="reservation-first" maxlength="60" value="${esc(reservationContact.firstName)}" autocomplete="given-name"></label>
+ <label>Apellidos<input id="reservation-last" maxlength="60" value="${esc(reservationContact.lastName)}" autocomplete="family-name"></label>
+ <label>Teléfono de Perú<input id="reservation-phone" maxlength="9" inputmode="numeric" value="${esc(reservationContact.phone)}" placeholder="9 dígitos"></label>
+ <label>Correo electrónico opcional<input id="reservation-email" type="email" maxlength="254" value="${esc(reservationContact.email)}"></label>
+ ${reservationError?'<div role="alert" class="notice">'+esc(reservationError)+'</div>':''}
+ <button class="primary full" data-reservation-quote="1" ${reservationBusy?'disabled':''}>${reservationBusy?'Consultando sede y agente...':'Verificar reserva, sede y tarifa'}</button>
+ </div>`;
+}
+async function checkReservationQuote(){
+ if(reservationBusy)return;
+ const firstName=v('reservation-first'),lastName=v('reservation-last'),
+   phone=v('reservation-phone'),email=v('reservation-email');
+ if(firstName.length<2||lastName.length<2||firstName.length>60||lastName.length>60||
+    !/^9\d{8}$/.test(phone)||email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+  reservationError='Confirma nombres, apellidos y un celular peruano válido.';
+  render();return;
+ }
+ reservationContact={firstName,lastName,phone,email};
+ reservationBusy=true;reservationError='';reservationQuote=null;render();
+ try{
+  await fetchConfig({strict:true});
+  if(st.orderTiming!=='SCHEDULED')throw Error('La modalidad programada cambió.');
+  const body=reservationDraftPayload(true);
+  publishedOrderItems(); // Do not submit reference/demo products.
+  const data=await window.B3OrderAvailability.quoteReservation(body);
+  reservationQuote=data;st.store=data.storeId;save();
+  screen('reservationReview');
+ }catch(e){reservationError=e.message||'No se pudo comprobar la reserva.';screen('reservationContact');}
+ finally{reservationBusy=false;render();}
+}
+function reservationReviewScreen(){
+ const q=reservationQuote;
+ if(!q)return `<div class="page">${heading('Reserva pendiente','cart')}<p>La cotización ya no está disponible.</p><button class="outline full" data-screen="reservationContact">Volver</button></div>`;
+ return `<div class="page">${heading('Revisa tu reserva','reservationContact')}
+  <div class="summary-card"><h2>${esc(q.storeName)}</h2>
+  <p>${st.mode==='delivery'?'Delivery':'Recojo en tienda'} · ${esc(st.scheduledDate)} · ${esc(st.scheduledTime)}</p>
+  <p>Productos <b>${cash(subtotal())}</b></p>
+  <p>Delivery <b>${cash(q.deliveryFeePen)}</b></p>
+  <p class="grand">Total estimado <strong>${cash(subtotal()+q.deliveryFeePen)}</strong></p>
+  <p>Preparación estimada: ${q.preparationMinutes} minutos. Una reserva futura no inicia la cuenta regresiva hoy.</p>
+  </div>
+  <p class="smallprint">Se verificó un asesor al cotizar. La disponibilidad, los cupos y la tarifa se validarán nuevamente antes de enviar el FORM. La aceptación del asesor no representa un cobro.</p>
+  ${reservationError?'<div class="notice" role="alert">'+esc(reservationError)+'</div>':''}
+  <button class="primary full" data-reservation-submit="1" ${reservationBusy?'disabled':''}>${reservationBusy?'Registrando solicitud...':'Solicitar reserva al local'}</button>
+  <button class="outline full" data-screen="reservationContact">Cambiar datos</button></div>`;
+}
+async function sendScheduledReservation(){
+ if(reservationBusy)return;
+ reservationBusy=true;reservationError='';render();
+ try{
+  const api=window.B3OrderAvailability;
+  const body=reservationDraftPayload(false);
+  const entry=api.prepareReservation(body,reservationQuote);
+  try{await api.createReservation(entry);}
+  catch(e){reservationError='La solicitud podría haberse recibido. Se conservará el identificador para consultarla sin duplicarla.';}
+  screen('reservationTracking');
+ }catch(e){reservationError=e.message||'No se pudo registrar la solicitud.';screen('reservationReview');}
+ finally{reservationBusy=false;render();}
+}
+function reservationTrackingScreen(){
+ const entry=window.B3OrderAvailability?.readReservation?.(),r=entry?.lastResult;
+ const status=r?.status||entry?.status||'CREATING';
+ const names={CREATING:'Verificando registro',FORM_UNCERTAIN:'Comprobando FORM',
+  AWAITING_AGENT:'Esperando respuesta del local',AWAITING_PAYMENT:'Pedido aceptado; elige pago',
+  CONFIRMED:'Reserva confirmada',REJECTED:'El local no aceptó el pedido',
+  CANCELLED:'Solicitud cancelada',EXPIRED:'La solicitud venció'};
+ const modes=reservationQuote?.paymentMethods||
+  (entry?.body?.mode&&shops.find(x=>x.id===r?.storeId)?.paymentMethods?.[entry.body.mode])||[];
+ return `<div class="page">${heading('Estado de mi reserva','app')}
+  <div class="summary-card"><h2>${esc(names[status]||'Reserva en revisión')}</h2>
+  ${r?`<p>${esc(r.storeName||'Sede del pedido')} · ${esc(r.date)} · ${esc(r.time)}</p>
+   <p>Modalidad: ${r.mode==='delivery'?'Delivery':'Recojo en tienda'}</p>
+   <p>Importe confirmado por el Administrador: <b>${cash(r.totalPen)}</b></p>
+   <p>Preparación estimada: ${r.preparationMinutes} min</p>
+   <p>Pago: ${esc(r.paymentStatus||'Sin seleccionar')}</p>`:
+   '<p>Guardamos tu solicitud localmente. Consulta el estado; no crees otra hasta verificarla.</p>'}
+   ${status==='CONFIRMED'?'<p>La reserva está registrada para la hora elegida. No comienza ahora la preparación de un pedido futuro.</p>':''}
+   ${status==='AWAITING_PAYMENT'&&r?.paymentStatus==='AWAITING_VERIFICATION'?
+     '<p>El medio digital está seleccionado, pero el administrador debe verificar el pago real para confirmar la reserva. Contacta al local para completar el pago.</p>':''}
+  </div>
+  ${reservationError?'<div class="notice" role="alert">'+esc(reservationError)+'</div>':''}
+  <button class="outline full" data-reservation-refresh="1" ${reservationBusy?'disabled':''}>Consultar estado</button>
+  ${status==='AWAITING_PAYMENT'&&r?.paymentStatus==='NOT_SELECTED'?
+  `<div class="b3-reservation-methods"><h3>Selecciona cómo pagar</h3>
+    ${modes.filter(x=>['cash','yape','plin','card'].includes(x)).map(m=>
+     `<button class="outline full" data-reservation-pay="${m}">${{cash:'Efectivo al recibir',yape:'Yape',plin:'Plin',card:'Tarjeta'}[m]}</button>`).join('')}
+   <small>Yape, Plin y tarjeta requieren verificación real. Efectivo al recibir queda registrado como pendiente de cobro.</small></div>`:''}
+  ${!['CONFIRMED','REJECTED','CANCELLED','EXPIRED'].includes(status)&&r?
+    '<button class="outline full" data-reservation-cancel="1">Cancelar solicitud sin confirmar</button>':''}
+  ${['REJECTED','CANCELLED','EXPIRED','CONFIRMED'].includes(status)?
+    '<button class="primary full" data-reservation-new="1">Volver al inicio</button>':''}
+ </div>`;
+}
+async function refreshScheduledReservation(){
+ const entry=window.B3OrderAvailability?.readReservation?.();if(!entry||reservationBusy)return;
+ reservationBusy=true;reservationError='';render();
+ try{
+  await window.B3OrderAvailability.statusReservation(entry);
+ }catch(e){reservationError=e.message||'No se pudo actualizar la reserva.';}
+ finally{reservationBusy=false;render();}
+}
+async function payScheduledReservation(method){
+ const entry=window.B3OrderAvailability?.readReservation?.();
+ if(!entry||reservationBusy)return;
+ reservationBusy=true;reservationError='';render();
+ try{await window.B3OrderAvailability.payReservation(entry,method);}
+ catch(e){reservationError=e.message||'No se pudo registrar el método de pago.';}
+ finally{reservationBusy=false;render();}
+}
+async function cancelScheduledReservation(){
+ const entry=window.B3OrderAvailability?.readReservation?.();if(!entry||reservationBusy)return;
+ if(!await confirmB3({title:'Cancelar solicitud programada',
+   description:'Esto cancelará la solicitud pendiente. Una reserva confirmada debe gestionarse directamente con el local.',
+   confirmLabel:'Cancelar solicitud',danger:true}))return;
+ reservationBusy=true;reservationError='';render();
+ try{await window.B3OrderAvailability.cancelReservation(entry);}
+ catch(e){reservationError=e.message||'No se confirmó la cancelación. Consulta su estado.';}
+ finally{reservationBusy=false;render();}
 }
 function orderTimingSelector(){
  const scheduled=st.orderTiming==='SCHEDULED';
