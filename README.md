@@ -8,6 +8,33 @@ Esta rama de GitHub tiene una implementación Android WebView; **es diferente** 
 
 Abrir esta carpeta raíz en Android Studio con JDK 17, SDK 35, Gradle 8.11.1 y Android Gradle Plugin 8.7.3. Compilar `app:assembleDebug` o Build APK(s). **No se ha probado este APK en un dispositivo físico**.
 
+## Cambiar la URL de la API Android (un solo archivo)
+
+Para compilar apuntando a otra API del Administrador Web, crea una vez el archivo **`.env`** en la raíz del repositorio:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Modifica **solo** esta línea, sin comillas ni `/api/v1` al final:
+
+```dotenv
+B3_API_BASE=https://tu-servidor.example.com
+```
+
+Luego compila normalmente:
+
+```powershell
+.\gradlew.bat assembleDebug
+```
+
+APK: `app\build\outputs\apk\debug\app-debug.apk`.
+
+El valor se incrusta en la APK compilada y alimenta **la misma URL** para catálogo, disponibilidad, pedidos, FORM y notificaciones. No cambies `MainActivity.java`, `app.js` ni `app/build.gradle` para cambiar el servidor. Debe ser un origen **HTTPS** (sin ruta, credenciales, parámetros ni fragmentos); Gradle detiene la compilación si el formato es inválido. Los cambios posteriores al `.env` solo requieren volver a compilar e instalar el APK.
+
+`.env` es local y no se sube a Git. Los builds de **GitHub Actions** (que no ven tu `.env` local) usan `.env.example` a menos que se configure `B3_API_BASE` como variable de entorno o propiedad de Gradle en CI. `-PB3_API_BASE=...` y la variable de entorno `B3_API_BASE` tienen prioridad sobre `.env` si se proporcionan expresamente. No coloques tokens ni secretos en estos archivos ni en el APK.
+
 ## Conexión a la web
 
 La app lee `API_BASE` desde `AndroidBridge.getApiBase()`; configura la URL HTTPS del servicio `Aplicacion-Web-Admin-Movil` antes de distribuir APK. La web publica productos, fotos, promociones, locales, cobertura, modalidades y métodos; Android consulta exclusivamente la versión publicada. No incluir claves privadas en el cliente.
