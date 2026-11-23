@@ -397,25 +397,47 @@ test('la API solo publica una sede sin delivery habilitado: no se inventan local
  assert.throws(()=>quote([{...tallanes,delivery_enabled:false}],destination(tallanes.latitude,tallanes.longitude)),/No hay locales habilitados/)
 })
 
-test('aviso al cambiar modalidad desaparece y otro aviso reinicia su temporizador',()=>{
- const pending=new Map(),events=[];
+test('avisos animados: un nuevo aviso cancela el cierre anterior sin reconstruir la pantalla',()=>{
+ const timers=new Map(),nodes=[],events=[];
  let sequence=0;
- const context={
-  st:{notice:''},noticeTimer:null,
-  render:()=>events.push('render'),
-  setTimeout:(callback,delay)=>{assert.equal(delay,2400);const id=++sequence;pending.set(id,callback);return id},
-  clearTimeout:id=>{pending.delete(id)}
+ const document={
+  createElement:()=>({
+   className:'',attributes:{},innerHTML:'',removed:false,
+   classList:{add(){},remove(){}},
+   setAttribute(k,v){this.attributes[k]=v},
+   querySelector:()=>({addEventListener(){}}),
+   remove(){this.removed=true}
+  }),
+  body:{appendChild(node){nodes.push(node)}}
  };
- vm.runInNewContext(extract('queueNotice'),context);
+ const context={
+  document,
+  setTimeout:(callback,delay)=>{const id=++sequence;timers.set(id,{callback,delay});return id},
+  clearTimeout:id=>{timers.delete(id)},
+  requestAnimationFrame:callback=>callback(),
+  esc:value=>String(value),
+  ic:()=>'<svg></svg>',
+  render:()=>events.push('render')
+ };
+ const toastBlock=source.match(/let noticeTimer=null,[\s\S]*?(?=function activePersonalCheckout\()/)?.[0];
+ assert.ok(toastBlock,'Debe existir el gestor independiente de avisos');
+ vm.runInNewContext(toastBlock,context);
  assert.match(source,/if\(st\.cart\.length\)queueNotice\('Al cambiar de modalidad/);
  assert.match(source,/if\(st\.cart\.length\)queueNotice\('Modalidad modificada/);
- assert.doesNotMatch(source,/if\(st\.cart\.length\)st\.notice=/);
  context.queueNotice('Primera modalidad');
- assert.equal(context.st.notice,'Primera modalidad');
+ assert.equal(nodes.length,1);
+ assert.equal(timers.size,1);
  context.queueNotice('Segunda modalidad');
- assert.equal(pending.size,1,'La primera notificación ya no puede borrar la segunda');
- const callback=[...pending.values()][0];
- callback();
- assert.equal(context.st.notice,'');
- assert.deepEqual(events,['render']);
+ assert.equal(nodes.length,2);
+ assert.equal(nodes[0].removed,true,'El aviso anterior se retira sin afectar el nuevo');
+ assert.equal(timers.size,1,'Solo el nuevo aviso puede iniciar su salida');
+ const [closingId,closing]=[...timers.entries()][0];
+ assert.equal(closing.delay,2600);
+ timers.delete(closingId);closing.callback();
+ assert.equal(timers.size,1,'La salida tiene su propio temporizador');
+ const [exitId,exit]=[...timers.entries()][0];
+ assert.equal(exit.delay,220);
+ timers.delete(exitId);exit.callback();
+ assert.equal(nodes[1].removed,true);
+ assert.deepEqual(events,[],'Los avisos no deben reconstruir ni interrumpir la interfaz');
 });

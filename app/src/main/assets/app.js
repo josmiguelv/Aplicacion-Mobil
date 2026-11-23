@@ -1234,7 +1234,7 @@ const product=id=>products.find(x=>x.id===id);
 // Toast independiente del render: las respuestas de la app no reconstruyen la pantalla.
 let noticeTimer=null,noticeNode=null,noticeKind='',noticeText='',noticeCritical=false;
 let noticeCount=0,noticeLastAt=0;
-const B3_TOAST_ENTER_MS=260,B3_TOAST_EXIT_MS=220;
+const B3_TOAST_EXIT_MS=220;
 function dismissNotice(){
  if(noticeTimer!==null){clearTimeout(noticeTimer);noticeTimer=null}
  const node=noticeNode;
