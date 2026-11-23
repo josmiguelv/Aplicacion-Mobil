@@ -431,13 +431,13 @@ test('avisos animados: un nuevo aviso cancela el cierre anterior sin reconstruir
  assert.equal(nodes.length,2);
  assert.equal(nodes[0].removed,true,'El aviso anterior se retira sin afectar el nuevo');
  assert.equal(timers.size,1,'Solo el nuevo aviso puede iniciar su salida');
- const closing=[...timers.values()][0];
+ const [closingId,closing]=[...timers.entries()][0];
  assert.equal(closing.delay,2600);
- closing.callback();
+ timers.delete(closingId);closing.callback();
  assert.equal(timers.size,1,'La salida tiene su propio temporizador');
- const exit=[...timers.values()][0];
+ const [exitId,exit]=[...timers.entries()][0];
  assert.equal(exit.delay,220);
- exit.callback();
+ timers.delete(exitId);exit.callback();
  assert.equal(nodes[1].removed,true);
  assert.deepEqual(events,[],'Los avisos no deben reconstruir ni interrumpir la interfaz');
 });
