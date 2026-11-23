@@ -481,18 +481,17 @@ test('selector delivery no presenta cupos ficticios ni crea pedidos',()=>{
   esc:x=>String(x),ic:()=>'<svg></svg>'};
  vm.runInNewContext(extract('orderTimingSelector'),context);
  const html=context.orderTimingSelector();
- assert.match(html,/tarifa, cobertura y atención/);
+ assert.match(html,/cobertura, tarifa y sede existentes/);
  assert.doesNotMatch(html,/data-reservation-slot/);
 });
-test('programar impide iniciar checkout y conserva carrito sin emitir reservas',()=>{
+test('programar dirige al flujo especializado y no inicia checkout inmediato',()=>{
  const calls=[],st={orderTiming:'SCHEDULED',cart:[{id:'p',qty:1}],mode:'pickup'};
- const context={st,toast:x=>calls.push('TOAST:'+x),screen:x=>calls.push('SCREEN:'+x),checkoutCartIssue:()=>{throw Error('No debe ejecutarse')}};
+ const context={st,startScheduledCheckout:()=>calls.push('scheduled-only'),checkoutCartIssue:()=>{throw Error('No ejecutar checkout inmediato')}};
  vm.runInNewContext(extract('startCheckout'),context);
  context.startCheckout();
- assert.deepEqual(calls.map(x=>x.slice(0,6)),['TOAST:','SCREEN']);
+ assert.deepEqual(calls,['scheduled-only']);
  assert.deepEqual(st.cart,[{id:'p',qty:1}]);
 });
-
 test('programar bloquea validación de pago sin llamar APIs de horario inmediato',async()=>{
  const calls=[],st={orderTiming:'SCHEDULED',mode:'delivery',cart:[{id:'p',qty:1}]};
  const context={st,checkoutRefreshPending:false,checkoutReviewNote:'',screen:x=>calls.push(x),
