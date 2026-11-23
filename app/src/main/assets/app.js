@@ -1265,7 +1265,7 @@ async function confirmStore(mode,id,{showDetails=false}={}){
   }
   const previousStore=String(st.store||'');
   const previousMode=st.mode;
-  if(previousStore!==String(selected.id)){resetReservationSlots();st.scheduledTime=''}
+  if(st.orderTiming==='SCHEDULED'&&previousStore!==String(selected.id)){resetReservationSlots();st.scheduledTime=''}
    st.mode='pickup';st.store=selected.id;st.fulfillment='pickup';st.quote=null;
   if(previousMode!=='pickup'||previousStore!==String(selected.id)){
    st.pay='';st.cash='';
