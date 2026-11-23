@@ -1027,3 +1027,15 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 @media(prefers-reduced-motion:reduce){
  .b3-toast-premium,.b3-toast-premium.b3-toast-leaving{transition:none!important;will-change:auto}
 }
+
+/* Pollos B3: scheduled-order preference (UI only until server slot contract is published). */
+.b3-order-timing{margin:15px 0 5px;padding:14px;border:1px solid #ece5e5;border-radius:17px;background:#fff}
+.b3-order-timing h3{font-size:15px;font-weight:800;margin:0 0 12px;color:#242424}
+.b3-order-timing-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.b3-order-timing-options button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:51px;border:1.5px solid #dedede;border-radius:12px;background:#fff;font-size:12px;font-weight:750;color:#303030;padding:8px;text-align:center}
+.b3-order-timing-options button svg{flex-shrink:0;color:#d50916}
+.b3-order-timing-options button.chosen{background:#fff2f2;border-color:#e30613;color:#b90510;box-shadow:inset 0 0 0 1px #e30613}
+.b3-order-timing-fields{display:grid;gap:10px;margin-top:13px}
+.b3-order-timing-fields label{font-size:12px;font-weight:700;color:#252525;display:grid;gap:6px}
+.b3-order-timing-fields input{width:100%;min-height:44px;max-width:100%;border:1px solid #d9d9d9;border-radius:10px;padding:9px;background:#fff;font-size:14px}
+.b3-order-timing-fields p{margin:0;padding:11px 12px;border-radius:10px;background:#fff7e8;color:#6f4d20;font-size:12px;line-height:1.5}

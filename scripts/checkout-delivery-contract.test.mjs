@@ -457,3 +457,48 @@ test('el banner no mantiene un pedido pendiente cuando la conversación termina 
  assert.equal(run('CANCELLED'),'');
  assert.equal(run('EXPIRED'),'');
 });
+
+test('selector presenta ahora y programar sin inventar disponibilidad futura',()=>{
+ const context={st:{orderTiming:'SCHEDULED',scheduledDate:'2026-11-25',scheduledTime:'19:30'},esc:x=>String(x),ic:()=>'<svg></svg>'};
+ vm.runInNewContext(extract('orderTimingSelector'),context);
+ const html=context.orderTimingSelector();
+ assert.match(html,/Lo antes posible/);
+ assert.match(html,/Programar pedido/);
+ assert.match(html,/2026-11-25/);
+ assert.match(html,/19:30/);
+ assert.match(html,/No se enviará ninguna reserva/);
+ assert.match(html,/data-order-timing-save/);
+ assert.doesNotMatch(html,/reserva confirmada/i);
+});
+
+test('programar impide iniciar checkout y conserva carrito sin emitir reservas',()=>{
+ const calls=[],st={orderTiming:'SCHEDULED',cart:[{id:'p',qty:1}],mode:'pickup'};
+ const context={st,toast:x=>calls.push('TOAST:'+x),screen:x=>calls.push('SCREEN:'+x),checkoutCartIssue:()=>{throw Error('No debe ejecutarse')}};
+ vm.runInNewContext(extract('startCheckout'),context);
+ context.startCheckout();
+ assert.deepEqual(calls.map(x=>x.slice(0,6)),['TOAST:','SCREEN']);
+ assert.deepEqual(st.cart,[{id:'p',qty:1}]);
+});
+
+test('programar bloquea validación de pago sin llamar APIs de horario inmediato',async()=>{
+ const calls=[],st={orderTiming:'SCHEDULED',mode:'delivery',cart:[{id:'p',qty:1}]};
+ const context={st,checkoutRefreshPending:false,checkoutReviewNote:'',screen:x=>calls.push(x),
+  render:()=>{throw Error('No se debe consultar ni renderizar disponibilidad inmediata')},
+  fetchConfig:()=>{throw Error('No se permite consultar horarios inmediatos')}};
+ vm.runInNewContext(extract('revalidateCheckout'),context);
+ assert.equal(await context.revalidateCheckout('confirm'),false);
+ assert.deepEqual(calls,['choice']);
+ assert.match(context.checkoutReviewNote,/reserva todavía no está habilitada/);
+ assert.deepEqual(st.cart,[{id:'p',qty:1}]);
+});
+
+test('programar no puede finalizar pedido simulado como si fuese una reserva real',()=>{
+ const calls=[],st={orderTiming:'SCHEDULED',mode:'pickup',cart:[{id:'p',qty:1}],orders:[]};
+ const context={st,checkoutReviewNote:'',screen:x=>calls.push(x),
+  checkoutCartIssue:()=>{throw Error('Nunca debe tramitar una reserva falsa')}};
+ vm.runInNewContext(extract('finalizeDemoOrder'),context);
+ context.finalizeDemoOrder();
+ assert.deepEqual(calls,['choice']);
+ assert.equal(st.orders.length,0);
+ assert.equal(st.cart.length,1);
+});
