@@ -40,8 +40,9 @@ function demoStoreClock(s){
   closesAt:slot.close,opensAt:slot.open};
 }
 
-let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,mode:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
+let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,authProvider:'',authUid:'',authDisplayName:'',authGoogleEmail:'',mode:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
 try{const d=JSON.parse(localStorage.getItem(K)||'{}');st={...st,...d,stage:'splash',tab:'inicio',selected:'',notice:'',configReady:false,quote:null}}catch{}
+if(st.authProvider==='google')st.registered=false; // Native Firebase revalidates the session.
 // The person receiving a new order must confirm their own contact again.
 // Draft data from an earlier app run must never authorize another order.
 st.orderContactDraft=null;
@@ -50,6 +51,7 @@ if(st.mode==='dine_in')st.mode=''; // Retirado de la navegación de Pollos B3 V1
 // Demo-only flag: stores whether the visitor already chose guest access or test sign-in.
 let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
+let googleSignInPending=false;
 let addressEditId=null;
 let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
@@ -1229,6 +1231,40 @@ async function confirmStore(mode,id,{showDetails=false}={}){
 }
 
 const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configReady,...d}=st;localStorage.setItem(K,JSON.stringify(d));};
+// Native Firebase Auth is the only authority for a Google session.
+// No OAuth/Firebase tokens or passwords are exposed to the WebView.
+window.b3GoogleAuthResult=reply=>{
+ const pending=googleSignInPending;
+ googleSignInPending=false;
+ if(reply?.status==='SIGNED_IN'){
+  const uid=String(reply.uid||''),email=String(reply.email||'');
+  if(reply.emailVerified!==true||uid.length<1||uid.length>128||
+     !/^\S+@\S+\.\S+$/.test(email)){
+   if(pending)toast('Google no devolvió una identidad verificable.');
+   if(st.stage==='login')render();
+   return;
+  }
+  st.registered=true;st.authProvider='google';st.authUid=uid;
+  st.authDisplayName=String(reply.displayName||'').slice(0,120);
+  st.authGoogleEmail=email.slice(0,254);
+  if(!st.profile.email)st.profile.email=st.authGoogleEmail;
+  save();
+  if(pending)enterApp();
+  else if((st.stage==='app'&&st.tab==='cuenta')||st.stage==='login')render();
+  return;
+ }
+ if(reply?.status==='SIGNED_OUT'){
+  if(st.authProvider==='google'){
+   st.registered=false;st.authProvider='';st.authUid='';
+   st.authDisplayName='';st.authGoogleEmail='';save();
+   if(st.stage==='login'||st.stage==='app')render();
+  }
+  return;
+ }
+ if(st.stage==='login')render();
+ if(reply?.status==='ERROR'&&pending)
+  toast(String(reply.message||'No fue posible ingresar con Google.').slice(0,190));
+};
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?.price||0),0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 // Toast independiente del render: las respuestas de la app no reconstruyen la pantalla.
