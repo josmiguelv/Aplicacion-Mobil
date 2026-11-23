@@ -40,8 +40,9 @@ function demoStoreClock(s){
   closesAt:slot.close,opensAt:slot.open};
 }
 
-let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,mode:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
+let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,authProvider:'',authUid:'',authDisplayName:'',authGoogleEmail:'',mode:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
 try{const d=JSON.parse(localStorage.getItem(K)||'{}');st={...st,...d,stage:'splash',tab:'inicio',selected:'',notice:'',configReady:false,quote:null}}catch{}
+if(st.authProvider==='google')st.registered=false; // Native Firebase revalidates the session.
 // The person receiving a new order must confirm their own contact again.
 // Draft data from an earlier app run must never authorize another order.
 st.orderContactDraft=null;
@@ -50,6 +51,7 @@ if(st.mode==='dine_in')st.mode=''; // Retirado de la navegación de Pollos B3 V1
 // Demo-only flag: stores whether the visitor already chose guest access or test sign-in.
 let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
+let googleSignInPending=false;
 let addressEditId=null;
 let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
@@ -1229,6 +1231,40 @@ async function confirmStore(mode,id,{showDetails=false}={}){
 }
 
 const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configReady,...d}=st;localStorage.setItem(K,JSON.stringify(d));};
+// Native Firebase Auth is the only authority for a Google session.
+// No OAuth/Firebase tokens or passwords are exposed to the WebView.
+window.b3GoogleAuthResult=reply=>{
+ const pending=googleSignInPending;
+ googleSignInPending=false;
+ if(reply?.status==='SIGNED_IN'){
+  const uid=String(reply.uid||''),email=String(reply.email||'');
+  if(reply.emailVerified!==true||uid.length<1||uid.length>128||
+     !/^\S+@\S+\.\S+$/.test(email)){
+   if(pending)toast('Google no devolvió una identidad verificable.');
+   if(st.stage==='login')render();
+   return;
+  }
+  st.registered=true;st.authProvider='google';st.authUid=uid;
+  st.authDisplayName=String(reply.displayName||'').slice(0,120);
+  st.authGoogleEmail=email.slice(0,254);
+  if(!st.profile.email)st.profile.email=st.authGoogleEmail;
+  save();
+  if(pending)enterApp();
+  else if((st.stage==='app'&&st.tab==='cuenta')||st.stage==='login')render();
+  return;
+ }
+ if(reply?.status==='SIGNED_OUT'){
+  if(st.authProvider==='google'){
+   st.registered=false;st.authProvider='';st.authUid='';
+   st.authDisplayName='';st.authGoogleEmail='';save();
+   if(st.stage==='login'||st.stage==='app')render();
+  }
+  return;
+ }
+ if(st.stage==='login')render();
+ if(reply?.status==='ERROR'&&pending)
+  toast(String(reply.message||'No fue posible ingresar con Google.').slice(0,190));
+};
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?.price||0),0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
 // Toast independiente del render: las respuestas de la app no reconstruyen la pantalla.
@@ -1622,14 +1658,14 @@ function orders(){
  return '<div class="page b3-orders-page"><h1>Mis pedidos</h1><p class="sub">Consulta tus pedidos locales. El seguimiento no requiere iniciar sesión.</p>'+
  (list.length?list.map(o=>'<button class="b3-order-entry" data-order-open="'+esc(o.id)+'"><span><b>'+esc(o.id)+'</b><small>'+new Date(o.ts).toLocaleDateString('es-PE')+' · '+(isDemoOrder(o)?'PEDIDO DE PRUEBA':'Pedido')+'</small></span><span><strong>'+cash(o.total||0)+'</strong><small>'+(ORDER_STAGES.find(r=>r[0]===o.status)?.[1]||'Sin procesar')+'</small></span></button>').join(''):'<div class="empty-state"><h2>Aún no tienes pedidos</h2><p>Cuando confirmes un pedido podrás consultar aquí su información.</p><button class="primary" data-tab="carta">Ver la carta</button></div>')+'</div>';
 }
-function account(){let rows=[['Mi perfil','user','profile'],['Direcciones guardadas','pin','address'],['Métodos de pago','card','methods'],['Notificaciones','bell','notifications'],['Nuestra Historia','book','history'],['Trabaja con nosotros','store','jobs'],['Privacidad y protección de datos','shield','privacy'],['Sobre la App','info','about']];return `<div class="page acc"><h1>Mi Cuenta</h1><button class="profile-line" data-screen="login">${ic('user',31)}<div><b>${st.registered?esc(st.profile.first||'Cuenta de prueba'):'Inicia sesión'}</b><small>${st.registered?'Cuenta local de demostración':'Para acceder a tu historial y datos guardados'}</small></div>${ic('chev')}</button><div class="rows">${rows.map(([label,icon,screen])=>`<button data-screen="${screen}">${ic(icon,20)}<span>${label}</span>${screen==='notifications'&&notificationUnreadCount()?`<b class="b3-account-notification-count">${notificationUnreadCount()}</b>`:''}${ic('chev',17)}</button>`).join('')}</div><h2 class="group-label">Ayuda</h2><div class="rows"><button data-screen="faq">${ic('help',20)}<span>Preguntas frecuentes</span>${ic('chev',17)}</button><button data-screen="claims">${ic('book',20)}<span>Libro de reclamaciones</span>${ic('chev',17)}</button></div>${st.registered?'<button class="logout" data-logout="1">Cerrar sesión de prueba</button>':''}</div>`}
+function account(){let rows=[['Mi perfil','user','profile'],['Direcciones guardadas','pin','address'],['Métodos de pago','card','methods'],['Notificaciones','bell','notifications'],['Nuestra Historia','book','history'],['Trabaja con nosotros','store','jobs'],['Privacidad y protección de datos','shield','privacy'],['Sobre la App','info','about']];return `<div class="page acc"><h1>Mi Cuenta</h1><button class="profile-line" data-screen="login">${ic('user',31)}<div><b>${st.registered?esc(st.authProvider==='google'?(st.authDisplayName||st.authGoogleEmail):st.profile.first||'Cuenta de prueba'):'Inicia sesión'}</b><small>${st.registered?(st.authProvider==='google'?'Sesión verificada con Google · datos locales':'Cuenta local de demostración'):'Para acceder a tus datos guardados'}</small></div>${ic('chev')}</button><div class="rows">${rows.map(([label,icon,screen])=>`<button data-screen="${screen}">${ic(icon,20)}<span>${label}</span>${screen==='notifications'&&notificationUnreadCount()?`<b class="b3-account-notification-count">${notificationUnreadCount()}</b>`:''}${ic('chev',17)}</button>`).join('')}</div><h2 class="group-label">Ayuda</h2><div class="rows"><button data-screen="faq">${ic('help',20)}<span>Preguntas frecuentes</span>${ic('chev',17)}</button><button data-screen="claims">${ic('book',20)}<span>Libro de reclamaciones</span>${ic('chev',17)}</button></div>${st.registered?'<button class="logout" data-logout="1">Cerrar sesión</button>':''}</div>`}
 function splash(){return `<div class="splash b3-splash" aria-label="Pollos B3, la pollería más viral de Santa Anita">
   <div class="b3-splash-halo" aria-hidden="true"></div>
   <img class="b3-splash-logo" src="images/pollosb3-header-logo.png" alt="Pollos B3">
   <h1 class="b3-splash-slogan"><span>LA POLLERÍA MÁS VIRAL DE</span><strong>SANTA ANITA</strong></h1>
   <div class="b3-splash-loading"><span>PREPARANDO TU CARTA...</span><div class="b3-splash-track" role="progressbar" aria-label="Preparando la carta"><i></i></div></div>
 </div>`}
-function login(){return `<div class="login"><div class="login-photo">${products.length?img(products[0]):'<img src="images/pollosb3-header-logo.png" alt="Pollos B3" loading="eager">'}</div><div class="login-body"><h1>Bienvenido a <em>Pollos B3</em></h1><p>Tu pollo favorito está a unos toques de distancia.</p><button class="primary" data-screen="signin-phone">${ic('phone')} Continuar con número</button><button class="outline" data-screen="signin-email">${ic('mail')} Continuar con correo</button><button class="outline facebook" data-social="facebook"><b>f</b> Continuar con Facebook</button><span class="or">o</span><button class="guest" data-guest="1">Continuar como invitado</button><small class="hint">Accesos de demostración. No ingreses contraseñas reales.</small></div></div>`}
+function login(){return `<div class="login"><div class="login-photo">${products.length?img(products[0]):'<img src="images/pollosb3-header-logo.png" alt="Pollos B3" loading="eager">'}</div><div class="login-body"><h1>Bienvenido a <em>Pollos B3</em></h1><p>Tu pollo favorito está a unos toques de distancia.</p><button class="primary" data-screen="signin-phone">${ic('phone')} Continuar con número</button><button class="outline b3-google-btn" data-google-login="1" ${googleSignInPending?'disabled':''}><span class="b3-google-mark" aria-hidden="true">G</span> ${googleSignInPending?'Conectando con Google...':'Continuar con Google'}</button><span class="or">o</span><button class="guest" data-guest="1">Continuar como invitado</button><small class="hint">Google verifica tu identidad. El acceso con número sigue en modo de prueba.</small></div></div>`}
 function heading(title,back){return `<div class="screen-heading"><button aria-label="Regresar" data-screen="${back||'app'}">${ic('back')}</button>${title?`<h1>${esc(title)}</h1>`:''}</div>`}
 function choice(){return `<div class="page">${heading('Cómo recibir tu pedido','app')}<p class="sub">Puedes modificar esta selección antes de pagar.</p><div class="choice-list">${[['delivery','bike','Pollo Delivery','Te lo llevamos'],['pickup','store','Pide y Retira','Elige dónde recoger']].map(([m,icon,title,desc])=>`<button data-mode="${m}">${ic(icon,34)}<div><b>${title}</b><span>${desc}</span></div>${ic('chev')}</button>`).join('')}</div></div>`}
 function locations(){
@@ -2160,8 +2196,8 @@ function privacyScreen(){
  return `<div class="page b3-privacy-page">${heading('Privacidad y protección de datos','app')}
  <div class="b3-privacy-intro">${ic('shield',28)}<div><h2>Tú controlas tu información</h2><p>Conoce qué guarda este piloto de Pollos B3 y cómo administrarlo.</p></div></div>
  <section class="b3-privacy-section"><h3>¿Qué datos utiliza la app?</h3><p>Los datos que ingreses voluntariamente en Mi perfil y durante la preparación de pedidos: nombre, apellidos, celular, correo, fecha de nacimiento opcional, direcciones y referencias de entrega. También se conserva el carrito y la actividad de demostración en este dispositivo.</p><p>No es necesario registrarse para explorar la carta.</p></section>
- <section class="b3-privacy-section"><h3>¿Para qué se usan?</h3><p>Para completar formularios con mayor facilidad, elegir direcciones y preparar pedidos. Esta versión piloto no procesa pedidos ni cobros reales, y no sincroniza tu perfil o tus direcciones con una cuenta en línea.</p></section>
- <section class="b3-privacy-section"><h3>Almacenamiento y servicios externos</h3><p>Los datos del perfil, las direcciones guardadas y tus preferencias se almacenan localmente en la aplicación mediante el almacenamiento del dispositivo. No se cifran de forma independiente dentro de ese almacenamiento ni existe todavía una cuenta remota para sincronizarlos.</p><p>Al consultar el catálogo o solicitar una cotización de Delivery, la aplicación puede comunicarse con el servidor de Pollos B3. La dirección de entrega introducida para cotizar puede enviarse al servidor y utilizarse para consultar rutas. Las consultas no se realizan simplemente por guardar una dirección.</p></section>
+ <section class="b3-privacy-section"><h3>¿Para qué se usan?</h3><p>Para completar formularios con mayor facilidad, elegir direcciones y preparar pedidos. Google puede autenticar tu cuenta mediante Firebase Authentication; el perfil, las direcciones y los pedidos de la app todavía no se sincronizan con Firebase ni con una cuenta del Administrador.</p></section>
+ <section class="b3-privacy-section"><h3>Almacenamiento y servicios externos</h3><p>Los datos del perfil, las direcciones guardadas y tus preferencias se almacenan localmente en la aplicación mediante el almacenamiento del dispositivo. No se cifran de forma independiente dentro de ese almacenamiento. Si eliges Google, Firebase Authentication mantiene la sesión nativa; esto no sincroniza el historial ni las direcciones locales.</p><p>Al consultar el catálogo o solicitar una cotización de Delivery, la aplicación puede comunicarse con el servidor de Pollos B3. La dirección de entrega introducida para cotizar puede enviarse al servidor y utilizarse para consultar rutas. Las consultas no se realizan simplemente por guardar una dirección.</p></section>
  <section class="b3-privacy-section"><h3>Ubicación y permisos</h3><p>La ubicación GPS es opcional. Se solicita permiso cuando eliges utilizar tu ubicación; puedes rechazarlo y escribir la dirección manualmente. Podrás administrar los permisos desde los ajustes de Android.</p></section>
  <section class="b3-privacy-section"><h3>Publicidad y comunicaciones</h3><p>El consentimiento para ofertas y novedades es opcional y está desactivado por defecto. Puedes cambiarlo desde Mi perfil. Guardarlo aquí no activa envíos de WhatsApp, SMS o notificaciones promocionales.</p><button class="b3-privacy-secondary" data-screen="profile">Administrar consentimiento ${ic('chev',15)}</button></section>
  <section class="b3-privacy-section"><h3>Tus derechos</h3><p>En Perú, la Ley N.° 29733 reconoce derechos relacionados con el tratamiento de datos personales, incluidos acceso, rectificación, cancelación y oposición, conforme a la normativa aplicable.</p><p>Antes de lanzar cuentas y pedidos reales, Pollos B3 deberá publicar su política de privacidad definitiva, identificar al responsable y facilitar un canal verificable para ejercer estos derechos. Esta explicación del piloto no sustituye esa política legal.</p><button class="b3-privacy-secondary" data-privacy-law="1">Consultar normativa peruana ${ic('chev',15)}</button></section>
@@ -2375,7 +2411,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-google-login],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -2546,7 +2582,7 @@ if(b.dataset.screen){
  if(checkoutPending&&!['choice','locations','deliveryAddress'].includes(b.dataset.screen))checkoutPending=false;
  screen(b.dataset.screen);return;
 }
-if(b.hasAttribute('data-guest')){st.registered=false;enterApp();return}
+if(b.hasAttribute('data-guest')){if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=false;st.authProvider='guest';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';save();enterApp();return}
 if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
 if(b.dataset.store){void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
@@ -2643,9 +2679,9 @@ if(b.hasAttribute('data-phone-next')){
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
 if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
 if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
-if(b.dataset.social){toast('Facebook requiere una integración real. Usa invitado para probar.');return}
-if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin==='phone'?!/^9\d{8}$/.test(x):!/^\S+@\S+\.\S+$/.test(x))return toast('Completa el dato con un formato válido');st.registered=true;if(b.dataset.demoSignin==='phone')st.profile.phone=x;else st.profile.email=x;save();enterApp();return}
-if(b.hasAttribute('data-logout')){st.registered=false;save();render();return}
+if(b.hasAttribute('data-google-login')){if(googleSignInPending)return;if(!window.AndroidBridge?.signInWithGoogle){toast('El acceso con Google requiere la app Android actualizada.');return}googleSignInPending=true;render();window.AndroidBridge.signInWithGoogle();return}
+if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin!=='phone'||!/^9\d{8}$/.test(x))return toast('Completa un celular peruano de 9 dígitos');if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=true;st.authProvider='demo-phone';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';st.profile.phone=x;save();enterApp();return}
+if(b.hasAttribute('data-logout')){if(st.authProvider==='google'){window.AndroidBridge?.signOutGoogle?.();return}st.registered=false;st.authProvider='';st.authUid='';save();render();return}
 if(b.dataset.openmaps){if(window.AndroidBridge?.openMaps)window.AndroidBridge.openMaps(b.dataset.openmaps);else window.open(b.dataset.openmaps,'_blank');return}
 if(b.hasAttribute('data-clear')){
  void confirmB3({title:'¿Eliminar datos de prueba?',
@@ -2877,6 +2913,7 @@ window.handleB3Back=()=>{
   screen(previous[st.stage]||'app');return true
 };
 render();
+window.AndroidBridge?.requestGoogleAuthState?.();
 const activeAtLaunch=window.B3OrderAvailability?.readInteraction?.();
 if(activeAtLaunch&&['PENDING','SUBMITTING','ACCEPTED'].includes(activeAtLaunch.status))
  window.AndroidBridge?.requestPersonalPushToken?.();

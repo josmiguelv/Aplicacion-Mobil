@@ -15,6 +15,22 @@ import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import androidx.credentials.Credential;
+import androidx.credentials.CredentialManager;
+import androidx.credentials.CredentialManagerCallback;
+import androidx.credentials.CustomCredential;
+import androidx.credentials.GetCredentialRequest;
+import androidx.credentials.GetCredentialResponse;
+import androidx.credentials.ClearCredentialStateRequest;
+import androidx.credentials.exceptions.GetCredentialException;
+import androidx.credentials.exceptions.GetCredentialCancellationException;
+import androidx.credentials.exceptions.ClearCredentialException;
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.auth.GoogleAuthProvider;
+import android.os.CancellationSignal;
 import android.provider.Settings;
 import android.view.View;
 import android.webkit.JavascriptInterface;
@@ -50,6 +66,7 @@ public class MainActivity extends Activity {
     private boolean resumeLocationAfterSettings = false;
     private boolean appLinkPageReady = false;
     private boolean pendingOpenHome = false;
+    private boolean googleSignInRunning = false;
     private static final String LOCAL_APP_URL = "https://appassets.androidplatform.net/assets/index.html";
 
     /** Accept only the exact Pollos B3 HTTPS entry point; never redirect arbitrary URLs. */
@@ -146,7 +163,125 @@ public class MainActivity extends Activity {
             sendMarketingStatus(ok,ok?"Avisos promocionales activados.":"No se pudo activar. Vuelve a intentarlo.");
         });
     }
+    /** Only verified Firebase identity metadata reaches the local UI: no ID tokens or secrets. */
+    private void sendGoogleAuth(String status, String message, FirebaseUser user) {
+        JSONObject result = new JSONObject();
+        try {
+            result.put("status", status);
+            result.put("message", message);
+            if ("SIGNED_IN".equals(status) && user != null && user.isEmailVerified()) {
+                result.put("uid", user.getUid());
+                result.put("displayName", user.getDisplayName() == null ? "" : user.getDisplayName());
+                result.put("email", user.getEmail() == null ? "" : user.getEmail());
+                result.put("emailVerified", true);
+            }
+        } catch (Exception ignored) {}
+        final String json = result.toString();
+        runOnUiThread(() -> {
+            if (web != null) web.evaluateJavascript(
+                "window.b3GoogleAuthResult && window.b3GoogleAuthResult(" + json + ")", null);
+        });
+    }
+
+    /** The button launches native Google Credential Manager, never a WebView OAuth popup. */
+    private void startGoogleSignIn() {
+        if (googleSignInRunning) return;
+        String webClientId = getString(R.string.b3_google_web_client_id).trim();
+        if (!webClientId.matches("[0-9]+-[A-Za-z0-9_-]+\\.apps\\.googleusercontent\\.com")) {
+            sendGoogleAuth("ERROR", "Google aún no está configurado en Pollos B3.", null);
+            return;
+        }
+        googleSignInRunning = true;
+        try {
+            GetSignInWithGoogleOption option = new GetSignInWithGoogleOption.Builder(webClientId).build();
+            GetCredentialRequest request = new GetCredentialRequest.Builder()
+                .addCredentialOption(option).build();
+            CredentialManager.create(this).getCredentialAsync(
+                this, request, new CancellationSignal(), getMainExecutor(),
+                new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>() {
+                    @Override public void onResult(GetCredentialResponse response) {
+                        Credential credential = response.getCredential();
+                        if (!(credential instanceof CustomCredential) ||
+                            !GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(credential.getType())) {
+                            googleSignInRunning = false;
+                            sendGoogleAuth("ERROR", "No recibimos una cuenta de Google válida.", null);
+                            return;
+                        }
+                        try {
+                            GoogleIdTokenCredential token = GoogleIdTokenCredential.createFrom(
+                                ((CustomCredential) credential).getData());
+                            FirebaseAuth.getInstance().signInWithCredential(
+                                GoogleAuthProvider.getCredential(token.getIdToken(), null))
+                                .addOnCompleteListener(MainActivity.this, task -> {
+                                    googleSignInRunning = false;
+                                    FirebaseUser user = task.isSuccessful()
+                                        ? FirebaseAuth.getInstance().getCurrentUser() : null;
+                                    if (user != null && user.isEmailVerified()) {
+                                        sendGoogleAuth("SIGNED_IN", "", user);
+                                    } else {
+                                        FirebaseAuth.getInstance().signOut();
+                                        sendGoogleAuth("ERROR", "No se pudo verificar la cuenta de Google.", null);
+                                    }
+                                });
+                        } catch (Exception ignored) {
+                            googleSignInRunning = false;
+                            sendGoogleAuth("ERROR", "No se pudo procesar la identidad de Google.", null);
+                        }
+                    }
+                    @Override public void onError(GetCredentialException error) {
+                        googleSignInRunning = false;
+                        if (error instanceof GetCredentialCancellationException)
+                            sendGoogleAuth("CANCELLED", "", null);
+                        else sendGoogleAuth("ERROR", "No se pudo iniciar sesión con Google. Comprueba tu conexión y la configuración.", null);
+                    }
+                });
+        } catch (Exception ignored) {
+            googleSignInRunning = false;
+            sendGoogleAuth("ERROR", "Google no está disponible en este dispositivo.", null);
+        }
+    }
+
+    private void refreshGoogleAuthState() {
+        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        if (user == null) {
+            sendGoogleAuth("SIGNED_OUT", "", null);
+            return;
+        }
+        // Force server validation once per app start, never trust local WebView flags.
+        user.getIdToken(true).addOnCompleteListener(MainActivity.this, task -> {
+            FirebaseUser verified = FirebaseAuth.getInstance().getCurrentUser();
+            if (task.isSuccessful() && verified != null && verified.isEmailVerified()) {
+                sendGoogleAuth("SIGNED_IN", "", verified);
+            } else {
+                FirebaseAuth.getInstance().signOut();
+                sendGoogleAuth("SIGNED_OUT", "", null);
+            }
+        });
+    }
+
+    private void signOutGoogle() {
+        FirebaseAuth.getInstance().signOut();
+        sendGoogleAuth("SIGNED_OUT", "", null);
+        try {
+            CredentialManager.create(this).clearCredentialStateAsync(
+                new ClearCredentialStateRequest(), null, getMainExecutor(),
+                new CredentialManagerCallback<Void, ClearCredentialException>() {
+                    @Override public void onResult(Void unused) {}
+                    @Override public void onError(ClearCredentialException ignored) {}
+                });
+        } catch (Exception ignored) {}
+    }
+
     private final class Bridge {
+        @JavascriptInterface public void signInWithGoogle() {
+            runOnUiThread(() -> startGoogleSignIn());
+        }
+        @JavascriptInterface public void requestGoogleAuthState() {
+            runOnUiThread(() -> refreshGoogleAuthState());
+        }
+        @JavascriptInterface public void signOutGoogle() {
+            runOnUiThread(() -> MainActivity.this.signOutGoogle());
+        }
         @JavascriptInterface public void setSplash(final boolean splash) {
             runOnUiThread(() -> {
                 getWindow().setStatusBarColor(splash ? Color.rgb(9, 0, 1) : Color.WHITE);
