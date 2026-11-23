@@ -473,6 +473,17 @@
     return data;
   }
   const SERIES_KEY='b3-mobile-rejected-stores-v1';
+  // A rejected interaction is terminal. Dismiss only the local checkout record
+  // after an explicit customer navigation; never cancel/reopen it on the server.
+  function dismissRejectedInteraction(interactionId){
+    const entry=readInteraction();
+    if(entry?.status!=='REJECTED'||!UUID.test(interactionId)||
+       entry.interactionId!==interactionId)return false;
+    root.localStorage.removeItem(INTERACTION_KEY);
+    // A new order is a new consultation, even if the address and store match.
+    root.localStorage.removeItem(SERIES_KEY);
+    return true;
+  }
   function rejectedStores(fingerprint){
     try{
       const data=JSON.parse(root.localStorage.getItem(SERIES_KEY)||'null');
@@ -633,5 +644,5 @@
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
-    rejectedStores,markRejectedStore,eraseLocalIdentity});
+    rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
