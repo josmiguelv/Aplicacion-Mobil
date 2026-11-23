@@ -2264,6 +2264,11 @@ function checkoutSnapshot(){
   items:st.cart.map(x=>{const p=product(x.id);return [x.id,x.qty,p?.price??'missing'].join(':')}).join('|')};
 }
 function finalizeDemoOrder(){
+ // A scheduled preference is never a valid order without server slot approval.
+ if(st.orderTiming==='SCHEDULED'){
+  checkoutReviewNote='Los pedidos programados aún no pueden confirmarse.';
+  screen('choice');return;
+ }
  const issue=checkoutCartIssue();if(issue){checkoutReviewNote=issue;screen('cart');return}
  if(st.mode==='delivery'&&!deliveryQuoteValid()){checkoutReviewNote='La sede debe validar disponibilidad y tarifa antes de continuar.';screen('availability');return}
  if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){checkoutReviewNote='El local de recojo ya no está disponible.';screen('locations');return}
