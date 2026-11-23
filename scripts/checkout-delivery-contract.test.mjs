@@ -419,11 +419,11 @@ test('avisos animados: un nuevo aviso cancela el cierre anterior sin reconstruir
   ic:()=>'<svg></svg>',
   render:()=>events.push('render')
  };
- const toastBlock=source.match(/let noticeTimer=null,[\\s\\S]*?(?=function activePersonalCheckout\\()/)?.[0];
+ const toastBlock=source.match(/let noticeTimer=null,[\s\S]*?(?=function activePersonalCheckout\()/)?.[0];
  assert.ok(toastBlock,'Debe existir el gestor independiente de avisos');
  vm.runInNewContext(toastBlock,context);
- assert.match(source,/if\\(st\\.cart\\.length\\)queueNotice\\('Al cambiar de modalidad/);
- assert.match(source,/if\\(st\\.cart\\.length\\)queueNotice\\('Modalidad modificada/);
+ assert.match(source,/if\(st\.cart\.length\)queueNotice\('Al cambiar de modalidad/);
+ assert.match(source,/if\(st\.cart\.length\)queueNotice\('Modalidad modificada/);
  context.queueNotice('Primera modalidad');
  assert.equal(nodes.length,1);
  assert.equal(timers.size,1);
