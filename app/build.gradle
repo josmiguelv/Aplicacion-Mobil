@@ -6,9 +6,7 @@ plugins {
     id 'com.google.gms.google-services'
 }
 
-// Edit only <project>/.env to point Android at a different Administrador API.
-// The .env file is local and ignored by Git; CI uses .env.example unless
-// B3_API_BASE is provided as a Gradle property or environment variable.
+// Configure Android with a single local .env, never embed API secrets in the APK.
 def readEnv = { File file ->
     def values = new Properties()
     if (file.isFile()) file.withInputStream { stream -> values.load(stream) }
@@ -32,38 +30,10 @@ if (apiUri.scheme != 'https' || !apiUri.host || apiUri.rawUserInfo != null ||
         (apiUri.rawPath && apiUri.rawPath != '/')) {
     throw new GradleException('B3_API_BASE debe ser un origen HTTPS sin ruta, parámetros ni credenciales (ej. https://api.ejemplo.com).')
 }
-apiBase = apiUri.toString().replaceAll('/+
+apiBase = apiUri.toString().replaceAll('/+$', '')
 
-android {
-    namespace 'com.integrab2g.pollosb3'
-    compileSdk 35
-
-    defaultConfig {
-        applicationId 'com.integrab2g.pollosb3'
-        minSdk 24
-        targetSdk 35
-        versionCode 19
-        versionName '1.9.0-b3-fulfillment'
-
-        // One origin for all Android API calls (catalog, quotes, orders, FORM, notifications).
-        resValue 'string', 'b3_api_base', apiBase
-        resValue 'string', 'b3_notifications_api_base', apiBase
-        resValue 'string', 'b3_google_web_client_id', googleClientId
-    }
-}
-
-dependencies {
-    implementation 'androidx.webkit:webkit:1.14.0'
-    implementation platform('com.google.firebase:firebase-bom:35.2.0')
-    implementation 'com.google.firebase:firebase-messaging'
-    implementation 'com.google.firebase:firebase-auth'
-    implementation 'androidx.credentials:credentials:1.3.0'
-    implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
-    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1
-}
-, '')
-// Public OAuth Web client ID. Not a secret; never embed client secrets in Android.
-// Keep optional so existing APK builds continue while Google Auth is configured.
+// Public OAuth Web client ID, NOT an OAuth client secret.
+// Empty disables Google login but keeps the existing APK build working.
 def configuredGoogleId = project.findProperty('B3_GOOGLE_WEB_CLIENT_ID') ?:
         System.getenv('B3_GOOGLE_WEB_CLIENT_ID') ?:
         (localEnvFile.isFile() ? localEnv.getProperty('B3_GOOGLE_WEB_CLIENT_ID') : exampleEnv.getProperty('B3_GOOGLE_WEB_CLIENT_ID'))
@@ -83,9 +53,9 @@ android {
         versionCode 19
         versionName '1.9.0-b3-fulfillment'
 
-        // One origin for all Android API calls (catalog, quotes, orders, FORM, notifications).
         resValue 'string', 'b3_api_base', apiBase
         resValue 'string', 'b3_notifications_api_base', apiBase
+        resValue 'string', 'b3_google_web_client_id', googleClientId
     }
 }
 
@@ -93,4 +63,8 @@ dependencies {
     implementation 'androidx.webkit:webkit:1.14.0'
     implementation platform('com.google.firebase:firebase-bom:35.2.0')
     implementation 'com.google.firebase:firebase-messaging'
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'androidx.credentials:credentials:1.3.0'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
 }
