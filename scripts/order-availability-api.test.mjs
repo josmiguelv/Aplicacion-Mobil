@@ -766,3 +766,62 @@ test('pedido rechazado se descarta solo localmente y permite una NUEVA interacci
  assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_STATUS'],
   'el cierre local nunca llama a DELETE, CANCEL ni hace POST automatico');
 });
+
+test('cierre confirmado por TU VERSO libera solicitud pendiente, incluso sin historial',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ for(const closure of [{conversationState:'CLOSED'},{operationalConversationStatus:'CLOSED'},
+   {operationalConversationStatus:'RESOLVED'}]){
+  const c=client(req=>req.operation==='INTERACTION_CREATE'?
+   {requestId:req.requestId,status:201,data:{interactionId,storeId,status:'PENDING',externalReference:'mobile:ref'}}:
+   {requestId:req.requestId,status:200,data:{interactionId,storeId,status:'PENDING',
+    agentMessages:[],messagesAvailable:false,...closure}});
+  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+   items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
+  await c.api.createInteraction(entry);
+  const result=await c.api.pollInteraction(entry);
+  assert.equal(result.clientStatus,'REJECTED',JSON.stringify(closure));
+  assert.equal(result.decision,'REJECTED',JSON.stringify(closure));
+  assert.equal(c.api.readInteraction().rejectionReason,'AGENT_CLOSED_UNCONFIRMED');
+  assert.deepEqual(c.requests.map(x=>x.operation),['INTERACTION_CREATE','INTERACTION_STATUS']);
+ }
+});
+
+test('conversación OPEN o UNKNOWN no se interpreta como cerrada sin evidencia',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ for(const state of ['OPEN','UNKNOWN']){
+  const c=client(req=>req.operation==='INTERACTION_CREATE'?
+   {requestId:req.requestId,status:201,data:{interactionId,storeId,status:'PENDING',externalReference:'mobile:ref'}}:
+   {requestId:req.requestId,status:200,data:{interactionId,storeId,status:'PENDING',
+    agentMessages:[],messagesAvailable:false,conversationState:state}});
+  const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+   items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
+  await c.api.createInteraction(entry);
+  const result=await c.api.pollInteraction(entry);
+  assert.equal(result.clientStatus,'PENDING');
+  assert.equal(result.decision,null);
+ }
+});
+
+test('cierre confirmado conserva aceptación comercial previa y no inventa rechazo',async()=>{
+ const storeId='f163f181-2c7e-40ec-87af-68f4675d059c';
+ const interactionId='3a122e61-0434-4ec7-8e2e-435524d547a3';
+ const approved='1e96145a-90e3-4836-9e69-399312c89b11';
+ let polls=0;
+ const c=client(req=>{
+  if(req.operation==='INTERACTION_CREATE')
+   return {requestId:req.requestId,status:201,data:{interactionId,storeId,status:'PENDING',externalReference:'mobile:ref'}};
+  polls++;
+  return {requestId:req.requestId,status:200,data:{interactionId,storeId,status:'PENDING',
+   agentMessages:polls===1?[{id:approved,text:'aceptado',createdAt:'2026-11-21T18:30:00Z'}]:[],
+   messagesAvailable:polls===1,conversationState:polls===1?'OPEN':'CLOSED'}};
+ });
+ const entry=c.api.prepareInteraction({appId:'com.integrab2g.pollosb3',storeId,catalogRevision:18,
+  items:[{productId,quantity:1}],address:'Av. Ejemplo 123',district:'Santa Anita'});
+ await c.api.createInteraction(entry);
+ assert.equal((await c.api.pollInteraction(entry)).clientStatus,'ACCEPTED');
+ const closed=await c.api.pollInteraction(entry);
+ assert.equal(closed.clientStatus,'ACCEPTED');
+ assert.equal(closed.decision,'ACCEPTED');
+});
