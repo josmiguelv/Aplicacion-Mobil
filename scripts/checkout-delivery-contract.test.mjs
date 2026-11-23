@@ -458,8 +458,11 @@ test('el banner no mantiene un pedido pendiente cuando la conversación termina 
  assert.equal(run('EXPIRED'),'');
 });
 
-test('selector presenta ahora y programar sin inventar disponibilidad futura',()=>{
- const context={st:{orderTiming:'SCHEDULED',scheduledDate:'2026-11-25',scheduledTime:'19:30'},esc:x=>String(x),ic:()=>'<svg></svg>'};
+test('selector programado permite consultar solo horarios preliminares del Administrador',()=>{
+ const st={orderTiming:'SCHEDULED',scheduledDate:'2026-11-25',scheduledTime:'19:30',mode:'pickup',store:'store'};
+ const context={st,shops:[{id:'store',active:true,pickup_enabled:true}],
+  reservationSlots:{storeId:'store',mode:'pickup',date:'2026-11-25',slots:[{time:'19:30',scheduledAt:'2026-11-26T00:30:00.000Z'}]},
+  reservationSlotsPending:false,reservationSlotsError:'',esc:x=>String(x),ic:()=>'<svg></svg>'};
  vm.runInNewContext(extract('orderTimingSelector'),context);
  const html=context.orderTimingSelector();
  assert.match(html,/Lo antes posible/);
@@ -467,10 +470,20 @@ test('selector presenta ahora y programar sin inventar disponibilidad futura',()
  assert.match(html,/2026-11-25/);
  assert.match(html,/19:30/);
  assert.match(html,/No se enviará ninguna reserva/);
- assert.match(html,/data-order-timing-save/);
+ assert.match(html,/data-reservation-check/);
+ assert.match(html,/data-reservation-slot/);
+ assert.doesNotMatch(html,/data-order-timing-save/);
  assert.doesNotMatch(html,/reserva confirmada/i);
 });
-
+test('selector delivery no presenta cupos ficticios ni crea pedidos',()=>{
+ const context={st:{orderTiming:'SCHEDULED',scheduledDate:'2026-11-25',mode:'delivery',store:''},
+  reservationSlots:null,shops:[],reservationSlotsPending:false,reservationSlotsError:'',
+  esc:x=>String(x),ic:()=>'<svg></svg>'};
+ vm.runInNewContext(extract('orderTimingSelector'),context);
+ const html=context.orderTimingSelector();
+ assert.match(html,/tarifa, cobertura y atención/);
+ assert.doesNotMatch(html,/data-reservation-slot/);
+});
 test('programar impide iniciar checkout y conserva carrito sin emitir reservas',()=>{
  const calls=[],st={orderTiming:'SCHEDULED',cart:[{id:'p',qty:1}],mode:'pickup'};
  const context={st,toast:x=>calls.push('TOAST:'+x),screen:x=>calls.push('SCREEN:'+x),checkoutCartIssue:()=>{throw Error('No debe ejecutarse')}};
@@ -501,4 +514,39 @@ test('programar no puede finalizar pedido simulado como si fuese una reserva rea
  assert.deepEqual(calls,['choice']);
  assert.equal(st.orders.length,0);
  assert.equal(st.cart.length,1);
+});
+
+test('FORM para reservas contiene exactamente cuatro campos acordados y modalidad correcta',()=>{
+ const products=[{id:'api:00000000-0000-4000-8000-000000000001',
+  isPublished:true,disabled:false,name:'Pollo a la Brasa',price:40}];
+ const testMode=mode=>{
+  const st={orderTiming:'SCHEDULED',scheduledDate:'2026-11-25',
+   scheduledTime:'19:30',mode};
+  const context={st,product:id=>products.find(p=>p.id===id),
+   publishedOrderItems:()=>[{productId:'00000000-0000-4000-8000-000000000001',quantity:2}],
+   subtotal:()=>80,cash:n=>'S/ '+Number(n).toFixed(2)};
+  vm.runInNewContext(extract('scheduledOrderTicketForm'),context);
+  return JSON.parse(JSON.stringify(context.scheduledOrderTicketForm()));
+ };
+ for(const mode of ['delivery','pickup']){
+  const form=testMode(mode);
+  assert.equal(form.title,'RESERVA DE PEDIDO');
+  assert.equal(form.subtitle,'Confirmar pedido programado - '+(mode==='delivery'?'Delivery':'Recojo en tienda'));
+  assert.deepEqual(form.fields.map(x=>x.variable),
+   ['Fecha solicitada','Hora solicitada','Productos','Subtotal']);
+  assert.equal(form.fields[0].value,'25/11/2026');
+  assert.equal(form.fields[1].value,'7:30 p. m.');
+  assert.match(form.fields[2].value,/Pollo a la Brasa/);
+  assert.doesNotMatch(JSON.stringify(form),/Dirección y referencia|Sede seleccionada/);
+ }
+});
+test('delivery programado nunca inicia solicitud inmediata ni consulta TU VERSO',async()=>{
+ const calls=[],context={
+  st:{orderTiming:'SCHEDULED'},deliveryRequestPending:false,deliveryRequestError:'',
+  fulfillmentModal:null,render:()=>calls.push('render')};
+ vm.runInNewContext(extract('resolveDelivery'),context);
+ assert.equal(await context.resolveDelivery(),false);
+ assert.equal(context.fulfillmentModal,'delivery');
+ assert.deepEqual(calls,['render']);
+ assert.match(context.deliveryRequestError,/No enviaremos un pedido inmediato/);
 });
