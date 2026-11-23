@@ -55,6 +55,8 @@ let addressEditId=null;
 let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let fulfillmentOutcomeNote=''; // Terminal outcome only; never initiates a new request.
+let reservationSlots=null,reservationSlotsPending=false,reservationSlotsError='',reservationSlotsGeneration=0;
+function resetReservationSlots(){reservationSlotsGeneration++;reservationSlots=null;reservationSlotsPending=false;reservationSlotsError=''};
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
 let checkoutCancelInFlight=false; // prevent duplicate cancellation calls to the same request
 let checkoutRefreshPending=false,checkoutReviewNote=''; // fresh availability at each checkout gate
@@ -526,6 +528,58 @@ function deliveryOrderTicketForm(address,district){
     variable.length>80||value.length>500))
   throw Error('El formulario supera los límites permitidos de título, subtítulo o variables.');
  return {title,subtitle,fields};
+}
+// The scheduled FORM is prepared locally; it MUST NOT be sent until the
+// Administrator has certified future capacity, an agent, payment and reservation state.
+function scheduledOrderTicketForm(){
+ if(st.orderTiming!=='SCHEDULED'||!['delivery','pickup'].includes(st.mode)||
+    !/^\d{4}-\d{2}-\d{2}$/.test(st.scheduledDate||'')||
+    !/^([01]\d|2[0-3]):[0-5]\d$/.test(st.scheduledTime||''))
+  throw Error('Selecciona una fecha, hora y modalidad válidas.');
+ const lines=publishedOrderItems().map(({productId,quantity})=>{
+  const p=product('api:'+productId),price=Math.round(Number(p?.price)*100);
+  if(!p?.isPublished||p.disabled||!Number.isSafeInteger(price)||price<0)
+   throw Error('El FORM solo admite productos publicados.');
+  return quantity+' x '+p.name+' — '+cash(quantity*price/100);
+ });
+ const detail=lines.join('\n');
+ if(!detail||detail.length>500)throw Error('El detalle del FORM supera el límite permitido.');
+ const [y,m,d]=st.scheduledDate.split('-'),[h,min]=st.scheduledTime.split(':').map(Number);
+ const date=d+'/'+m+'/'+y,time=String(h%12||12)+':'+String(min).padStart(2,'0')+(h<12?' a. m.':' p. m.');
+ const fields=[{variable:'Fecha solicitada',value:date},
+  {variable:'Hora solicitada',value:time},
+  {variable:'Productos',value:detail},
+  {variable:'Subtotal',value:cash(subtotal())}];
+ if(fields.some(x=>x.value.length>500||!x.value.trim()))throw Error('El FORM supera sus límites.');
+ return {title:'RESERVA DE PEDIDO',
+  subtitle:'Confirmar pedido programado - '+(st.mode==='delivery'?'Delivery':'Recojo en tienda'),
+  fields};
+}
+async function checkScheduledSlots(){
+ if(st.orderTiming!=='SCHEDULED'||st.mode!=='pickup'||!st.store){
+  reservationSlotsError='Selecciona primero una sede de Recojo en tienda. Para Delivery se requiere la cotización de sede y tarifa futura desde el Administrador.';
+  render();return false;
+ }
+ const date=v('b3-scheduled-date');
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){
+  reservationSlotsError='Selecciona una fecha válida.';render();return false;
+ }
+ const run=++reservationSlotsGeneration;
+ reservationSlots=null;reservationSlotsPending=true;reservationSlotsError='';render();
+ try{
+  await fetchConfig({strict:true});
+  if(run!==reservationSlotsGeneration)return false;
+  const store=shops.find(s=>String(s.id)===String(st.store));
+  if(!store||store.active!==true||store.pickup_enabled!==true||store.reservationSettings?.enabled!==true)
+   throw Error('La sede no tiene pedidos programados habilitados para recojo.');
+  const data=await window.B3OrderAvailability.readReservationSlots({appId:APP_ID,storeId:st.store,date,mode:'pickup'});
+  if(run!==reservationSlotsGeneration)return false;
+  if(data.revision!==publishedRevision)throw Error('La carta cambió. Actualiza los horarios.');
+  reservationSlots=data;st.scheduledDate=date;st.scheduledTime='';save();return true;
+ }catch(e){
+  if(run===reservationSlotsGeneration)reservationSlotsError=e?.message||'No se pudieron consultar horarios.';
+  return false;
+ }finally{if(run===reservationSlotsGeneration){reservationSlotsPending=false;render()}}
 }
 function applyBackendQuote(result,entry,address,district){
  const fee=Number(result.deliveryFee),amount=Number(result.total),serverSubtotal=Number(result.subtotal);
