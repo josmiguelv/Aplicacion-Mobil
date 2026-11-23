@@ -682,7 +682,7 @@ test('Inicio despues de RECHAZADO limpia carrito y etiqueta sin tocar el servido
    stopAgentDecisionPoll:()=>effects.push('STOP'),save:()=>effects.push('SAVE'),
    resetDeliveryOrderContact:()=>{st.deliveryContactConfirmed=false;st.orderContactDraft=null;effects.push('RESET_CONTACT')},
    clearDeliveryAvailability:()=>effects.push('CLEAR'),render:()=>effects.push('RENDER'),
-   ic:()=>''};
+   ic:()=>'',scheduledReservationBanner:()=>''};
  vm.runInNewContext('let deliveryValidationGeneration=0,deliveryRequestPending=false,'+
   'deliveryRequestError="",checkoutRefreshPending=false,checkoutReviewNote="",'+
   'fulfillmentOutcomeNote="",checkoutPending=false,selectedHomeStore=null,'+

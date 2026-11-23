@@ -434,6 +434,64 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid store or app ID");
                         path = "/api/v1/mobile/stores/" + storeId +
                             "/agent-availability?appId=" + java.net.URLEncoder.encode(appId, "UTF-8");
+                    } else if ("RESERVATION_QUOTE".equals(operation) ||
+                               "RESERVATION_CREATE".equals(operation)) {
+                        JSONObject payload=request.optJSONObject("body");
+                        if(payload==null ||
+                           !payload.optString("appId","").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                           !("pickup".equals(payload.optString("mode")) || "delivery".equals(payload.optString("mode"))) ||
+                           !payload.optString("date","").matches("[0-9]{4}-[0-9]{2}-[0-9]{2}") ||
+                           !payload.optString("time","").matches("([01][0-9]|2[0-3]):[0-5][0-9]") ||
+                           payload.optInt("catalogRevision",0)<1)
+                            throw new IllegalArgumentException("Invalid scheduled request");
+                        if("RESERVATION_CREATE".equals(operation)){
+                            key=request.optString("idempotencyKey","");
+                            accessKey=request.optString("accessKey","");
+                            if(!key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                               !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                               accessKey.equalsIgnoreCase(key) ||
+                               !payload.optString("storeId","").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                               payload.optJSONArray("items")==null || payload.optJSONObject("customer")==null)
+                                throw new IllegalArgumentException("Invalid reservation create");
+                        }
+                        body=payload.toString();
+                        path="RESERVATION_QUOTE".equals(operation)?
+                            "/api/v1/mobile/reservations/quote":"/api/v1/mobile/reservations";
+                    } else if ("RESERVATION_RECOVER".equals(operation)) {
+                        String id=request.optString("idempotencyKey","");
+                        String appId=request.optString("appId","");
+                        accessKey=request.optString("accessKey","");
+                        if(!id.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                           !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                           !appId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}"))
+                            throw new IllegalArgumentException("Invalid reservation recovery");
+                        path="/api/v1/mobile/reservations/by-key/"+id+"?appId="+
+                             java.net.URLEncoder.encode(appId,"UTF-8");
+                    } else if ("RESERVATION_STATUS".equals(operation) ||
+                               "RESERVATION_PAYMENT".equals(operation) ||
+                               "RESERVATION_CANCEL".equals(operation)) {
+                        String id=request.optString("reservationId","");
+                        String appId=request.optString("appId","");
+                        accessKey=request.optString("accessKey","");
+                        if(!id.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                           !appId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                           !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid reservation tracking");
+                        path="/api/v1/mobile/reservations/"+id;
+                        if("RESERVATION_STATUS".equals(operation)){
+                            path+="?appId="+java.net.URLEncoder.encode(appId,"UTF-8");
+                        } else {
+                            path+="RESERVATION_PAYMENT".equals(operation)?"/payment":"/cancel";
+                            JSONObject payload=new JSONObject();
+                            payload.put("appId",appId);
+                            if("RESERVATION_PAYMENT".equals(operation)){
+                                String method=request.optString("method","");
+                                if(!java.util.Arrays.asList("yape","plin","card","cash").contains(method))
+                                    throw new IllegalArgumentException("Invalid scheduled payment selection");
+                                payload.put("method",method);
+                            }
+                            body=payload.toString();
+                        }
                     } else if ("RESERVATION_SLOTS".equals(operation)) {
                         String storeId = request.optString("storeId", "");
                         String appId = request.optString("appId", "");
@@ -571,9 +629,13 @@ public class MainActivity extends Activity {
                         connection.setReadTimeout("INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
                             "AGENT_AVAILABILITY".equals(operation) || "RESERVATION_SLOTS".equals(operation) ||
+                             "RESERVATION_STATUS".equals(operation) ||
+                             "RESERVATION_RECOVER".equals(operation) ||
                              "INTERACTION_STATUS".equals(operation) ||
                             "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
-                            "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
+                            "RESERVATION_QUOTE".equals(operation) || "RESERVATION_CREATE".equals(operation) ||
+                             "RESERVATION_PAYMENT".equals(operation) || "RESERVATION_CANCEL".equals(operation) ||
+                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
                             "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
                             "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);

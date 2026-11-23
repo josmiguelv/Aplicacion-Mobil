@@ -446,6 +446,7 @@ test('el banner no mantiene un pedido pendiente cuando la conversación termina 
  const run=status=>{
   const context={
    window:{B3OrderAvailability:{readInteraction:()=>({status})}},
+   scheduledReservationBanner:()=>'',
    ic:()=>'<svg></svg>'
   };
   vm.runInNewContext(extract('personalCheckoutBanner'),context);
@@ -460,10 +461,10 @@ test('el banner no mantiene un pedido pendiente cuando la conversación termina 
 
 test('selector programado permite consultar solo horarios preliminares del Administrador',()=>{
  const st={orderTiming:'SCHEDULED',scheduledDate:'2026-11-25',scheduledTime:'19:30',mode:'pickup',store:'store'};
- const context={st,shops:[{id:'store',active:true,pickup_enabled:true}],
+ const context={st,shops:[{id:'store',active:true,pickup_enabled:true,reservationSettings:{enabled:true,acceptingRequests:true}}],
   reservationSlots:{storeId:'store',mode:'pickup',date:'2026-11-25',slots:[{time:'19:30',scheduledAt:'2026-11-26T00:30:00.000Z'}]},
   reservationSlotsPending:false,reservationSlotsError:'',esc:x=>String(x),ic:()=>'<svg></svg>'};
- vm.runInNewContext(extract('orderTimingSelector'),context);
+ vm.runInNewContext(extract('reservationEnabledForSelection')+'\n'+extract('orderTimingSelector'),context);
  const html=context.orderTimingSelector();
  assert.match(html,/Lo antes posible/);
  assert.match(html,/Programar pedido/);
@@ -477,22 +478,26 @@ test('selector programado permite consultar solo horarios preliminares del Admin
 });
 test('selector delivery no presenta cupos ficticios ni crea pedidos',()=>{
  const context={st:{orderTiming:'SCHEDULED',scheduledDate:'2026-11-25',mode:'delivery',store:''},
-  reservationSlots:null,shops:[],reservationSlotsPending:false,reservationSlotsError:'',
+  reservationSlots:null,shops:[{id:'delivery-store',active:true,delivery_enabled:true,reservationSettings:{enabled:true,acceptingRequests:true}}],reservationSlotsPending:false,reservationSlotsError:'',
   esc:x=>String(x),ic:()=>'<svg></svg>'};
- vm.runInNewContext(extract('orderTimingSelector'),context);
+ vm.runInNewContext(extract('reservationEnabledForSelection')+'\n'+extract('orderTimingSelector'),context);
  const html=context.orderTimingSelector();
- assert.match(html,/tarifa, cobertura y atención/);
+ assert.match(html,/cobertura, tarifa y sede existentes/);
  assert.doesNotMatch(html,/data-reservation-slot/);
 });
-test('programar impide iniciar checkout y conserva carrito sin emitir reservas',()=>{
+test('no muestra Reserva si la sede no ha configurado o habilitado el servicio',()=>{
+ const context={st:{orderTiming:'NOW',mode:'pickup',store:'s'},shops:[{id:'s',active:true,pickup_enabled:true,reservationSettings:{enabled:false,acceptingRequests:false}}]};
+ vm.runInNewContext(extract('reservationEnabledForSelection')+'\n'+extract('orderTimingSelector'),context);
+ assert.equal(context.orderTimingSelector(),'');
+});
+test('programar dirige al flujo especializado y no inicia checkout inmediato',()=>{
  const calls=[],st={orderTiming:'SCHEDULED',cart:[{id:'p',qty:1}],mode:'pickup'};
- const context={st,toast:x=>calls.push('TOAST:'+x),screen:x=>calls.push('SCREEN:'+x),checkoutCartIssue:()=>{throw Error('No debe ejecutarse')}};
+ const context={st,startScheduledCheckout:()=>calls.push('scheduled-only'),checkoutCartIssue:()=>{throw Error('No ejecutar checkout inmediato')}};
  vm.runInNewContext(extract('startCheckout'),context);
  context.startCheckout();
- assert.deepEqual(calls.map(x=>x.slice(0,6)),['TOAST:','SCREEN']);
+ assert.deepEqual(calls,['scheduled-only']);
  assert.deepEqual(st.cart,[{id:'p',qty:1}]);
 });
-
 test('programar bloquea validación de pago sin llamar APIs de horario inmediato',async()=>{
  const calls=[],st={orderTiming:'SCHEDULED',mode:'delivery',cart:[{id:'p',qty:1}]};
  const context={st,checkoutRefreshPending:false,checkoutReviewNote:'',screen:x=>calls.push(x),

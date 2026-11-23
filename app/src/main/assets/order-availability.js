@@ -502,6 +502,8 @@
     root.localStorage.removeItem(INTERACTION_KEY);
     // A new order is a new consultation, even if the address and store match.
     root.localStorage.removeItem(SERIES_KEY);
+    root.localStorage.removeItem(RESERVATION_KEY);
+    root.localStorage.removeItem(RESERVATION_HISTORY_KEY);
     return true;
   }
   function rejectedStores(fingerprint){
@@ -664,9 +666,140 @@
     root.localStorage.removeItem(INTERACTION_KEY);
     root.localStorage.removeItem(SERIES_KEY);
   }
+  // Scheduled orders are server-owned and persist across Android restarts.
+  // Never reuse a NOW order or post another FORM on an uncertain response.
+  const RESERVATION_KEY='b3-mobile-scheduled-reservation-v1';
+  const RESERVATION_HISTORY_KEY='b3-mobile-scheduled-history-v1';
+  const statuses=new Set(['CREATING','FORM_UNCERTAIN','AWAITING_AGENT',
+    'AWAITING_PAYMENT','CONFIRMED','REJECTED','CANCELLED','EXPIRED']);
+  function readReservation(){
+    try {
+      const e=JSON.parse(root.localStorage.getItem(RESERVATION_KEY)||'null');
+      if(!e||!UUID.test(e.idempotencyKey)||!UUID.test(e.accessKey)||
+         !/^[A-Za-z0-9][A-Za-z0-9._-]{0,149}$/.test(e.appId)||
+         !e.body||typeof e.body!=='object'||(e.reservationId&&!UUID.test(e.reservationId)))return null;
+      return e;
+    }catch(_){return null;}
+  }
+  function readReservationHistory(){
+    try{
+     const entries=JSON.parse(root.localStorage.getItem(RESERVATION_HISTORY_KEY)||'[]');
+     return Array.isArray(entries)?entries.filter(e=>e&&UUID.test(e.reservationId)&&UUID.test(e.accessKey)).slice(0,20):[];
+    }catch(_){return [];}
+  }
+  function persistReservation(e){
+    root.localStorage.setItem(RESERVATION_KEY,JSON.stringify(e));
+    if(UUID.test(e.reservationId)){
+      const others=readReservationHistory().filter(x=>x.reservationId!==e.reservationId);
+      root.localStorage.setItem(RESERVATION_HISTORY_KEY,JSON.stringify([e,...others].slice(0,20)));
+    }
+    return e;
+  }
+  function openReservation(id){
+    if(!UUID.test(id))return null;
+    const current=activeReservation();
+    if(current&&current.reservationId!==id)throw Error('Primero completa o cancela la reserva activa.');
+    const prior=readReservationHistory().find(x=>x.reservationId===id);
+    if(!prior)return null;
+    persistReservation(prior);return prior;
+  }
+  function activeReservation(){
+    const e=readReservation();
+    return e&&!['REJECTED','CANCELLED','EXPIRED','CONFIRMED'].includes(e.status)?e:null;
+  }
+  function discardTerminalReservation(){
+    const e=readReservation();
+    if(!e||!['REJECTED','CANCELLED','EXPIRED','CONFIRMED'].includes(e.status))return false;
+    root.localStorage.removeItem(RESERVATION_KEY);return true;
+  }
+  function verifyQuote(input,data){
+    if(!data||data.revision!==input.catalogRevision||
+       data.mode!==input.mode||data.date!==input.date||data.time!==input.time||
+       !UUID.test(data.storeId)||data.agentAvailable!==true||
+       data.capacityAvailable!==true||data.provisional!==true||data.acceptingRequests!==true||
+       !Number.isInteger(data.preparationMinutes)||data.preparationMinutes<1||data.preparationMinutes>240||
+       !Number.isFinite(data.deliveryFeePen)||data.deliveryFeePen<0||
+       !Array.isArray(data.paymentMethods)||!data.paymentMethods.every(x=>['cash','yape','plin','card'].includes(x)))
+       throw Error('El Administrador no confirmó disponibilidad preliminar de la reserva.');
+    return data;
+  }
+  async function quoteReservation(body){
+    const response=await nativeRequest({operation:'RESERVATION_QUOTE',body});
+    if(Number(response.status)!==200)throw responseError(response,'No se pudo validar el horario programado');
+    return verifyQuote(body,response.data||{});
+  }
+  function prepareReservation(body,quoted){
+    const existing=activeReservation();
+    if(existing)throw Error('Tienes una reserva en validación. Consulta o cancela esa solicitud primero.');
+    verifyQuote(body,quoted);
+    if(body.storeId!==quoted.storeId||
+       body.mode==='delivery'&&body.expectedDeliveryFeePen!==Math.round(quoted.deliveryFeePen*100))
+      throw Error('La sede o tarifa de la reserva cambiaron. Revisa el importe.');
+    const pending={appId:body.appId,body,quote:quoted,idempotencyKey:uuid(),
+      accessKey:uuid(),status:'CREATING',reservationId:null,createdAt:Date.now()};
+    if(pending.idempotencyKey===pending.accessKey)pending.accessKey=uuid();
+    return persistReservation(pending);
+  }
+  function applyReservationResult(entry,response,{expectedStatus=[200,201,202]}={}){
+    if(!expectedStatus.includes(Number(response.status)))
+      throw responseError(response,'No se pudo comprobar la reserva');
+    const d=response.data||{};
+    if(!UUID.test(d.id)||d.storeId!==entry.body.storeId||
+       d.mode!==entry.body.mode||d.date!==entry.body.date||d.time!==entry.body.time||
+       !statuses.has(d.status)||!['NOT_SELECTED','AWAITING_VERIFICATION','VERIFIED','DUE_AT_RECEIPT'].includes(d.paymentStatus))
+       throw Error('El Administrador respondió una reserva diferente o incompatible.');
+    entry.reservationId=d.id;entry.status=d.status;entry.lastResult=d;
+    persistReservation(entry);
+    return d;
+  }
+  async function createReservation(entry){
+    if(!entry||!UUID.test(entry.idempotencyKey)||!UUID.test(entry.accessKey))
+      throw Error('No existe una solicitud programada.');
+    if(entry.reservationId)return statusReservation(entry);
+    let response;
+    try{response=await nativeRequest({operation:'RESERVATION_CREATE',body:entry.body,
+      idempotencyKey:entry.idempotencyKey,accessKey:entry.accessKey});}
+    catch(e){
+      entry.uncertain=true;persistReservation(entry);throw e;
+    }
+    if(Number(response.status)>=500){
+      entry.uncertain=true;persistReservation(entry);
+      throw responseError(response,'No se pudo verificar si se creó la reserva. Consulta el estado antes de volver a intentar.');
+    }
+    return applyReservationResult(entry,response,{expectedStatus:[200,201,202]});
+  }
+  async function recoverReservation(entry){
+    if(!entry||!UUID.test(entry.idempotencyKey))throw Error('Sin solicitud para recuperar.');
+    const response=await nativeRequest({operation:'RESERVATION_RECOVER',
+      idempotencyKey:entry.idempotencyKey,appId:entry.appId,accessKey:entry.accessKey});
+    if(Number(response.status)!==200)
+      throw responseError(response,'No encontramos una solicitud confirmada. No generaremos una segunda reserva.');
+    return applyReservationResult(entry,response);
+  }
+  async function statusReservation(entry){
+    if(!entry)return null;
+    if(!entry.reservationId)return recoverReservation(entry);
+    const response=await nativeRequest({operation:'RESERVATION_STATUS',
+      reservationId:entry.reservationId,appId:entry.appId,accessKey:entry.accessKey});
+    return applyReservationResult(entry,response);
+  }
+  async function payReservation(entry,method){
+    if(!entry?.reservationId||entry.status!=='AWAITING_PAYMENT'||
+       !['cash','yape','plin','card'].includes(method))throw Error('Método o estado de pago inválido.');
+    const response=await nativeRequest({operation:'RESERVATION_PAYMENT',
+      reservationId:entry.reservationId,appId:entry.appId,accessKey:entry.accessKey,method});
+    return applyReservationResult(entry,response);
+  }
+  async function cancelReservation(entry){
+    if(!entry?.reservationId||entry.status==='CONFIRMED')throw Error('La reserva confirmada se gestiona con el local.');
+    const response=await nativeRequest({operation:'RESERVATION_CANCEL',
+      reservationId:entry.reservationId,appId:entry.appId,accessKey:entry.accessKey});
+    return applyReservationResult(entry,response);
+  }
+
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
-  root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
-    checkAgentAvailability,readReservationSlots,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
+  root.B3OrderAvailability = Object.freeze({getExternalCustomerId:externalCustomerId,prepare,execute,clear,read,checkConnection,
+    checkAgentAvailability,readReservationSlots,readReservation,readReservationHistory,openReservation,activeReservation,discardTerminalReservation,quoteReservation,prepareReservation,createReservation,recoverReservation,statusReservation,payReservation,cancelReservation,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
