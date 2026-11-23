@@ -535,7 +535,11 @@
     // A verified terminal canonical conversation with no commercial decision
     // is a rejection, not an endlessly pending interaction. Require a readable
     // agent-message snapshot: a transient history outage cannot reject an order.
-    const canonicalClosed=['RESOLVED','CLOSED'].includes(data.operationalConversationStatus);
+    // TU VERSO closure can be projected by the Administrator either as its
+    // verified operational status or as the explicit normalized lifecycle.
+    // Never infer closure from an absent status, timeout or lack of messages.
+    const canonicalClosed=['RESOLVED','CLOSED'].includes(data.operationalConversationStatus)||
+      data.conversationState==='CLOSED';
     // Closure is an authoritative S2S fact even if message history is down.
     // Preserve any previously verified ACEPTADO; never infer one from an outage.
     const verifiedMessages=data.messagesAvailable===true?data.agentMessages:
