@@ -565,6 +565,7 @@ test('cancelación de solicitud activa informa fallo y reintenta el mismo ID sin
   confirmB3:async()=>{confirmations++;return true},
   render:()=>events.push('RENDER'),save:()=>events.push('SAVE'),
   stopAgentDecisionPoll:()=>events.push('STOP'),
+  resetDeliveryOrderContact:()=>events.push('RESET_CONTACT'),
   clearDeliveryAvailability:()=>events.push('CLEAR'),
   nav:destination=>events.push('NAV:'+destination),
   screen:destination=>events.push('SCREEN:'+destination),
@@ -677,6 +678,7 @@ test('Inicio despues de RECHAZADO limpia carrito y etiqueta sin tocar el servido
   qty:2,coords:{latitude:1},tab:'pedidos',stage:'availability'};
  const context={st,window:{B3OrderAvailability:api,scrollTo:()=>{}},
    stopAgentDecisionPoll:()=>effects.push('STOP'),save:()=>effects.push('SAVE'),
+   resetDeliveryOrderContact:()=>{st.deliveryContactConfirmed=false;st.orderContactDraft=null;effects.push('RESET_CONTACT')},
    clearDeliveryAvailability:()=>effects.push('CLEAR'),render:()=>effects.push('RENDER'),
    ic:()=>''};
  vm.runInNewContext('let deliveryValidationGeneration=0,deliveryRequestPending=false,'+
@@ -696,7 +698,7 @@ test('Inicio despues de RECHAZADO limpia carrito y etiqueta sin tocar el servido
  assert.equal(st.profile.first,'Persona');
  assert.ok(st.favorite);
  assert.equal(context.personalCheckoutBanner(),'');
- assert.deepEqual(effects,['DISMISS:'+old.interactionId,'STOP','CLEAR','SAVE','RENDER']);
+ assert.deepEqual(effects,['DISMISS:'+old.interactionId,'STOP','RESET_CONTACT','CLEAR','SAVE','RENDER']);
  assert.doesNotMatch(source,/data-checkout-leave'\)\)\{[^}]*cancelInteraction/);
 });
 
