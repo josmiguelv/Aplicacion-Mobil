@@ -733,12 +733,12 @@ async function pollAgentDecision(){
    deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
     message:(store?.name||'La sede consultada')+
      (closedWithoutDecision?' cerró la atención sin confirmar tu pedido.':
-      unconfirmedClosure?' finalizó la atención y el pedido no quedó confirmado.':' no aceptó tu solicitud.')+
-     ' No enviaremos este pedido automáticamente a otra sede. Puedes elegir Recojo en tienda.',
+      unconfirmedClosure?' finalizó la atención sin confirmar los productos.':' no confirmó la disponibilidad de los productos solicitados.')+
+     ' Puedes revisar la carta y elegir otros productos para un pedido nuevo.',
     reason:closedWithoutDecision?'AGENT_CLOSED':'AGENT_REJECTED'};
    if(st.stage==='availability')render();
    else if(chatOverlay)refreshChatTimeline();
-   else{render();toast('Delivery no confirmado. Puedes elegir Recojo en tienda.')}
+   else{render();toast('La sede no confirmó los productos del pedido. Puedes elegir otros.')}
    return;
   }
   if(st.stage==='availability'){
@@ -1230,8 +1230,8 @@ function personalCheckoutBanner(){
  const pending=entry.status!=='ACCEPTED'&&!rejected;
  return `<button type="button" class="b3-checkout-floating" data-checkout-return="1" aria-label="Ver estado de mi solicitud">
    <span class="b3-checkout-floating-icon">${ic(pending?'clock':'check',20)}</span>
-   <span><strong>${rejected?'La sede no pudo atender el pedido':pending?'Tu pedido está en validación':'¡Tu pedido fue aceptado!'}</strong>
-   <small>${rejected?'Cambia a recojo en tienda; no se reenviará.':pending?'Sigue activo. Toca para ver el estado.':'Continúa con el total y el pago.'}</small></span>
+   <span><strong>${rejected?'Productos no confirmados':pending?'Tu pedido está en validación':'¡Tu pedido fue aceptado!'}</strong>
+   <small>${rejected?'Elige otros productos para un pedido nuevo.':pending?'Sigue activo. Toca para ver el estado.':'Continúa con el total y el pago.'}</small></span>
    ${ic('chev',16)}</button>`;
 }
 function returnToPersonalCheckout(){
@@ -1245,17 +1245,17 @@ function returnToPersonalCheckout(){
   deliveryAvailability={status:'REJECTED',storeName:store?.name||'',candidateNames:[],
    message:(store?.name||'La sede consultada')+
     (closedWithoutDecision?' cerró la atención sin confirmar el pedido.':
-     unconfirmedClosure?' finalizó la atención y el pedido no quedó confirmado.':' no aceptó tu solicitud.')+
-    ' No se reenviará automáticamente. Puedes elegir Recojo en tienda.'};
+     unconfirmedClosure?' finalizó la atención sin confirmar los productos.':' no confirmó la disponibilidad de los productos solicitados.')+
+    ' No se reenviará automáticamente. Puedes elegir otros productos.'};
   screen('availability');
  }else screen('availability');
 }
 function openAlternateFulfillment(message){
- // Choosing another fulfillment mode closes only the terminal rejected LOCAL record.
- const rejected=window.B3OrderAvailability?.readInteraction?.();
- if(rejected?.status==='REJECTED')
-  window.B3OrderAvailability?.dismissRejectedInteraction?.(rejected.interactionId);
- // Only a terminal decision reaches here; never automatically retry availability.
+ // A product rejection never implies Delivery is unavailable: start a NEW cart.
+ if(window.B3OrderAvailability?.readInteraction?.()?.status==='REJECTED'){
+  beginNewCheckoutAfterRejection();nav('carta');return;
+ }
+ // Only an unavailable fulfillment state reaches here; never retry automatically.
  fulfillmentOutcomeNote=String(message||'No hay delivery disponible. Elige otra forma de recibir tu pedido.');
  st.quote=null;st.store='';st.pay='';checkoutPending=false;
  screen('choice');
@@ -1656,11 +1656,11 @@ function availability(){
  // Preserve the cart and let the customer explicitly choose delivery or pickup.
  if(['REJECTED','UNAVAILABLE','CANCELLED'].includes(status)){
   const rejected=status==='REJECTED',cancelled=status==='CANCELLED';
-  const headingText=cancelled?'Solicitud cancelada':rejected?'Delivery no confirmado por la sede':
+  const headingText=cancelled?'Solicitud cancelada':rejected?'Productos del pedido no confirmados':
     deliveryAvailability.reason==='NO_AGENTS'?'Delivery sin atención disponible por ahora':
     'No podemos confirmar tu Delivery por el momento';
   const note=cancelled?'No enviaremos otra solicitud automáticamente.':
-   rejected?'Esta solicitud no se volverá a enviar.':'No se ha creado una nueva solicitud de atención.';
+   rejected?'El rechazo de estos productos no significa que Delivery esté deshabilitado.':'No se ha creado una nueva solicitud de atención.';
   return `<div class="page b3-fulfillment-outcome">
    ${heading('Opciones para tu pedido','app')}
    <section class="b3-fulfillment-outcome-card" role="status">
@@ -1669,12 +1669,12 @@ function availability(){
     <h2>${esc(headingText)}</h2>
     <p>${esc(deliveryAvailability.message||'Puedes revisar otras formas de recibir tu pedido.')}</p>
     <div class="b3-fulfillment-outcome-info">${ic('cart',17)}
-      <span>${rejected?'Si eliges Recojo en tienda, conservamos tu carrito. Si vuelves al inicio, empezarás un pedido nuevo.':'Conservamos tus productos y cantidades en el carrito.'}</span>
+      <span>${rejected?'Puedes elegir otros productos y enviar una nueva solicitud de disponibilidad.':'Conservamos tus productos y cantidades en el carrito.'}</span>
     </div>
     <p class="b3-fulfillment-outcome-note">${esc(note)}</p>
    </section>
    <div class="b3-fulfillment-outcome-actions">
-    <button class="primary full" data-availability-pickup="1">Elegir Recojo en tienda</button>
+    ${rejected?'<button class="primary full" data-rejected-new-catalog="1">Elegir otros productos</button>':'<button class="primary full" data-availability-pickup="1">Elegir Recojo en tienda</button>'}
     ${!rejected&&!cancelled?'<button class="outline full" data-availability-retry="1">Volver a intentar Delivery</button>':''}
      <button class="outline full" data-checkout-leave="1">Volver al inicio</button>
    </div>
@@ -1718,7 +1718,7 @@ function availability(){
    </div>
   </div>`;
  }
- const title=checking?'Buscando una sede para ti':waiting?(status==='CREATE_UNCERTAIN'?'Registrando solicitud de atención':'Esperando confirmación de la sede'):ready?'Tenemos una sede disponible':status==='REJECTED'?'La sede no aceptó tu pedido':status==='UNAVAILABLE'?'No encontramos una sede disponible':required?'Tu pedido necesita confirmación':'No pudimos completar la consulta';
+ const title=checking?'Buscando una sede para ti':waiting?(status==='CREATE_UNCERTAIN'?'Registrando solicitud de atención':'Esperando confirmación de la sede'):ready?'Tenemos una sede disponible':status==='REJECTED'?'Los productos no fueron confirmados':status==='UNAVAILABLE'?'No encontramos una sede disponible':required?'Tu pedido necesita confirmación':'No pudimos completar la consulta';
  const detail=checking?deliveryAvailability.message||'Consultamos la capacidad del asesor y la tarifa del local elegido.'
   :waiting?deliveryAvailability.message
   :ready?'La sede respondió. Revisa el total y las formas de pago antes de continuar.'
@@ -1837,7 +1837,7 @@ const B3_CHAT_ACTIVITY=Object.freeze({
  created:'La solicitud quedó registrada para la sede.',
  detail_delivered:'Se confirmó el envío del detalle a la conversación.',
  accepted:'La sede respondió que acepta tu solicitud.',
- rejected:'La sede rechazó la solicitud.',
+ rejected:'La sede no confirmó los productos de esta solicitud.',
  expired:'La solicitud venció.',
  cancelled:'La cancelación fue confirmada.',
  cancel_requested:'Solicitaste cancelar; esperamos confirmación.',
@@ -1884,7 +1884,7 @@ function chatStatusLine(){
  if(!entry)return 'Sin solicitudes recientes';
  if(entry.status==='EXPIRED')return 'Solicitud vencida';
  if(entry.status==='CANCELLED')return 'Solicitud cancelada';
- if(entry.status==='REJECTED'||entry.agentDecision==='REJECTED')return 'La sede rechazó la solicitud';
+ if(entry.status==='REJECTED'||entry.agentDecision==='REJECTED')return 'Productos del pedido no confirmados';
  if(entry.agentDecision==='ACCEPTED'){
   if(entry.paymentExpiresAt)return 'Solicitud aceptada · Revisa tu pedido';
   if(entry.body?.customer&&entry.messageDelivered!==true)
@@ -2301,7 +2301,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Agregado a tu pedido');return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -2439,6 +2439,11 @@ if(b.hasAttribute('data-modal-save-delivery')){
 if(b.dataset.modalPickstore){void confirmStore('pickup',b.dataset.modalPickstore);return;}
 if(b.hasAttribute('data-gps')){deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.hasAttribute('data-checkout-return')){returnToPersonalCheckout();return}
 if(b.hasAttribute('data-checkout-leave')){nav('inicio');return}
+if(b.hasAttribute('data-rejected-new-catalog')){
+ if(window.B3OrderAvailability?.readInteraction?.()?.status!=='REJECTED')return;
+ if(!beginNewCheckoutAfterRejection())return;
+ nav('carta');return;
+}
 if(b.hasAttribute('data-checkout-cancel')){void cancelPersonalCheckout('CANCEL',deliveryAvailability.reason==='CANCEL_NOT_CONFIRMED');return}
 if(b.dataset.tab){if(b.dataset.tab==='carta')st.search='';nav(b.dataset.tab);return}if(b.hasAttribute('data-marketing-first-later')){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return}
 if(b.hasAttribute('data-marketing-first-accept')){localStorage.setItem(MARKETING_PROMPT_KEY,'accepted');marketingPromptVisible=false;render();window.AndroidBridge?.setMarketingNotificationsEnabled?.(true);return}
@@ -2519,10 +2524,7 @@ if(b.hasAttribute('data-change-fulfillment')){
 }
 if(b.hasAttribute('data-availability-pickup')){
   if(deliveryRequestPending||activePersonalCheckout()||
-    !['UNAVAILABLE','REJECTED','CANCELLED'].includes(deliveryAvailability.status))return;
-  const rejected=window.B3OrderAvailability?.readInteraction?.();
-  if(rejected?.status==='REJECTED')
-   window.B3OrderAvailability?.dismissRejectedInteraction?.(rejected.interactionId);
+    !['UNAVAILABLE','CANCELLED'].includes(deliveryAvailability.status))return;
   ++deliveryValidationGeneration;
   st.mode='pickup';st.quote=null;st.store='';st.pay='';st.cash='';
   deliveryRequestError='';checkoutPending=false;clearDeliveryAvailability();save();
