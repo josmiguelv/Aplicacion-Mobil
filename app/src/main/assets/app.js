@@ -1231,16 +1231,56 @@ async function confirmStore(mode,id,{showDetails=false}={}){
 const save=()=>{const {stage,tab,selected,qty,notice,step,coords,quote,configReady,...d}=st;localStorage.setItem(K,JSON.stringify(d));};
 const subtotal=()=>st.cart.reduce((s,x)=>s+x.qty*(products.find(p=>p.id===x.id)?.price||0),0), cartCount=()=>st.cart.reduce((s,x)=>s+x.qty,0);
 const product=id=>products.find(x=>x.id===id);
-let noticeTimer=null;
-function queueNotice(t){
- st.notice=t;
- if(noticeTimer!==null)clearTimeout(noticeTimer);
- noticeTimer=setTimeout(()=>{
-  noticeTimer=null;
-  if(st.notice===t){st.notice='';render()}
- },2400);
+// Toast independiente del render: las respuestas de la app no reconstruyen la pantalla.
+let noticeTimer=null,noticeExitTimer=null,noticeNode=null,noticeKind='',noticeText='';
+let noticeCount=0,noticeLastAt=0;
+const B3_TOAST_ENTER_MS=260,B3_TOAST_EXIT_MS=220;
+function dismissNotice(){
+ if(noticeTimer!==null){clearTimeout(noticeTimer);noticeTimer=null}
+ if(noticeExitTimer!==null){clearTimeout(noticeExitTimer);noticeExitTimer=null}
+ const node=noticeNode;
+ if(!node)return;
+ noticeNode=null;noticeKind='';noticeText='';noticeCount=0;
+ node.classList.remove('b3-toast-visible');
+ node.classList.add('b3-toast-leaving');
+ noticeExitTimer=setTimeout(()=>{node.remove();noticeExitTimer=null},B3_TOAST_EXIT_MS);
 }
-function toast(t){queueNotice(t);render()}
+function queueNotice(t,options={}){
+ const text=String(t||'').trim();
+ if(!text)return;
+ const critical=options.critical===true||
+  /no pudimos confirmar (?:el pago|la cancelaci[oó]n)|pedido rechazado|pago (?:rechazado|fallido)/i.test(text);
+ const kind=options.kind==='cart'?'cart':
+  critical||/^(?:no |error|primero |ingresa |completa |verifica |selecciona )|no pudimos|no fue posible/i.test(text)?'warning':'info';
+ const now=Date.now();
+ const same=noticeNode&&noticeKind===kind&&
+  (kind==='cart'||noticeText===text)&&now-noticeLastAt<1800;
+ if(noticeTimer!==null){clearTimeout(noticeTimer);noticeTimer=null}
+ if(noticeExitTimer!==null){clearTimeout(noticeExitTimer);noticeExitTimer=null}
+ if(noticeNode&&!same){noticeNode.remove();noticeNode=null}
+ noticeCount=same&&kind==='cart'?noticeCount+Math.max(1,Number(options.quantity)||1):
+  kind==='cart'?Math.max(1,Number(options.quantity)||1):1;
+ noticeLastAt=now;noticeKind=kind;noticeText=text;
+ const title=kind==='cart'?(noticeCount===1?'Producto agregado':noticeCount+' productos agregados'):text;
+ const description=kind==='cart'?'Tu carrito se actualizó':'';
+ const icon=kind==='cart'?ic('check',19):kind==='warning'?ic('info',19):ic('check',19);
+ const node=same?noticeNode:document.createElement('div');
+ node.className='b3-toast-premium b3-toast-'+kind+(same?' b3-toast-visible':'');
+ node.setAttribute('role',critical||kind==='warning'?'alert':'status');
+ node.setAttribute('aria-live',critical||kind==='warning'?'assertive':'polite');
+ node.innerHTML='<span class="b3-toast-icon" aria-hidden="true">'+icon+'</span>'+
+  '<span class="b3-toast-content"><strong>'+esc(title)+'</strong>'+
+  (description?'<small>'+esc(description)+'</small>':'')+'</span>'+
+  (critical?'<button class="b3-toast-close" type="button" aria-label="Cerrar aviso">'+ic('close',17)+'</button>':'');
+ if(!same){
+  document.body.appendChild(node);
+  noticeNode=node;
+  requestAnimationFrame(()=>{if(noticeNode===node)node.classList.add('b3-toast-visible')});
+ }
+ if(critical)node.querySelector('.b3-toast-close')?.addEventListener('click',dismissNotice,{once:true});
+ else noticeTimer=setTimeout(dismissNotice,kind==='cart'?1800:kind==='warning'?4500:2600);
+}
+function toast(t,options={}){queueNotice(t,options)}
 function activePersonalCheckout(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  return ['SUBMITTING','PENDING','ACCEPTED'].includes(entry?.status)?entry:null;
@@ -2200,7 +2240,7 @@ function openPrivacyLaw(){
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
 function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
-  `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+(st.notice?`<div class="toast">${esc(st.notice)}</div>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
+  `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
  return {store:String(st.store||''),total:Math.round(orderTotal()*100),
@@ -2333,7 +2373,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
     flight.oncancel=()=>flyer.remove();
   });
 }
-function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Agregado a tu pedido');return true}
+function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
 root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
