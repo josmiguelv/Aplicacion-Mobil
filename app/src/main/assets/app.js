@@ -1252,8 +1252,12 @@ async function confirmStore(mode,id,{showDetails=false}={}){
   // Do not accept a pickup store from a stale home card or cached location list.
   await fetchConfig({strict:true});
   const selected=shops.find(x=>String(x.id)===String(id));
-  if(!eligibleForPickup(selected)){
-   checkoutReviewNote='Este local está cerrado o dejó de aceptar recojos. Selecciona otro local disponible.';
+  if(!(st.orderTiming==='SCHEDULED'
+    ? selected?.active===true&&selected?.pickup_enabled===true&&selected?.reservationSettings?.enabled===true
+    : eligibleForPickup(selected))){
+   checkoutReviewNote=st.orderTiming==='SCHEDULED'
+    ?'La sede no permite programar recojos. Selecciona otra sede habilitada.'
+    :'Este local está cerrado o dejó de aceptar recojos. Selecciona otro local disponible.';
    if(String(st.store)===String(id)){st.store='';st.pay='';save()}
    if(fulfillmentModal){fulfillmentModal='pickup';render()}
    else screen('locations');
@@ -1540,7 +1544,7 @@ function fulfillmentOverlay(){
      ${s.address?`<span class="b3-store-line">${ic('pin',15)}${esc(s.address)}</span>`:''}
      ${straightDistanceKm(s)?`<span class="b3-store-line">${ic('map',15)}${esc(straightDistanceKm(s))}</span>`:''}
      ${pickupPaymentWarning(s)}
-     ${eligibleForPickup(s)?`<button type="button" class="b3-store-select" data-modal-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'} ${ic('chev',16)}</button>`:'<span class="b3-store-unavailable">No disponible para retiro inmediato</span>'}
+     ${(st.orderTiming==='SCHEDULED'?s.active===true&&s.pickup_enabled===true&&s.reservationSettings?.enabled===true:eligibleForPickup(s))?`<button type="button" class="b3-store-select" data-modal-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'} ${ic('chev',16)}</button>`:'<span class="b3-store-unavailable">No disponible para retiro inmediato</span>'}
    </div>`).join(''):'<div class="notice">No hay locales activos publicados por la web administrativa.</div>'}</div>
  </div>`;
  return `<div class="b3-modal-backdrop" data-modal-close="1">
@@ -1739,7 +1743,7 @@ function locations(){
    ${st.pickupOrigin&&!st.coords?'<p class="smallprint">Dirección guardada. La distancia se calculará cuando se verifique su ubicación en el mapa; no se muestran kilómetros estimados sin coordenadas.</p>':''}
  </div>
  <div class="locations pickup-list">
-  ${ordered.length?ordered.map(s=>`<div class="pickup-location ${eligibleForPickup(s)?'':'unavailable'}">
+  ${ordered.length?ordered.map(s=>`<div class="pickup-location ${(st.orderTiming==='SCHEDULED'?s.active===true&&s.pickup_enabled===true&&s.reservationSettings?.enabled===true:eligibleForPickup(s))?'':'unavailable'}">
      <div class="pickup-location-title"><b>${esc(s.name)}</b>${storeStatusHtml(s)}</div>
      ${s.address?`<p class="pickup-address">${ic('pin',17)} ${esc(s.address)}</p>`:''}
      ${straightDistanceKm(s)?`<p class="pickup-distance">${ic('map',16)} ${esc(straightDistanceKm(s))}</p>`:''}
