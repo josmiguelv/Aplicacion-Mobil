@@ -40,8 +40,12 @@ function demoStoreClock(s){
   closesAt:slot.close,opensAt:slot.open};
 }
 
-let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,mode:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
+let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,mode:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
 try{const d=JSON.parse(localStorage.getItem(K)||'{}');st={...st,...d,stage:'splash',tab:'inicio',selected:'',notice:'',configReady:false,quote:null}}catch{}
+// The person receiving a new order must confirm their own contact again.
+// Draft data from an earlier app run must never authorize another order.
+st.orderContactDraft=null;
+st.deliveryContactConfirmed=false;
 if(st.mode==='dine_in')st.mode=''; // Retirado de la navegación de Pollos B3 V11.
 // Demo-only flag: stores whether the visitor already chose guest access or test sign-in.
 let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
@@ -543,15 +547,29 @@ let agentDecisionTimer=null,agentDecisionPolling=false;
 function currentCartSignature(){
  return JSON.stringify(publishedOrderItems().slice().sort((a,b)=>a.productId.localeCompare(b.productId)));
 }
+function resetDeliveryOrderContact(){
+ st.orderContactDraft=null;
+ st.deliveryContactConfirmed=false;
+}
+function currentDeliveryOrderContact(){
+ if(!st.orderContactDraft){
+  const p=st.profile||{};
+  st.orderContactDraft={first:String(p.first||''),last:String(p.last||''),
+   phone:String(p.phone||''),doc:String(p.doc||'')};
+ }
+ return st.orderContactDraft;
+}
 function deliveryContactReady(){
- const p=st.profile||{};
- return typeof p.first==='string'&&p.first.trim().length>=2&&p.first.trim().length<=60&&
+ const p=st.orderContactDraft;
+ return st.deliveryContactConfirmed===true&&!!p&&
+  typeof p.first==='string'&&p.first.trim().length>=2&&p.first.trim().length<=60&&
   typeof p.last==='string'&&p.last.trim().length>=2&&p.last.trim().length<=60&&
   typeof p.phone==='string'&&/^9[0-9]{8}$/.test(p.phone);
 }
 function deliveryRequestCustomer(address,district){
- if(!deliveryContactReady())throw Error('Completa nombres, apellidos y celular antes de enviar el pedido.');
- return {firstName:st.profile.first.trim(),lastName:st.profile.last.trim(),phone:st.profile.phone,
+ if(!deliveryContactReady())throw Error('Confirma nombres, apellidos y celular para este pedido.');
+ const person=st.orderContactDraft;
+ return {firstName:person.first.trim(),lastName:person.last.trim(),phone:person.phone,
   address:String(address||'').trim(),district:String(district||'').trim(),
   reference:String(st.profile.reference||'').trim(),mode:'delivery'};
 }
@@ -567,7 +585,7 @@ function interactionMatchesCart(entry,address,district){
   const currentCustomer=deliveryContactReady()?deliveryRequestCustomer(address,district):null;
   return old.address===address&&old.district===district&&
    JSON.stringify(entry.body.items)===currentCartSignature()&&
-   (!oldCustomer||JSON.stringify(oldCustomer)===JSON.stringify(currentCustomer));
+   (!oldCustomer||!currentCustomer||JSON.stringify(oldCustomer)===JSON.stringify(currentCustomer));
  }catch(_){return false}
 }
 function stopAgentDecisionPoll(){
@@ -669,7 +687,7 @@ async function pollAgentDecision(){
    await api.cancelInteraction(entry,{reason:'CANCEL'});
    stopAgentDecisionPoll();
    ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
-   clearDeliveryAvailability();save();nav('inicio');toast('Solicitud cancelada.');return;
+   clearDeliveryAvailability();resetDeliveryOrderContact();save();nav('inicio');toast('Solicitud cancelada.');return;
   }
   // The detail relay and the agent's answer are separate operations.
   // A failed message acknowledgement must not prevent reading an already sent reply.
@@ -967,7 +985,8 @@ async function cancelPersonalCheckout(reason='CANCEL',skipConfirm=false){
   await api.cancelInteraction(entry,{reason});
   stopAgentDecisionPoll();
   ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
-  clearDeliveryAvailability();checkoutReviewNote='';save();
+  clearDeliveryAvailability();checkoutReviewNote='';
+  resetDeliveryOrderContact();save();
   if(adding){nav('carta');toast('Solicitud anterior cancelada. Puedes modificar tu carrito.');}
   else{
    deliveryAvailability={status:'CANCELLED',storeName:'',candidateNames:[],
@@ -1015,9 +1034,11 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   deliveryRequestError='Ingresa una dirección completa y un distrito para verificar la cobertura.';
   if(!silent)screen('deliveryAddress');else render();return false;
  }
- if(!deliveryContactReady()){
+ if(!deliveryContactReady()&&!['SUBMITTING','PENDING','ACCEPTED'].includes(
+   window.B3OrderAvailability?.readInteraction?.()?.status)){
   checkoutPending=true;
   deliveryRequestError='';
+  currentDeliveryOrderContact();
   screen('identity');return false;
  }
  deliveryValidationStep='CATALOGO_PUBLICADO';
@@ -1282,6 +1303,7 @@ function beginNewCheckoutAfterRejection(){
  deliveryRequestPending=false;deliveryRequestError='';
  checkoutRefreshPending=false;checkoutReviewNote='';
  st.cart=[];st.quote=null;st.store='';st.pay='';st.cash='';
+ resetDeliveryOrderContact();
  st.mode='';st.fulfillment='';st.pickupOrigin='';st.selected='';st.qty=1;st.coords=null;
  fulfillmentOutcomeNote='';
  clearDeliveryAvailability();save();
@@ -1758,8 +1780,14 @@ function availability(){
   ${!activeEntry&&!waiting&&status!=='REJECTED'?'<button class="outline full" data-screen="deliveryAddress">Modificar dirección de entrega</button>':''}
  </div>`;
 }
-function identity(){return `<div class="page form">${heading('Tus datos','cart')}<p class="sub">Solo pedimos lo necesario para identificar tu pedido.</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(st.profile.first)}" maxlength="60" placeholder="Ingresa tus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(st.profile.last)}" maxlength="60" placeholder="Ingresa tus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(st.profile.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`}
-function phone(){return `<div class="page form">${heading('Tu teléfono','identity')}<p class="sub">Lo usaremos para identificar tu pedido. En esta demo no enviaremos mensajes ni códigos.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(st.profile.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`}
+function identity(){
+ const p=st.mode==='delivery'?currentDeliveryOrderContact():st.profile;
+ return `<div class="page form">${heading('Datos de este pedido','cart')}<p class="sub">${st.mode==='delivery'?'Confirma o cambia el nombre de quien recibirá este pedido. Puedes pedir para otra persona sin modificar tu perfil.':'Confirma los datos de quien recibirá el pedido.'}</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(p.first)}" maxlength="60" placeholder="Ingresa sus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(p.last)}" maxlength="60" placeholder="Ingresa sus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(p.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`;
+}
+function phone(){
+ const p=st.mode==='delivery'?currentDeliveryOrderContact():st.profile;
+ return `<div class="page form">${heading('Teléfono de este pedido','identity')}<p class="sub">Confirma el celular de la persona que recibirá el pedido. Puedes cambiarlo en cada nueva solicitud.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(p.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`;
+}
 function personalCheckoutCountdown(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  const ms=Date.parse(entry?.paymentExpiresAt||'')-Date.now();
@@ -2061,7 +2089,7 @@ const b3FrequentlyAsked=[
  ['¿Cómo puedo consultar la carta y los precios?','En Carta encontrarás los productos y precios disponibles en el catálogo publicado. Durante el piloto puede haber contenido referencial claramente identificado.'],
  ['¿Qué métodos de pago hay?','Los métodos disponibles dependen de la sede y del tipo de pedido. Los pagos reales todavía requieren la integración y activación del servicio.'],
  ['¿Puedo guardar varias direcciones?','Sí. En Mi Cuenta → Mis direcciones puedes agregar, editar, eliminar y elegir una dirección predeterminada. Durante el piloto se guardan solo en este teléfono.'],
- ['¿Puedo hacer un pedido para otra persona?','Puedes introducir una dirección diferente sin guardarla. Antes de confirmar, verifica sus datos de entrega.'],
+ ['¿Puedo hacer un pedido para otra persona?','Sí. Cada nuevo pedido solicita confirmar los nombres y el celular de quien lo recibirá. Estos datos pueden ser diferentes de tu perfil.'],
  ['¿Cómo sé dónde está mi pedido?','La consulta de estados de pedidos reales estará disponible cuando Pollos B3 habilite el sistema de pedidos. Esta versión piloto no confirma compras ni pagos.'],
  ['¿Cómo consulto promociones?','Las promociones aparecerán en la app cuando Pollos B3 las publique oficialmente. Su disponibilidad y condiciones dependen del negocio.'],
  ['¿Cómo me comunico con Pollos B3?','Usa los canales de contacto que el negocio publique. El chat de atención de esta versión piloto todavía no constituye una conversación con un asesor.'],
@@ -2250,6 +2278,11 @@ function startCheckout(){
  const issue=checkoutCartIssue();if(issue){toast(issue);return}
  if(!st.mode){checkoutPending=true;screen('choice');return}
  if(st.mode==='delivery'){
+  // A fresh checkout must reconfirm who receives the order.
+  // Do not reset the identity of an active or uncertain interaction.
+  if(!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(
+     window.B3OrderAvailability?.readInteraction?.()?.status))
+   resetDeliveryOrderContact();
   checkoutPending=true;
   if(!hasDeliveryDestination(st.profile.address,st.profile.district)){screen('deliveryAddress');return}
   void resolveDelivery();return
@@ -2537,8 +2570,25 @@ if(b.hasAttribute('data-availability-pickup')){
   return;
  }
 if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.mode='delivery';invalidateDeliverySelection();maybeSaveDeliveryAddress();save();void resolveDelivery();return}
-if(b.hasAttribute('data-identity-next')){if(v('first').length<2||v('last').length<2||v('first').length>60||v('last').length>60)return toast('Ingresa nombres y apellidos de hasta 60 caracteres');st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');save();screen('phone');return}
-if(b.hasAttribute('data-phone-next')){if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');st.profile.phone=v('phone');save();
+if(b.hasAttribute('data-identity-next')){
+ if(v('first').length<2||v('last').length<2||v('first').length>60||v('last').length>60)
+  return toast('Ingresa nombres y apellidos de hasta 60 caracteres');
+ if(st.mode==='delivery'){
+  const p=currentDeliveryOrderContact();
+  p.first=v('first');p.last=v('last');p.doc=v('doc');
+  st.deliveryContactConfirmed=false;
+ }else{
+  st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');
+ }
+ save();screen('phone');return;
+}
+if(b.hasAttribute('data-phone-next')){
+ if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');
+ if(st.mode==='delivery'){
+  currentDeliveryOrderContact().phone=v('phone');
+  st.deliveryContactConfirmed=true;
+ }else st.profile.phone=v('phone');
+ save();
  if(st.mode==='delivery'){
   if(!st.profile.address||!st.profile.district){screen('deliveryAddress');return}
   void resolveDelivery();return
