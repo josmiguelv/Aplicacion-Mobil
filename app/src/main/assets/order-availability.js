@@ -502,6 +502,8 @@
     root.localStorage.removeItem(INTERACTION_KEY);
     // A new order is a new consultation, even if the address and store match.
     root.localStorage.removeItem(SERIES_KEY);
+    root.localStorage.removeItem(RESERVATION_KEY);
+    root.localStorage.removeItem(RESERVATION_HISTORY_KEY);
     return true;
   }
   function rejectedStores(fingerprint){
@@ -667,6 +669,7 @@
   // Scheduled orders are server-owned and persist across Android restarts.
   // Never reuse a NOW order or post another FORM on an uncertain response.
   const RESERVATION_KEY='b3-mobile-scheduled-reservation-v1';
+  const RESERVATION_HISTORY_KEY='b3-mobile-scheduled-history-v1';
   const statuses=new Set(['CREATING','FORM_UNCERTAIN','AWAITING_AGENT',
     'AWAITING_PAYMENT','CONFIRMED','REJECTED','CANCELLED','EXPIRED']);
   function readReservation(){
@@ -678,9 +681,27 @@
       return e;
     }catch(_){return null;}
   }
+  function readReservationHistory(){
+    try{
+     const entries=JSON.parse(root.localStorage.getItem(RESERVATION_HISTORY_KEY)||'[]');
+     return Array.isArray(entries)?entries.filter(e=>e&&UUID.test(e.reservationId)&&UUID.test(e.accessKey)).slice(0,20):[];
+    }catch(_){return [];}
+  }
   function persistReservation(e){
     root.localStorage.setItem(RESERVATION_KEY,JSON.stringify(e));
+    if(UUID.test(e.reservationId)){
+      const others=readReservationHistory().filter(x=>x.reservationId!==e.reservationId);
+      root.localStorage.setItem(RESERVATION_HISTORY_KEY,JSON.stringify([e,...others].slice(0,20)));
+    }
     return e;
+  }
+  function openReservation(id){
+    if(!UUID.test(id))return null;
+    const current=activeReservation();
+    if(current&&current.reservationId!==id)throw Error('Primero completa o cancela la reserva activa.');
+    const prior=readReservationHistory().find(x=>x.reservationId===id);
+    if(!prior)return null;
+    persistReservation(prior);return prior;
   }
   function activeReservation(){
     const e=readReservation();
@@ -778,7 +799,7 @@
 
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({getExternalCustomerId:externalCustomerId,prepare,execute,clear,read,checkConnection,
-    checkAgentAvailability,readReservationSlots,readReservation,activeReservation,discardTerminalReservation,quoteReservation,prepareReservation,createReservation,recoverReservation,statusReservation,payReservation,cancelReservation,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
+    checkAgentAvailability,readReservationSlots,readReservation,readReservationHistory,openReservation,activeReservation,discardTerminalReservation,quoteReservation,prepareReservation,createReservation,recoverReservation,statusReservation,payReservation,cancelReservation,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
