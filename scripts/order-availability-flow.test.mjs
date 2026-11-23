@@ -686,7 +686,7 @@ test('Inicio despues de RECHAZADO limpia carrito y etiqueta sin tocar el servido
     extract('personalCheckoutBanner')].join('\n'),context);
  context.nav('inicio');
  assert.equal(current,null);
- assert.deepEqual(st.cart,[]);
+ assert.equal(st.cart.length,0);
  assert.equal(st.mode,'');
  assert.equal(st.store,'');
  assert.equal(st.quote,null);
