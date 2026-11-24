@@ -815,6 +815,27 @@
     recordActivity(entry,'cancelled');
     return response.data;
   }
+  async function submitOrderSurvey({interactionId,storeId,idempotencyKey,rating,tags,comment}){
+    const entry=readInteraction();
+    const accepted=entry?.paymentConfirmation?.status==='ACCEPTED';
+    if(!accepted||entry.interactionId!==interactionId||entry.body.storeId!==storeId||
+       !UUID.test(entry.idempotencyKey)||!UUID.test(idempotencyKey)||
+       entry.idempotencyKey===idempotencyKey)
+      throw Error('No hay un pedido confirmado autorizado para esta encuesta.');
+    const permitted=new Set(['Sabor','Temperatura','Tiempo','Presentación','Atención']);
+    if(!Number.isInteger(rating)||rating<1||rating>5||
+       !Array.isArray(tags)||tags.length>5||new Set(tags).size!==tags.length||
+       tags.some(t=>!permitted.has(t))||typeof comment!=='string'||comment.length>500)
+      throw Error('Revisa los datos de la encuesta.');
+    const response=await nativeRequest({operation:'ORDER_SURVEY',
+      interactionId,accessKey:entry.idempotencyKey,idempotencyKey,
+      body:{appId:entry.body.appId,storeId,rating,tags,comment}});
+    if(![200,201].includes(Number(response.status))||
+       response.data?.stored!==true||response.data?.interactionId!==interactionId||
+       !UUID.test(response.data?.surveyId||''))
+      throw responseError(response,'No se pudo confirmar el registro de la encuesta');
+    return response.data;
+  }
   function eraseLocalIdentity() {
     clear();
     root.localStorage.removeItem(CUSTOMER_KEY);
@@ -825,6 +846,6 @@
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
-    readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
+    submitOrderSurvey,readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
