@@ -245,6 +245,8 @@ let catalogRequestFinished=false;
 let publishedPaymentImages={};
 let publishedPaymentWaitMinutes=10;
 let publishedReminderCount=2;
+let receiptPreviewUrl='';
+let receiptFileSelected=false;
 let splashLoadError=false;
 let splashRequestPending=false;
 let publishedPromotions=[];
@@ -1940,10 +1942,12 @@ function paymentProofPreview(){
  const form=paymentConfirmationForm();
  return '<div class="page">'+heading('Subir comprobante','paymentInstructions')+
   personalCheckoutTimeHtml()+'<p class="sub">Adjunta la imagen de tu comprobante para que la sede revise el pago.</p>'+
-  '<div class="notice">La API del Administrador aún no admite envío de imágenes para esta interacción. No enviaremos un formulario ni registraremos un pago sin el comprobante.</div>'+
+  '<label>Selecciona imagen JPG o PNG (máximo 5 MB)<input type="file" id="b3-payment-proof" accept="image/jpeg,image/png"></label>'+ 
+  (receiptPreviewUrl?'<img src="'+esc(receiptPreviewUrl)+'" alt="Vista previa del comprobante" style="display:block;max-height:300px;max-width:100%;margin:12px auto;object-fit:contain">':'')+
+  '<div class="notice">El comprobante se puede seleccionar y revisar, pero aún no se puede enviar: la API de carga de imágenes está pendiente. No se registrará el pago hasta su validación.</div>'+
   '<div class="summary-card"><h2>'+esc(form.form.title)+'</h2>'+
   form.form.fields.map(f=>'<p>'+esc(f.variable)+': <b>'+esc(f.value)+'</b></p>').join('')+'</div>'+
-  '<button class="primary full" disabled>Confirmar pago</button></div>';
+  '<button class="primary full" disabled>Confirmar pago · Envío pendiente de integración</button></div>';
 }
 function payment(){
  const available=paymentOptions();
@@ -2719,7 +2723,7 @@ if(b.hasAttribute('data-phone-next')){
  }
  void revalidateCheckout('payment');return}
 if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
-if(b.hasAttribute('data-payment-done')){if(paymentOptions().some(x=>x[0]===st.pay)&&paymentImageUrl(st.pay))screen('paymentProofPreview');return}
+if(b.hasAttribute('data-payment-done')){if(paymentOptions().some(x=>x[0]===st.pay)&&paymentImageUrl(st.pay)){if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;screen('paymentProofPreview')}return}
 if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);if(url&&window.AndroidBridge?.downloadPaymentImage)window.AndroidBridge.downloadPaymentImage(url);else toast('La descarga de imágenes requiere una actualización de Android');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
 if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
@@ -2737,6 +2741,7 @@ if(b.hasAttribute('data-clear')){
  return;
 }
 });
+root.addEventListener('change',e=>{if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>5*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 5 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
  if(b3ConfirmDismiss){e.preventDefault();b3ConfirmDismiss();return}
