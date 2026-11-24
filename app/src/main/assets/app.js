@@ -1196,7 +1196,10 @@ function showLocationSettingsPrompt(code){
   const outside=event.target.closest('.b3-location-permission-backdrop');
   if(!settings&&!later&&!outside)return;
   layer.remove();locationSettingsModal=null;
-  if(later||outside){locationPromptDismissed=true;deliveryGpsRequested=false;return}
+  // Returning from Android Settings must never reopen this sheet on its own.
+  // Only another explicit tap on "Usar mi ubicación" resets this dismissal.
+  locationPromptDismissed=true;deliveryGpsRequested=false;
+  if(later||outside)return;
   if(permissions)window.AndroidBridge?.openAppLocationSettings?.();
   else window.AndroidBridge?.openLocationSettings?.();
  });
