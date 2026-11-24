@@ -785,7 +785,7 @@ async function completeAcceptedQuote(entry){
   provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  acceptedQuoteFailures=0;acceptedQuotePaused=false;
- st.pay='';save();screen('prepaymentReview');
+ st.pay='';save();screen('payment');
  showOrderAcceptedOnce(entry);
  return true;
 }
@@ -1465,7 +1465,7 @@ function returnToPersonalCheckout(){
  if(!entry)return;
  if(['ACCEPTED','REJECTED'].includes(entry.paymentConfirmation?.status))screen('paymentOutcome');
  else if(entry.paymentConfirmation)screen('paymentWaiting');
- else if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('prepaymentReview');
+ else if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('payment');
  else if(entry.status==='REJECTED'){
   const store=shops.find(x=>x.id===entry.body?.storeId);
   const closedWithoutDecision=entry.rejectionReason==='AGENT_CLOSED_WITHOUT_CONFIRMATION';
@@ -2358,17 +2358,18 @@ function payment(){
  const available=paymentOptions();
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const missing=st.configReady&&!available.length;
- return `<div class="page">${heading('Método de pago',st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?'inicio':'prepaymentReview')}
- ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?`<div class="summary-card"><h2>Total de tu pedido</h2><p>Productos <b>${cash(subtotal())}</b></p><p>Delivery estimado <b>${cash(st.quote.deliveryFeePen)}</b></p><p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
- <p class="sub">Solo aparecen los métodos habilitados para la sede. Todo pago requiere validación del local.</p>
+ const acceptedDelivery=st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED';
+ return `<div class="page">${heading(acceptedDelivery?'Pagar pedido':'Método de pago',acceptedDelivery?'inicio':'prepaymentReview')}
+ ${acceptedDelivery?`<div class="summary-card"><h2>Pedido aceptado · ${esc(selected?.name||'Sede asignada')}</h2><p>Productos <b>${cash(subtotal())}</b></p><p>Delivery <b>${cash(st.quote.deliveryFeePen)}</b></p><p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
+ <p class="sub">${acceptedDelivery?'Toca cómo deseas pagar. Se mostrará la imagen configurada por la sede.':'Solo aparecen los métodos habilitados para la sede.'}</p>
  <div class="method-list">${available.map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>
- ${missing?`<div class="notice" role="alert">${esc(selected?.name||'La sede asignada')} no tiene métodos de pago publicados para ${st.mode==='delivery'?'delivery':'recojo'}. Deben habilitarse desde el administrador web antes de continuar.</div><button type="button" class="outline full" data-screen="${st.mode==='delivery'?'deliveryAddress':'locations'}">Cambiar sede o modalidad</button>`:''}
- ${!missing&&st.pay==='cash'?`<label>¿Con cuánto vas a pagar?<input id="cash" inputmode="decimal" placeholder="Ej. 100" value="${esc(st.cash)}"></label><div class="notice" id="change">${Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total'}</div>`:''}
+ ${missing?`<div class="notice" role="alert">${esc(selected?.name||'La sede asignada')} no tiene métodos de pago publicados para ${st.mode==='delivery'?'delivery':'recojo'}. Deben habilitarse desde el administrador web antes de continuar.</div>${!acceptedDelivery?`<button type="button" class="outline full" data-screen="${st.mode==='delivery'?'deliveryAddress':'locations'}">Cambiar sede o modalidad</button>`:''}`:''}
+ ${!missing&&st.pay==='cash'?`<div class="notice" role="status">Pago al recibir: este método requiere una confirmación independiente. No se solicitará QR ni comprobante digital.</div>`:''}
  ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
- ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?
-   '<button class="primary full" data-payment-start="1">Continuar con método seleccionado</button>':
+ ${acceptedDelivery?
+   '<div class="b3-payment-secondary-actions" style="display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin:18px 0 8px"><button type="button" data-prepay-add="1" style="border:0;background:none;color:#8e2432;font-size:14px;text-decoration:underline;padding:8px">Cambiar productos</button><button type="button" data-prepay-cancel="1" style="border:0;background:none;color:#8e2432;font-size:14px;text-decoration:underline;padding:8px">Cancelar solicitud</button></div>':
    `<button class="primary full" data-pay-next="1" ${missing||checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando locales y costo...':'Continuar'}</button>`}
- ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?'<button class="outline full" data-prepay-add="1">Agregar productos (cancelar solicitud anterior)</button><button class="outline full" data-prepay-cancel="1">Cancelar solicitud</button><button class="outline full" data-checkout-leave="1">Seguir explorando</button>':''}</div>`;
+ </div>`;
 }
 function summary(){
  const selectedStore=shops.find(x=>String(x.id)===String(st.store));
@@ -3152,7 +3153,20 @@ if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.
 if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
 if(b.hasAttribute('data-payment-confirm')){void submitPaymentForm();return}
 if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);if(url&&window.AndroidBridge?.downloadPaymentImage)window.AndroidBridge.downloadPaymentImage(url);else toast('La descarga de imágenes requiere una actualización de Android');return}
-if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
+if(b.dataset.pay){
+ const method=b.dataset.pay;
+ if(!paymentOptions().some(x=>x[0]===method))return toast('Método no habilitado');
+ const accepted=st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED';
+ if(accepted&&(!deliveryQuoteValid()||
+    window.B3OrderAvailability?.readInteraction?.()?.status!=='ACCEPTED'))
+  return toast('La aceptación y la cotización deben estar vigentes.');
+ st.pay=method;checkoutReviewNote='';save();
+ if(accepted&&method!=='cash'){
+  if(!paymentImageUrl(method)){render();toast('La sede no ha publicado la imagen de pago. Selecciona otro método.');return}
+  screen('paymentInstructions');return;
+ }
+ render();return;
+}
 if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
 if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
 if(b.dataset.social){toast('Facebook requiere una integración real. Usa invitado para probar.');return}
