@@ -588,13 +588,24 @@ let agentDecisionTimer=null,agentDecisionPolling=false;
 // Never retry a confirmed order's delivery quotation without a bound.
 let acceptedQuoteFailures=0,acceptedQuotePaused=false,acceptedQuoteInteractionId='';
 let pendingDeliveryQuote=null;
+// A delivered quote remains reusable for the same interaction, store, catalog
+// revision and destination while the customer waits and while payment is retried.
+const APPROVED_QUOTE_CACHE_MS=300000;
+function validAcceptedStoreQuote(quote,selected){
+ return !!quote&&quote.storeId===selected.id&&quote.revision===publishedRevision&&
+  quote.deliveryFeePen!==null&&quote.deliveryFeePen!==undefined&&
+  Number.isFinite(Number(quote.deliveryFeePen))&&Number(quote.deliveryFeePen)>=0&&
+  Array.isArray(quote.paymentMethods);
+}
 function warmAcceptedStoreQuote(entry,selected,address,district){
  const loc=deliveryLocation;
  if(!entry?.interactionId||!selected?.id||!hasDeliveryDestination(address,district))return;
  const key=JSON.stringify([entry.interactionId,selected.id,publishedRevision,
   deliveryAddressKey(address,district),loc.latitude,loc.longitude]);
- if(pendingDeliveryQuote?.key===key)return;
- const request={key,startedAt:Date.now(),result:null,promise:null};
+ if(pendingDeliveryQuote?.key===key&&
+    Date.now()-pendingDeliveryQuote.startedAt<=APPROVED_QUOTE_CACHE_MS&&
+    (!pendingDeliveryQuote.finished||validAcceptedStoreQuote(pendingDeliveryQuote.result,selected)))return;
+ const request={key,startedAt:Date.now(),result:null,promise:null,finished:false};
  pendingDeliveryQuote=request;
  // Read-only quote, not a payment, reservation, order or agent decision.
  request.promise=window.B3OrderAvailability.quoteDelivery({
@@ -603,7 +614,7 @@ function warmAcceptedStoreQuote(entry,selected,address,district){
  }).then(quote=>{
   if(pendingDeliveryQuote===request)request.result=quote;
   return quote;
- }).catch(()=>null);
+ }).catch(()=>null).finally(()=>{request.finished=true});
 }
 async function acceptedStoreQuote(entry,selected,address,district){
  const loc=deliveryLocation;
@@ -611,15 +622,19 @@ async function acceptedStoreQuote(entry,selected,address,district){
   JSON.stringify([entry.interactionId,selected.id,publishedRevision,
    deliveryAddressKey(address,district),loc.latitude,loc.longitude]):null;
  const warmed=pendingDeliveryQuote;
- if(key&&warmed?.key===key&&Date.now()-warmed.startedAt<=60000){
-  const quote=warmed.result||await warmed.promise;
-  if(quote&&quote.storeId===selected.id&&quote.revision===publishedRevision)return quote;
+ if(key&&warmed?.key===key&&Date.now()-warmed.startedAt<=APPROVED_QUOTE_CACHE_MS){
+  const quote=warmed.result||(warmed.finished?null:await warmed.promise);
+  if(validAcceptedStoreQuote(quote,selected))return quote;
  }
- return window.B3OrderAvailability.quoteDelivery({
+ const quote=await window.B3OrderAvailability.quoteDelivery({
   appId:APP_ID,storeId:selected.id,address,district,
   latitude:loc?.latitude,longitude:loc?.longitude,
   useGps:Number.isFinite(loc?.latitude)&&Number.isFinite(loc?.longitude)
  });
+ if(!validAcceptedStoreQuote(quote,selected))
+  throw Error('La cotización no incluye una tarifa y medios de pago válidos para la sede.');
+ if(key)pendingDeliveryQuote={key,startedAt:Date.now(),result:quote,promise:Promise.resolve(quote),finished:true};
+ return quote;
 }
 function currentCartSignature(){
  return JSON.stringify(publishedOrderItems().slice().sort((a,b)=>a.productId.localeCompare(b.productId)));
@@ -752,8 +767,14 @@ async function completeAcceptedQuote(entry){
  deliveryValidationStep='HABILITANDO_PAGO';
  const paymentStarted=performance.now();
  let wait;
- try{wait=await api.beginPaymentWait(entry)}
- finally{b3OrderTiming('payment_window',paymentStarted)}
+ try{
+  const previouslyEnabled=Date.parse(api.readInteraction?.()?.interactionId===entry.interactionId?
+   api.readInteraction()?.paymentExpiresAt||'':'');
+  // After a lost HTTP response, never restart an already confirmed payment clock.
+  wait=Number.isFinite(previouslyEnabled)&&previouslyEnabled>Date.now()?
+   {status:'PAYMENT_PENDING',expiresAt:new Date(previouslyEnabled).toISOString()}:
+   await api.beginPaymentWait(entry);
+ }finally{b3OrderTiming('payment_window',paymentStarted)}
  if(wait.status!=='PAYMENT_PENDING')throw Error('No se pudo iniciar el plazo de pago.');
  if(st.stage!=='availability')return false;
  st.store=selected.id;
@@ -907,7 +928,9 @@ async function pollAgentDecision(){
      (deliveryValidationStep==='HABILITANDO_PAGO'?
       'La tarifa se obtuvo, pero no se pudo habilitar el plazo de pago. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.':
       'La sede confirmó los productos, pero no fue posible verificar la tarifa de Delivery. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.'):
-     'La sede confirmó los productos. Estamos reintentando continuar al pago sin crear otra solicitud.'):
+     (deliveryValidationStep==='HABILITANDO_PAGO'?
+      'La tarifa está confirmada. Estamos reintentando habilitar el pago sin generar otro pedido.':
+      'La sede aceptó los productos. Estamos reintentando obtener la tarifa de delivery sin crear otro pedido.')):
     recovering?'Estamos comprobando que tu solicitud haya quedado registrada. No la enviaremos dos veces.':
     sending?formWaitingMessage(latest):
     pending?'Tu solicitud está registrada. Estamos verificando la respuesta de la sede.':
