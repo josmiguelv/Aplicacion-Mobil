@@ -597,17 +597,36 @@ function stopAgentDecisionPoll(){
  if(agentDecisionTimer!==null)clearTimeout(agentDecisionTimer);
  agentDecisionTimer=null;
 }
-// Persisted 429 cooldown also governs the next agent-status poll. This
-// prevents rerender, navigation or app restart from creating a POST storm.
-function formPollDelay(entry,delay=3200){
- let ms=Math.max(1000,Number.isFinite(delay)?delay:3200);
- if(entry?.messageDelivered!==true){
-  if(Number.isFinite(entry?.messageRetryAt)&&entry.messageRetryAt>Date.now())
-   ms=Math.max(ms,entry.messageRetryAt-Date.now());
-  if(entry?.messageDeliveryBlocked===true||entry?.messageDeliveryUncertain===true)
-   ms=Math.max(ms,30000);
- }
- return ms;
+// GET de estado separado del reintento POST del FORM. Los cooldowns del
+// FORM se conservan en order-availability.js y nunca bloquean este GET.
+function agentStatusPollDelay(delay=2000){
+ return Math.max(1000,Number.isFinite(delay)?delay:2000);
+}
+function b3OrderTiming(stage,started){
+ // Solo etapa y duracion: nunca identificadores, telefonos ni direcciones.
+ console.info('[B3 order timing]',stage,Math.round(performance.now()-started)+'ms');
+}
+let formDeliveryPending=null;
+function ensureFormDelivery(entry){
+ if(!entry?.interactionId||!entry.body?.customer||entry.messageDelivered===true||
+    entry.messageDeliveryUncertain===true||entry.messageDeliveryBlocked===true||
+    (Number.isFinite(entry.messageRetryAt)&&entry.messageRetryAt>Date.now())||
+    !['PENDING','ACCEPTED'].includes(entry.status)||formDeliveryPending)return;
+ const started=performance.now(),interactionId=entry.interactionId;
+ formDeliveryPending=Promise.resolve().then(()=>window.B3OrderAvailability.sendInteractionMessage(entry))
+  .catch(error=>{
+   // El cliente mantiene la proteccion de idempotencia y el motivo de bloqueo.
+   console.warn('[B3 order] FORM delivery not confirmed',error?.code||'HTTP_ERROR');
+  }).finally(()=>{
+   b3OrderTiming('form_delivery',started);
+   formDeliveryPending=null;
+   const current=window.B3OrderAvailability?.readInteraction?.();
+   if(current?.interactionId===interactionId&&st.stage==='availability'&&
+      ['PENDING','ACCEPTED'].includes(current.status)){
+    render();
+    if(!agentDecisionPolling)scheduleAgentDecisionPoll(1000);
+   }
+  });
 }
 function formWaitingMessage(entry){
  if(entry?.messageDeliveryBlocked===true)
@@ -616,7 +635,7 @@ function formWaitingMessage(entry){
   return 'Tu solicitud está registrada. Estamos verificando si la sede recibió los detalles. No volveremos a enviarlos sin confirmación.';
  return 'Tu solicitud está registrada. Estamos confirmando los detalles con la sede. No necesitas enviarla nuevamente.';
 }
-function scheduleAgentDecisionPoll(delay=3200){
+function scheduleAgentDecisionPoll(delay=2000){
  stopAgentDecisionPoll();
  if(agentDecisionPolling)return;
  const entry=window.B3OrderAvailability?.readInteraction?.();
@@ -625,7 +644,7 @@ function scheduleAgentDecisionPoll(delay=3200){
  if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
  if(entry.status!=='SUBMITTING'&&!entry.interactionId)return;
  agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},
-  formPollDelay(entry,delay));
+  agentStatusPollDelay(delay));
 }
 async function completeAcceptedQuote(entry){
  const api=window.B3OrderAvailability;
@@ -646,9 +665,13 @@ async function completeAcceptedQuote(entry){
   if(st.stage!=='availability')return false;
   deliveryLocation={...geocoded,key:deliveryAddressKey(address,district)};
  }
- const quote=await api.quoteDelivery({appId:APP_ID,storeId:selected.id,address,district,
-  latitude:deliveryLocation?.latitude,longitude:deliveryLocation?.longitude,
-  useGps:Number.isFinite(deliveryLocation?.latitude)&&Number.isFinite(deliveryLocation?.longitude)});
+ const quoteStarted=performance.now();
+ let quote;
+ try{
+  quote=await api.quoteDelivery({appId:APP_ID,storeId:selected.id,address,district,
+   latitude:deliveryLocation?.latitude,longitude:deliveryLocation?.longitude,
+   useGps:Number.isFinite(deliveryLocation?.latitude)&&Number.isFinite(deliveryLocation?.longitude)});
+ }finally{b3OrderTiming('delivery_quote',quoteStarted)}
  if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
@@ -656,7 +679,10 @@ async function completeAcceptedQuote(entry){
  if(!Number.isFinite(fee)||fee<0)throw Error('No se pudo determinar el costo del delivery.');
  // The server starts the per-client payment window only after the agent reply
  // has been interpreted and a real, published delivery fee is available.
- const wait=await api.beginPaymentWait(entry);
+ const paymentStarted=performance.now();
+ let wait;
+ try{wait=await api.beginPaymentWait(entry)}
+ finally{b3OrderTiming('payment_window',paymentStarted)}
  if(wait.status!=='PAYMENT_PENDING')throw Error('No se pudo iniciar el plazo de pago.');
  if(st.stage!=='availability')return false;
  st.store=selected.id;
@@ -677,7 +703,7 @@ async function pollAgentDecision(){
  if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&
     st.stage!=='availability'&&(st.stage!=='chat'||!!entry.paymentExpiresAt))return;
  agentDecisionPolling=true;
- let retryMs=3200;
+ let retryMs=2000;
  try{
   if(entry.status==='SUBMITTING'&&!entry.interactionId){
    if(st.stage==='availability'){
@@ -694,17 +720,14 @@ async function pollAgentDecision(){
    ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
    clearDeliveryAvailability();resetDeliveryOrderContact();save();nav('inicio');toast('Solicitud cancelada.');return;
   }
-  // The detail relay and the agent's answer are separate operations.
-  // A failed message acknowledgement must not prevent reading an already sent reply.
-  let detailError=null;
+  // Un POST FORM lento no puede bloquear la lectura del GET de respuesta.
   if(entry.body?.customer&&entry.messageDelivered!==true){
    if(st.stage==='availability'){
     deliveryAvailability={status:'CREATE_UNCERTAIN',
      storeName:shops.find(s=>s.id===entry.body.storeId)?.name||'',candidateNames:[],
      message:formWaitingMessage(entry)};render();
    }
-   try{await api.sendInteractionMessage(entry)}
-   catch(error){detailError=error}
+   ensureFormDelivery(entry);
   }
   if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'){
    if(st.stage==='availability'){
@@ -718,7 +741,10 @@ async function pollAgentDecision(){
    }
    return;
   }
-  const result=await api.pollInteraction(entry);
+  const pollStarted=performance.now();
+  let result;
+  try{result=await api.pollInteraction(entry)}
+  finally{b3OrderTiming('agent_status',pollStarted)}
   // Never apply a stale agent-poll UI result while the customer cancels the same request.
   if(checkoutCancelInFlight)return;
   const store=shops.find(x=>x.id===entry.body.storeId);
@@ -807,7 +833,7 @@ async function pollAgentDecision(){
   agentDecisionPolling=false;
   refreshChatTimeline();
   const current=api?.readInteraction?.();
-  retryMs=formPollDelay(current,retryMs);
+  retryMs=agentStatusPollDelay(retryMs);
   if(['PENDING','SUBMITTING'].includes(current?.status)||
      current?.status==='ACCEPTED'&&(current.agentDecision!=='ACCEPTED'||
       st.stage==='availability'||st.stage==='chat'&&!current.paymentExpiresAt))
@@ -910,14 +936,9 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  save();render();
  if(entry.body?.customer&&entry.messageDelivered!==true){
   deliveryValidationStep='ENTREGANDO_DETALLE';
-  try{await api.sendInteractionMessage(entry)}
-  catch(_){
-   // 429 schedules the same FORM after cooldown; uncertain/permanent errors
-   // never trigger another POST without server confirmation.
-   deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:selected.name,candidateNames:[],
-    message:formWaitingMessage(entry)};
-   save();render();scheduleAgentDecisionPoll(formPollDelay(entry,8000));return false;
-  }
+  // Enviar FORM en paralelo: el polling puede detectar la respuesta del
+  // asesor aunque la confirmacion de entrega tarde. Nunca permite pagar sin ACK.
+  ensureFormDelivery(entry);
  }
  if(!active())return false;
  deliveryValidationStep='ESPERANDO_RESPUESTA';
