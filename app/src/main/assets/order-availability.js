@@ -594,8 +594,11 @@
     const item=current.receiptUpload;
     if(item.status==='UPLOADING')
       throw Error('La carga del comprobante ya está en curso.');
-    if(item.status==='UNCERTAIN'&&!item.definitiveFailure)
-      throw Error('No se confirmó la carga anterior. Revisa la conexión antes de intentar nuevamente para evitar archivos duplicados.');
+    // Pre-migration builds called a removed route and saved a 404 as UNCERTAIN.
+    // Only those old records may be retried using the consolidated endpoint.
+    if(item.status==='UNCERTAIN'&&item.contractVersion===2&&!item.definitiveFailure)
+      throw Error('No se confirmó la carga anterior. No la repetiremos automáticamente para evitar archivos duplicados.');
+    item.contractVersion=2;
     item.status='UPLOADING';
     delete item.definitiveFailure;
     persistInteraction(current);
