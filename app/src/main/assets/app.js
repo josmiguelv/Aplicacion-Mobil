@@ -2313,6 +2313,18 @@ function applyVacancy(id){
  if(window.AndroidBridge?.openApplicantWhatsApp)window.AndroidBridge.openApplicantWhatsApp(url);
  else window.open(url,'_blank','noopener,noreferrer');
 }
+function deliveryStepDescription(){
+ const stages={
+  CATALOGO_PUBLICADO:'Comprobando la carta, las sedes y sus horarios.',
+  UBICACION:'Verificando las coordenadas del destino.',
+  COBERTURA_Y_HORARIO:'Revisando cobertura y horarios de delivery.',
+  DISPONIBILIDAD_AGENTE:'Consultando si la sede tiene un agente disponible.',
+  PREPARANDO_INTERACCION:'Preparando la solicitud para la sede.',
+  CREANDO_INTERACCION:'Registrando la solicitud sin duplicados.',
+  ENTREGANDO_DETALLE:'Enviando los detalles del pedido.'
+ };
+ return stages[deliveryValidationStep]||'Consultando la disponibilidad del delivery.';
+}
 function address(){return `<div class="page form b3-address-page">${heading('Dirección de Delivery','choice')}
  <p class="sub">Elige una dirección guardada o escribe una nueva. Puedes usarla solo para este pedido.</p>
  ${savedAddresses().length?'<div class="b3-modal-saved"><h3>Mis direcciones</h3>'+savedAddressesHtml(true)+'</div>':''}
@@ -2326,6 +2338,7 @@ function address(){return `<div class="page form b3-address-page">${heading('Dir
  <label>Referencia (opcional)<input id="reference" maxlength="180" value="${esc(st.profile.reference||'')}"></label>
  <label class="b3-address-check"><input type="checkbox" id="delivery-save-address"> Guardar para próximos pedidos</label>
  ${deliveryRequestError?`<div class="notice" role="alert">${esc(deliveryRequestError)}</div>`:""}
+ ${deliveryRequestPending?'<div class="notice" role="status">'+esc(deliveryStepDescription())+'</div>':''}
  <button class="primary full" data-address-next="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Buscando sedes...":"Consultar disponibilidad"}</button>
  ${deliveryRequestPending&&!activePersonalCheckout()?'<button type="button" class="outline full" data-delivery-stop-check="1">Detener búsqueda y revisar dirección</button>':''}</div>`}
 function maybeSaveDeliveryAddress(){
