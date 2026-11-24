@@ -233,7 +233,7 @@
     if(!entry||!current||current.interactionId!==entry.interactionId||
        current.idempotencyKey!==entry.idempotencyKey)return entry;
     for(const key of ['messageDelivered','messageIdempotencyKey','messageRetryAt',
-      'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked','paymentConfirmation']){
+      'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked','paymentConfirmation','receiptUpload']){
       if(Object.prototype.hasOwnProperty.call(current,key))entry[key]=current[key];
       else delete entry[key];
     }
@@ -580,6 +580,40 @@
     return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
       decision,agentMessageId,clientStatus:entry.status};
   }
+  async function uploadPaymentReceipt(entry) {
+    if(!entry||entry.status!=='ACCEPTED'||entry.agentDecision!=='ACCEPTED'||
+       !UUID.test(entry.interactionId)||!entry.paymentExpiresAt||
+       Date.parse(entry.paymentExpiresAt)<=Date.now())
+      throw Error('Este pedido ya no tiene un plazo activo para enviar comprobantes.');
+    if(entry.receiptUpload?.status==='UPLOADED'&&entry.receiptUpload.imagePath)
+      return entry.receiptUpload;
+    const current=readInteraction();
+    if(!current||current.interactionId!==entry.interactionId)
+      throw Error('El pedido cambió durante la carga del comprobante.');
+    if(!current.receiptUpload)current.receiptUpload={receiptId:uuid(),status:'PREPARED'};
+    const item=current.receiptUpload;
+    if(item.status==='UPLOADING'||item.status==='UNCERTAIN')
+      throw Error('No se conoce el resultado de la carga anterior. No se duplicará automáticamente.');
+    item.status='UPLOADING';persistInteraction(current);
+    let response;
+    try{
+      response=await nativeRequest({operation:'INTERACTION_RECEIPT_UPLOAD',
+        interactionId:current.interactionId,accessKey:current.idempotencyKey,
+        appId:current.body.appId,storeId:current.body.storeId,receiptId:item.receiptId});
+    }catch(error){
+      item.status='UNCERTAIN';persistInteraction(current);throw error;
+    }
+    const expected='/api/v1/mobile/payment-receipts/'+item.receiptId;
+    if(![200,201].includes(Number(response.status))||response.data?.uploaded!==true||
+       response.data?.imagePath!==expected){
+      item.status='UNCERTAIN';persistInteraction(current);
+      throw responseError(response,'No se pudo certificar la carga del comprobante');
+    }
+    item.status='UPLOADED';item.imagePath=expected;
+    persistInteraction(current);
+    entry.receiptUpload=item;
+    return item;
+  }
   // A second FORM is independent of the store availability approval ticket.
   // Capture the verified outbound history BEFORE POST so the first "Aceptar"
   // cannot ever approve the payment.
@@ -590,6 +624,9 @@
     if(Date.parse(entry.paymentExpiresAt)<=Date.now())
       throw Error('El plazo de pago termino.');
     if(!form||form.type!=='FORM'||!form.form||
+       !entry.receiptUpload||entry.receiptUpload.status!=='UPLOADED'||
+       !form.form.imageUrl?.endsWith(entry.receiptUpload.imagePath)||
+       !/^https:\/\/[^\s<>"']+$/i.test(form.form.imageUrl)||
        !/^PAGO REALIZADO - (YAPE|PLIN|TARJETA)$/.test(form.form.title)||
        !Array.isArray(form.form.fields)||form.form.fields.length!==5||
        form.form.fields.map(x=>x?.variable).join('|')!=='Pedido|Subtotal|Delivery|Dirección|Total'||
@@ -745,6 +782,6 @@
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
-    preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
+    uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
