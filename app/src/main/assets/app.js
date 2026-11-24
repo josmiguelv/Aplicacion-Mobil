@@ -1674,6 +1674,95 @@ function homeStoreSheet(){
 
 const ORDER_STAGES=[['RECEIVED','Pedido recibido','Registrado'],['ACCEPTED','Aceptado','Confirmado por el local'],['PREPARING','En preparación','Preparando el pedido'],['DISPATCH','En despacho','Listo para su entrega'],['DELIVERED','Entregado','Pedido finalizado']];
 const TRACK_WINDOW=3600000;
+// Short display reference derived from the canonical interaction UUID.
+// An exact global consecutive B3-000000001 requires a centralized sequence;
+// never generate a shared sequential number independently on each device.
+function orderPublicCode(o){
+ const uuid=String(o?.interactionId||o?.id||'');
+ return /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(uuid)?
+  'B3-'+uuid.replace(/-/g,'').slice(0,12).toUpperCase():
+  String(o?.orderCode||o?.id||'Pedido');
+}
+const DELIVERY_STATUS_WORDS={
+ 'en preparacion':'PREPARING','preparacion':'PREPARING',
+ 'preparando':'PREPARING','pedido en preparacion':'PREPARING',
+ 'en despacho':'DISPATCH','despacho':'DISPATCH',
+ 'despachado':'DISPATCH','en camino':'DISPATCH',
+ 'salio a reparto':'DISPATCH','pedido en despacho':'DISPATCH',
+ 'entregado':'DELIVERED','pedido entregado':'DELIVERED'
+};
+function agentOrderStage(message){
+ if(typeof message!=='string')return null;
+ const normalized=message.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+  .trim().toLocaleLowerCase('es-PE').replace(/[.!]+$/,'').trim().replace(/\s+/g,' ');
+ return DELIVERY_STATUS_WORDS[normalized]||null;
+}
+let trackingPollTimer=null,trackingPollBusy=false,trackingPollDelay=10000;
+function visibleLiveOrder(){
+ if(st.stage==='orderDetail')return findLocalOrder(selectedOrderId);
+ if(st.stage==='app'&&st.tab==='pedidos')return (st.orders||[]).find(o=>o?.demo!==true&&
+  o.paymentStatus==='ACCEPTED'&&o.status!=='DELIVERED');
+ return null;
+}
+function scheduleLiveTracking(delay=10000){
+ if(trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}
+ const order=visibleLiveOrder();
+ if(!order||order.demo===true||order.paymentStatus!=='ACCEPTED'||
+    order.status==='DELIVERED'||trackingPollBusy)return;
+ trackingPollTimer=setTimeout(()=>{
+  trackingPollTimer=null;void refreshLiveTracking();
+ },Math.max(1500,delay));
+}
+async function refreshLiveTracking(){
+ if(trackingPollBusy)return;
+ const order=visibleLiveOrder(),api=window.B3OrderAvailability;
+ const entry=api?.readInteraction?.();
+ if(!order||!entry||order.interactionId!==entry.interactionId||
+    order.paymentStatus!=='ACCEPTED'||order.status==='DELIVERED'||
+    typeof api.readTrackingMessages!=='function')return;
+ trackingPollBusy=true;
+ let nextDelay=10000;
+ try{
+  const result=await api.readTrackingMessages(entry);
+  if(!result.available)return;
+  const messages=result.messages;
+  // Prefer the verified payment-approval message as chronology barrier.
+  const approvalId=order.paymentAgentMessageId;
+  const approvalIndex=messages.findIndex(m=>m.id===approvalId);
+  // When the canonical approval message has fallen out of a bounded history,
+  // require a timestamp strictly later than the local acceptance record.
+  const minimumTime=Number(order.paymentApprovedAt||order.ts)||0;
+  let changed=false,delivered=false;
+  for(let i=0;i<messages.length;i++){
+   if(approvalIndex>=0&&i<=approvalIndex)continue;
+   const message=messages[i];
+   const at=Date.parse(message.createdAt);
+   if(!Number.isFinite(at)||at<minimumTime-3000&&approvalIndex<0)continue;
+   const stage=agentOrderStage(message.text);
+   if(!stage)continue;
+   const before=ORDER_STAGES.findIndex(row=>row[0]===order.status);
+   const after=ORDER_STAGES.findIndex(row=>row[0]===stage);
+   if(after<=before||after<2)continue;
+   order.status=stage;
+   order.lastTrackingMessageId=message.id;
+   order.lastTrackingAt=at;
+   if(stage==='DELIVERED'&&(!order.deliveredAt||order.deliveredAt<=0)){
+    order.deliveredAt=at;order.reviewDismissed=false;delivered=true;
+   }
+   changed=true;
+  }
+  if(changed){
+   save();render();
+   if(delivered)afterOrderDelivered(order);
+  }
+ }catch(error){
+  nextDelay=error?.httpStatus===429?65000:15000;
+ }finally{
+  trackingPollBusy=false;
+  if(visibleLiveOrder()?.status!=='DELIVERED')scheduleLiveTracking(nextDelay);
+ }
+}
+
 function isDemoOrder(o){return o?.demo===true||String(o?.id||'').startsWith('B3-DEMO-')}
 function orderDelivered(o){return o?.status==='DELIVERED'&&Number.isFinite(o.deliveredAt)&&o.deliveredAt>0}
 function activeTracking(o){return o?.status==='DELIVERED'?orderDelivered(o)&&Date.now()-o.deliveredAt<TRACK_WINDOW:true}
@@ -1690,8 +1779,8 @@ function favoriteCard(){
 function trackCard(o){
  const index=Math.max(0,ORDER_STAGES.findIndex(row=>row[0]===o.status));
  return '<div class="b3-track">'+(isDemoOrder(o)?'<p class="b3-demo-alert">SIMULACIÓN LOCAL — No son estados reportados por Pollos B3.</p>':'')+
- '<div class="b3-track-heading"><strong>Seguimiento visual</strong><span>'+Math.round(index/4*100)+'% de etapas</span></div>'+
- '<div class="b3-track-bar"><div style="width:'+index/4*100+'%"></div></div>'+
+ '<div class="b3-track-heading"><strong>Seguimiento visual</strong><span>'+Math.round((index+1)/ORDER_STAGES.length*100)+'% de etapas</span></div>'+
+ '<div class="b3-track-bar"><div style="width:'+((index+1)/ORDER_STAGES.length*100)+'%"></div></div>'+
  ORDER_STAGES.map(([id,title,info],i)=>'<div class="b3-track-stage '+(i<index?'done':i===index?'current':'upcoming')+'"><span class="b3-track-dot">'+(i<index?'✓':i+1)+'</span><div><b>'+title+'</b><small>'+(i<index?'Completado':i===index?info:'Pendiente')+'</small></div></div>').join('')+
  (isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-demo-next="'+esc(o.id)+'">Simular siguiente etapa</button>':'')+'</div>';
 }
@@ -1699,7 +1788,7 @@ function orderDetail(){
  const o=findLocalOrder(selectedOrderId);
  if(!o)return '<div class="page">'+heading('Pedido no disponible','app')+'</div>';
  const active=activeTracking(o);
- return '<div class="page b3-order-detail">'+heading('Pedido '+esc(o.id),'app')+
+ return '<div class="page b3-order-detail">'+heading('Pedido '+esc(orderPublicCode(o)),'app')+
  (active?trackCard(o):'<div class="b3-track-done">'+ic('check',22)+'<div><b>Pedido entregado</b><small>El seguimiento activo finalizó una hora después de la entrega.</small></div></div>')+
  '<div class="b3-order-recap"><h3>Resumen</h3><p>'+esc(basketNames(o.items))+'</p><strong>'+cash(o.total||0)+'</strong></div>'+
  (orderDelivered(o)?'<button class="primary full" data-repeat-order="'+esc(o.id)+'">Pedir de nuevo</button>'+(o.review?'<p class="smallprint">Opinión guardada en este dispositivo.</p>':'<button class="outline full" data-open-review="'+esc(o.id)+'">Calificar pedido</button>'):'')+'</div>';
@@ -1761,7 +1850,7 @@ function orders(){
  if(confirmed?.paymentConfirmation?.status==='ACCEPTED')recordVerifiedPaymentOrder(confirmed);
  const list=Array.isArray(st.orders)?st.orders.filter(o=>o&&typeof o.id==='string'&&Date.now()-o.ts<60*24*3600000):[];
  return '<div class="page b3-orders-page"><h1>Mis pedidos</h1><p class="sub">Consulta tus pedidos locales. El seguimiento no requiere iniciar sesión.</p>'+
- (list.length?list.map(o=>'<button class="b3-order-entry" data-order-open="'+esc(o.id)+'"><span><b>'+esc(o.id)+'</b><small>'+new Date(o.ts).toLocaleDateString('es-PE')+' · '+(isDemoOrder(o)?'PEDIDO DE PRUEBA':'Pedido')+'</small></span><span><strong>'+cash(o.total||0)+'</strong><small>'+(ORDER_STAGES.find(r=>r[0]===o.status)?.[1]||'Sin procesar')+'</small></span></button>').join(''):'<div class="empty-state"><h2>Aún no tienes pedidos</h2><p>Cuando confirmes un pedido podrás consultar aquí su información.</p><button class="primary" data-tab="carta">Ver la carta</button></div>')+'</div>';
+ (list.length?list.map(o=>'<button class="b3-order-entry" data-order-open="'+esc(o.id)+'"><span><b>'+esc(orderPublicCode(o))+'</b><small>'+new Date(o.ts).toLocaleDateString('es-PE')+' · '+(isDemoOrder(o)?'PEDIDO DE PRUEBA':'Pedido')+'</small></span><span><strong>'+cash(o.total||0)+'</strong><small>'+(ORDER_STAGES.find(r=>r[0]===o.status)?.[1]||'Sin procesar')+'</small></span></button>').join(''):'<div class="empty-state"><h2>Aún no tienes pedidos</h2><p>Cuando confirmes un pedido podrás consultar aquí su información.</p><button class="primary" data-tab="carta">Ver la carta</button></div>')+'</div>';
 }
 function account(){let rows=[['Mi perfil','user','profile'],['Direcciones guardadas','pin','address'],['Métodos de pago','card','methods'],['Notificaciones','bell','notifications'],['Nuestra Historia','book','history'],['Trabaja con nosotros','store','jobs'],['Privacidad y protección de datos','shield','privacy'],['Sobre la App','info','about']];return `<div class="page acc"><h1>Mi Cuenta</h1><button class="profile-line" data-screen="login">${ic('user',31)}<div><b>${st.registered?esc(st.profile.first||'Cuenta de prueba'):'Inicia sesión'}</b><small>${st.registered?'Cuenta local de demostración':'Para acceder a tu historial y datos guardados'}</small></div>${ic('chev')}</button><div class="rows">${rows.map(([label,icon,screen])=>`<button data-screen="${screen}">${ic(icon,20)}<span>${label}</span>${screen==='notifications'&&notificationUnreadCount()?`<b class="b3-account-notification-count">${notificationUnreadCount()}</b>`:''}${ic('chev',17)}</button>`).join('')}</div><h2 class="group-label">Ayuda</h2><div class="rows"><button data-screen="faq">${ic('help',20)}<span>Preguntas frecuentes</span>${ic('chev',17)}</button><button data-screen="claims">${ic('book',20)}<span>Libro de reclamaciones</span>${ic('chev',17)}</button></div>${st.registered?'<button class="logout" data-logout="1">Cerrar sesión de prueba</button>':''}</div>`}
 function splash(){return `<div class="splash b3-splash" aria-label="Pollos B3, la pollería más viral de Santa Anita">
@@ -2054,7 +2143,13 @@ function recordVerifiedPaymentOrder(entry){
  const approval=entry?.paymentConfirmation;
  if(!entry?.interactionId||approval?.status!=='ACCEPTED'||!approval.agentMessageId)return false;
  if(!Array.isArray(st.orders))st.orders=[];
- if(st.orders.some(o=>o?.interactionId===entry.interactionId||o?.id===entry.interactionId))return true;
+ const previouslyRecorded=st.orders.find(o=>o?.interactionId===entry.interactionId||o?.id===entry.interactionId);
+ if(previouslyRecorded){
+  if(previouslyRecorded.paymentStatus==='ACCEPTED'&&previouslyRecorded.status==='RECEIVED'){
+   previouslyRecorded.status='ACCEPTED';previouslyRecorded.paymentApprovedAt=previouslyRecorded.paymentApprovedAt||Date.now();save();
+  }
+  return true;
+ }
  const fields=approval.form?.form?.fields;
  if(!Array.isArray(fields)||fields.length!==5||
     fields.map(f=>f?.variable).join('|')!=='Pedido|Subtotal|Delivery|Dirección|Total')return false;
@@ -2071,7 +2166,8 @@ function recordVerifiedPaymentOrder(entry){
  st.orders.unshift({
   id:entry.interactionId,interactionId:entry.interactionId,ts:Date.now(),
   total,items,mode:'delivery',pay,
-  status:'RECEIVED',paymentStatus:'ACCEPTED',paymentAgentMessageId:approval.agentMessageId,
+  status:'ACCEPTED',paymentStatus:'ACCEPTED',paymentAgentMessageId:approval.agentMessageId,
+  paymentApprovedAt:Date.now(),orderCode:'B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase(),
   storeId:entry.body.storeId,address:entry.body.customer?.address||'',
   district:entry.body.customer?.district||'',
   demo:false,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false
@@ -2529,7 +2625,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
+function render(){if(visibleLiveOrder()&&!trackingPollBusy&&trackingPollTimer===null)scheduleLiveTracking(3000);else if(!visibleLiveOrder()&&trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
   `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
