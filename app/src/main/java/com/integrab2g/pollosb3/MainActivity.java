@@ -644,7 +644,7 @@ public class MainActivity extends Activity {
                         connection.setConnectTimeout(12000);
                         // Transmits the exact FORM object; it is never serialized as TEXT.
                         // This timeout covers only transport, never waiting for an agent.
-                        connection.setReadTimeout("INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
+                        connection.setReadTimeout("INTERACTION_RECEIPT_UPLOAD".equals(operation) ? 50000 : "INTERACTION_MESSAGE".equals(operation) ? 25000 : 15000);
                         String httpMethod = "HEALTH".equals(operation) || "HEALTH_LIVE".equals(operation) ||
                             "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ||
                             "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
