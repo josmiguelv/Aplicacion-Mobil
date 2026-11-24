@@ -108,7 +108,7 @@
         const error = Error('La consulta tardó demasiado. Puedes volver a comprobar sin duplicar tu solicitud.');
         error.code = 'TIMEOUT';
         reject(error);
-      }, action.operation==='INTERACTION_RECEIPT_UPLOAD'?65000:action.operation==='INTERACTION_MESSAGE'?35000:25000);
+      }, action.operation==='INTERACTION_RECEIPT_UPLOAD'?65000:['INTERACTION_MESSAGE','INTERACTION_PAYMENT_FORM'].includes(action.operation)?35000:25000);
       requests.set(requestId,{resolve,reject,timer});
       try {
         root.AndroidBridge.orderAvailabilityRequest(JSON.stringify({...action,requestId}));
@@ -585,7 +585,7 @@
        !UUID.test(entry.interactionId)||!entry.paymentExpiresAt||
        Date.parse(entry.paymentExpiresAt)<=Date.now())
       throw Error('Este pedido ya no tiene un plazo activo para enviar comprobantes.');
-    if(entry.receiptUpload?.status==='UPLOADED'&&entry.receiptUpload.imagePath)
+    if(entry.receiptUpload?.status==='UPLOADED'&&entry.receiptUpload.imageUrl)
       return entry.receiptUpload;
     const current=readInteraction();
     if(!current||current.interactionId!==entry.interactionId)
@@ -594,9 +594,11 @@
     const item=current.receiptUpload;
     if(item.status==='UPLOADING')
       throw Error('La carga del comprobante ya está en curso.');
-    // A retry after a network outage reuses the SAME receipt UUID. The
-    // Administrator verifies that the bytes match, so no duplicate is created.
-    item.status='UPLOADING';persistInteraction(current);
+    if(item.status==='UNCERTAIN'&&!item.definitiveFailure)
+      throw Error('No se confirmó la carga anterior. Revisa la conexión antes de intentar nuevamente para evitar archivos duplicados.');
+    item.status='UPLOADING';
+    delete item.definitiveFailure;
+    persistInteraction(current);
     let response;
     try{
       response=await nativeRequest({operation:'INTERACTION_RECEIPT_UPLOAD',
@@ -605,13 +607,27 @@
     }catch(error){
       item.status='UNCERTAIN';persistInteraction(current);throw error;
     }
-    const expected='/api/v1/mobile/payment-receipts/'+item.receiptId;
-    if(![200,201].includes(Number(response.status))||response.data?.uploaded!==true||
-       response.data?.imagePath!==expected){
-      item.status='UNCERTAIN';persistInteraction(current);
+    const status=Number(response.status);
+    const url=response.data?.imageUrl;
+    let imageId='';
+    try{
+      const parsed=new URL(url);
+      const match=parsed.pathname.match(/^\/api\/v1\/mobile\/payment-receipts\/images\/([0-9a-f-]{36})$/i);
+      if(parsed.protocol!=='https:'||parsed.username||parsed.password||parsed.search||parsed.hash||
+         !match||parsed.host.length<3||parsed.origin==='null')throw Error('INVALID_IMAGE_URL');
+      imageId=match[1];
+    }catch(_){/* Server response must contain a valid public HTTPS image URL. */}
+    if(![200,201].includes(status)||typeof url!=='string'||!imageId||
+       String(response.data?.imageId||'').toLowerCase()!==imageId.toLowerCase()){
+      item.status='UNCERTAIN';
+      if(status>=400&&status<500)item.definitiveFailure=true;
+      persistInteraction(current);
       throw responseError(response,'No se pudo certificar la carga del comprobante');
     }
-    item.status='UPLOADED';item.imagePath=expected;
+    item.status='UPLOADED';
+    item.imageUrl=url;
+    item.imageId=imageId;
+    delete item.imagePath;
     persistInteraction(current);
     entry.receiptUpload=item;
     return item;
@@ -627,7 +643,7 @@
       throw Error('El plazo de pago termino.');
     if(!form||form.type!=='FORM'||!form.form||
        !entry.receiptUpload||entry.receiptUpload.status!=='UPLOADED'||
-       !form.form.imageUrl?.endsWith(entry.receiptUpload.imagePath)||
+       form.form.imageUrl!==entry.receiptUpload.imageUrl||
        !/^https:\/\/[^\s<>"']+$/i.test(form.form.imageUrl)||
        !/^PAGO REALIZADO - (YAPE|PLIN|TARJETA)$/.test(form.form.title)||
        !Array.isArray(form.form.fields)||form.form.fields.length!==5||
@@ -673,10 +689,10 @@
     confirmation.status='SENDING';persistInteraction(entry);
     let response;
     try {
-      response=await nativeRequest({operation:'INTERACTION_MESSAGE',
+      response=await nativeRequest({operation:'INTERACTION_PAYMENT_FORM',
         interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
         idempotencyKey:confirmation.messageKey,
-        body:{appId:entry.body.appId,storeId:entry.body.storeId,...confirmation.form}});
+        body:{appId:entry.body.appId,storeId:entry.body.storeId,form:confirmation.form.form}});
     }catch(error){
       confirmation.status='UNCERTAIN';persistInteraction(entry);
       throw error;
