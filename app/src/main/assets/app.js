@@ -1692,6 +1692,8 @@ function home(){
 function card(p){return `<article class="item" data-product="${esc(p.id)}"><div class="item-picture">${img(p)}<span>${p.isPublished?'Publicado':'Referencial'}</span></div><div class="item-text"><strong>${esc(p.name)}</strong><div class="item-bottom"><b>${p.disabled?'Consultar':cash(p.price)}</b><button data-quick="${p.id}" ${p.disabled?'disabled':''} aria-label="Agregar ${esc(p.name)}">${ic('plus',20)}</button></div></div></article>`}
 function carta(){const term=(st.search||'').toLocaleLowerCase('es-PE');const list=products.filter(p=>(st.category==='Todos'||p.cat===st.category)&&(!term||(p.name+' '+p.desc+' '+p.cat).toLocaleLowerCase('es-PE').includes(term)));return `<div class="carta"><h1>La carta</h1><p>Elige lo que más te gusta.</p><div class="filters">${[...new Set(['Todos','Pollos','Promociones','Bebidas',...products.map(p=>p.cat)])].map(c=>`<button data-filter="${esc(c)}" class="${c===st.category?'selected':''}">${esc(c)}</button>`).join('')}</div><div class="search-feedback">${st.search?`Resultados para «${esc(st.search)}» · <button data-clearsearch="1">Limpiar búsqueda</button>`:''}</div><div class="cards">${list.map(card).join('')||'<p class="search-empty">No encontramos productos en esta demostración.</p>'}</div><p class="smallprint">Los productos de muestra son referenciales; los productos publicados se identifican en cada tarjeta. No hay pedidos ni cobros reales habilitados.</p></div>`}
 function orders(){
+ const confirmed=window.B3OrderAvailability?.readInteraction?.();
+ if(confirmed?.paymentConfirmation?.status==='ACCEPTED')recordVerifiedPaymentOrder(confirmed);
  const list=Array.isArray(st.orders)?st.orders.filter(o=>o&&typeof o.id==='string'&&Date.now()-o.ts<60*24*3600000):[];
  return '<div class="page b3-orders-page"><h1>Mis pedidos</h1><p class="sub">Consulta tus pedidos locales. El seguimiento no requiere iniciar sesión.</p>'+
  (list.length?list.map(o=>'<button class="b3-order-entry" data-order-open="'+esc(o.id)+'"><span><b>'+esc(o.id)+'</b><small>'+new Date(o.ts).toLocaleDateString('es-PE')+' · '+(isDemoOrder(o)?'PEDIDO DE PRUEBA':'Pedido')+'</small></span><span><strong>'+cash(o.total||0)+'</strong><small>'+(ORDER_STAGES.find(r=>r[0]===o.status)?.[1]||'Sin procesar')+'</small></span></button>').join(''):'<div class="empty-state"><h2>Aún no tienes pedidos</h2><p>Cuando confirmes un pedido podrás consultar aquí su información.</p><button class="primary" data-tab="carta">Ver la carta</button></div>')+'</div>';
@@ -1981,14 +1983,39 @@ function paymentWaiting(){
  '<p class="smallprint">El pago sigue pendiente hasta que el agente responda a este segundo formulario.</p>'+
  '<button class="outline full" data-checkout-leave="1">Seguir explorando</button></div>';
 }
+// Registramos una sola entrada local por interacción con la segunda validación real.
+// Nunca usamos finalizeDemoOrder, ni inventamos un identificador comercial.
+function recordVerifiedPaymentOrder(entry){
+ const approval=entry?.paymentConfirmation;
+ if(!entry?.interactionId||approval?.status!=='ACCEPTED'||!approval.agentMessageId||
+    !Array.isArray(st.cart)||!st.cart.length||!deliveryQuoteValid())return false;
+ if(!Array.isArray(st.orders))st.orders=[];
+ if(st.orders.some(o=>o?.interactionId===entry.interactionId||o?.id===entry.interactionId))return true;
+ const items=st.cart.filter(x=>x&&typeof x.id==='string'&&Number.isInteger(x.qty)&&x.qty>0)
+  .map(x=>({id:x.id,qty:x.qty}));
+ if(!items.length)return false;
+ const total=orderTotal();
+ if(!Number.isFinite(total)||total<=0)return false;
+ st.orders.unshift({
+  id:entry.interactionId,interactionId:entry.interactionId,ts:Date.now(),
+  total,items,mode:'delivery',pay:st.pay,
+  status:'RECEIVED',paymentStatus:'ACCEPTED',paymentAgentMessageId:approval.agentMessageId,
+  storeId:st.store,address:st.profile.address,district:st.profile.district,
+  demo:false,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false
+ });
+ save();
+ return true;
+}
 function paymentOutcome(){
- const c=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
+ const currentEntry=window.B3OrderAvailability?.readInteraction?.();
+ const c=currentEntry?.paymentConfirmation;
  if(!['ACCEPTED','REJECTED'].includes(c?.status))return paymentWaiting();
+ if(c.status==='ACCEPTED')recordVerifiedPaymentOrder(currentEntry);
  return '<div class="page"><div class="summary-card"><h2>'+
  (c.status==='ACCEPTED'?'Pago aceptado por la sede':'Pago rechazado por la sede')+'</h2><p>'+
  (c.status==='ACCEPTED'?'La sede confirmó tu solicitud. Tiempo de entrega pendiente de confirmación.':
  'Comunícate con la sede antes de intentar otro pago.')+
- '</p></div><button class="primary full" data-tab="inicio">Volver al inicio</button></div>';
+ '</p></div>'+(c.status==='ACCEPTED'?'<button class="primary full" data-tab="pedidos">Ver mis pedidos</button>':'')+'<button class="outline full" data-tab="inicio">Volver al inicio</button></div>';
 }
 async function submitPaymentForm(){
  if(paymentFormBusy)return;
@@ -2028,6 +2055,7 @@ async function pollPaymentDecision(){
  try{
   const result=await api.pollPaymentConfirmation(entry);
   if(['ACCEPTED','REJECTED'].includes(result.decision)){
+   if(result.decision==='ACCEPTED')recordVerifiedPaymentOrder(api.readInteraction());
    if(st.stage==='paymentWaiting')screen('paymentOutcome');
    else toast(result.decision==='ACCEPTED'?'La sede aceptó el pago':'La sede rechazó el pago');
    return;
