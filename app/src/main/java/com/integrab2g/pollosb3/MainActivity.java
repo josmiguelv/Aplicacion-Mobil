@@ -38,6 +38,7 @@ public class MainActivity extends Activity {
     private static final int PERSONAL_NOTIFICATION_REQUEST = 43;
     private static final int PAYMENT_FILE_REQUEST = 44;
     private android.webkit.ValueCallback<Uri[]> paymentFileCallback;
+    private Uri selectedPaymentProofUri;
     static final String MARKETING_TOPIC = "pollosb3_promotions";
     static final String NOTIFICATION_CHANNEL = "pollosb3_promotions";
     static final String PERSONAL_ORDER_CHANNEL = "pollosb3_personal_orders";
@@ -96,7 +97,8 @@ public class MainActivity extends Activity {
         paymentFileCallback=null;
         if(callback==null)return;
         Uri uri=resultCode==RESULT_OK&&data!=null?data.getData():null;
-        // WebView only reads the user-selected image for local preview.
+        selectedPaymentProofUri=uri;
+        // Keep only the explicit user-selected URI for secure payment proof upload.
         callback.onReceiveValue(uri==null?null:new Uri[]{uri});
     }
     @Override protected void onNewIntent(Intent intent) {
@@ -459,6 +461,8 @@ public class MainActivity extends Activity {
                     String key = null;
                     String accessKey = null;
                     int approvalFormFields=0;
+                    byte[] paymentReceiptBytes=null;
+                    String paymentReceiptMime=null;
                     if ("POST".equals(operation)) {
                         key = request.optString("idempotencyKey", "");
                         JSONObject payload = request.optJSONObject("body");
@@ -500,6 +504,39 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid interaction request");
                         body = payload.toString();
                         path = "/api/v1/mobile/interactions";
+                    } else if ("INTERACTION_RECEIPT_UPLOAD".equals(operation)) {
+                        String appId=request.optString("appId","");
+                        String storeId=request.optString("storeId","");
+                        String interactionId=request.optString("interactionId","");
+                        accessKey=request.optString("accessKey","");
+                        key=request.optString("receiptId","");
+                        if (!appId.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}") ||
+                            !storeId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}") ||
+                            key.equalsIgnoreCase(accessKey)||selectedPaymentProofUri==null)
+                            throw new IllegalArgumentException("Invalid proof upload identifiers");
+                        try(java.io.InputStream input=getContentResolver().openInputStream(selectedPaymentProofUri);
+                            java.io.ByteArrayOutputStream output=new java.io.ByteArrayOutputStream()){
+                            if(input==null)throw new IllegalArgumentException("Cannot read selected image");
+                            byte[] buffer=new byte[8192];int n;
+                            while((n=input.read(buffer))!=-1){
+                                if(output.size()+n>4*1024*1024)throw new IllegalArgumentException("Proof exceeds 4MB");
+                                output.write(buffer,0,n);
+                            }
+                            paymentReceiptBytes=output.toByteArray();
+                        }
+                        if(paymentReceiptBytes.length<12)throw new IllegalArgumentException("Invalid proof bytes");
+                        if((paymentReceiptBytes[0]&255)==255&&(paymentReceiptBytes[1]&255)==216&&(paymentReceiptBytes[2]&255)==255)
+                            paymentReceiptMime="image/jpeg";
+                        else if((paymentReceiptBytes[0]&255)==137&&(paymentReceiptBytes[1]&255)==80&&
+                                (paymentReceiptBytes[2]&255)==78&&(paymentReceiptBytes[3]&255)==71)
+                            paymentReceiptMime="image/png";
+                        else throw new IllegalArgumentException("Proof must be JPEG or PNG");
+                        path="/api/v1/mobile/interactions/"+interactionId+"/payment-receipt?appId="+
+                            java.net.URLEncoder.encode(appId,"UTF-8")+"&storeId="+
+                            java.net.URLEncoder.encode(storeId,"UTF-8");
                     } else if ("INTERACTION_MESSAGE".equals(operation)) {
                         JSONObject payload = request.optJSONObject("body");
                         String interactionId = request.optString("interactionId", "");
@@ -521,13 +558,14 @@ public class MainActivity extends Activity {
                         boolean paymentApproval = form != null &&
                             form.optString("title","").matches("PAGO REALIZADO - (YAPE|PLIN|TARJETA)");
                         if (!"FORM".equals(payload.optString("type", "")) ||
-                            payload.length() != 4 || form == null || form.length() != 3 ||
+                            payload.length() != 4 || form == null || form.length() != (orderApproval?3:4) ||
                             form.optString("title", "").length() > 180 ||
                             form.optString("subtitle", "").length() > 350 ||
                             !(orderApproval || paymentApproval) ||
                             (orderApproval && (!"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
                                 fields == null || fields.length() != 3)) ||
-                            (paymentApproval && (!"Comprobante pendiente de adjuntar".equals(form.optString("subtitle", "")) ||
+                            (paymentApproval && (!"Comprobante adjunto".equals(form.optString("subtitle", "")) ||
+                                !form.optString("imageUrl","").matches("https://[^\\s<>\\\"]+/api/v1/mobile/payment-receipts/[0-9a-fA-F-]{36}") ||
                                 fields == null || fields.length() != 5)))
                             throw new IllegalArgumentException("Invalid Pollos B3 approval FORM");
                         String[] allowedFields = orderApproval ?
@@ -612,7 +650,8 @@ public class MainActivity extends Activity {
                             "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
                             "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
-                            "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ? "POST" : operation;
+                            "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ||
+                            "INTERACTION_RECEIPT_UPLOAD".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
                         if ("INTERACTION_MESSAGE".equals(operation))
                             android.util.Log.i("B3FormAudit","stage=HTTP_OUTBOUND type=FORM fields="+approvalFormFields+
@@ -622,11 +661,11 @@ public class MainActivity extends Activity {
                         connection.setRequestProperty("Cache-Control", "no-store");
                         if (accessKey != null) connection.setRequestProperty("X-Order-Access-Key", accessKey);
                         if ("POST".equals(httpMethod)) {
-                            connection.setRequestProperty("Content-Type", "application/json");
+                            connection.setRequestProperty("Content-Type", paymentReceiptBytes==null?"application/json":paymentReceiptMime);
                             if (key != null) connection.setRequestProperty("Idempotency-Key", key);
                             connection.setDoOutput(true);
                             try (java.io.OutputStream output = connection.getOutputStream()) {
-                                output.write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                                output.write(paymentReceiptBytes!=null?paymentReceiptBytes:body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                             }
                             if ("INTERACTION_MESSAGE".equals(operation))
                                 android.util.Log.i("B3FormAudit","stage=HTTP_BODY_WRITTEN type=FORM fields="+approvalFormFields);
