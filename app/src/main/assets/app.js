@@ -583,6 +583,40 @@ function applyBackendQuote(result,entry,address,district){
 let agentDecisionTimer=null,agentDecisionPolling=false;
 // Never retry a confirmed order's delivery quotation without a bound.
 let acceptedQuoteFailures=0,acceptedQuotePaused=false,acceptedQuoteInteractionId='';
+let pendingDeliveryQuote=null;
+function warmAcceptedStoreQuote(entry,selected,address,district){
+ const loc=deliveryLocation;
+ if(!entry?.interactionId||!selected?.id||!hasDeliveryDestination(address,district))return;
+ const key=JSON.stringify([entry.interactionId,selected.id,publishedRevision,
+  deliveryAddressKey(address,district),loc.latitude,loc.longitude]);
+ if(pendingDeliveryQuote?.key===key)return;
+ const request={key,startedAt:Date.now(),result:null,promise:null};
+ pendingDeliveryQuote=request;
+ // Read-only quote, not a payment, reservation, order or agent decision.
+ request.promise=window.B3OrderAvailability.quoteDelivery({
+  appId:APP_ID,storeId:selected.id,address,district,
+  latitude:loc.latitude,longitude:loc.longitude,useGps:true
+ }).then(quote=>{
+  if(pendingDeliveryQuote===request)request.result=quote;
+  return quote;
+ }).catch(()=>null);
+}
+async function acceptedStoreQuote(entry,selected,address,district){
+ const loc=deliveryLocation;
+ const key=hasDeliveryDestination(address,district)?
+  JSON.stringify([entry.interactionId,selected.id,publishedRevision,
+   deliveryAddressKey(address,district),loc.latitude,loc.longitude]):null;
+ const warmed=pendingDeliveryQuote;
+ if(key&&warmed?.key===key&&Date.now()-warmed.startedAt<=60000){
+  const quote=warmed.result||await warmed.promise;
+  if(quote&&quote.storeId===selected.id&&quote.revision===publishedRevision)return quote;
+ }
+ return window.B3OrderAvailability.quoteDelivery({
+  appId:APP_ID,storeId:selected.id,address,district,
+  latitude:loc?.latitude,longitude:loc?.longitude,
+  useGps:Number.isFinite(loc?.latitude)&&Number.isFinite(loc?.longitude)
+ });
+}
 function currentCartSignature(){
  return JSON.stringify(publishedOrderItems().slice().sort((a,b)=>a.productId.localeCompare(b.productId)));
 }
@@ -702,11 +736,8 @@ async function completeAcceptedQuote(entry){
  }
  const quoteStarted=performance.now();
  let quote;
- try{
-  quote=await api.quoteDelivery({appId:APP_ID,storeId:selected.id,address,district,
-   latitude:deliveryLocation?.latitude,longitude:deliveryLocation?.longitude,
-   useGps:Number.isFinite(deliveryLocation?.latitude)&&Number.isFinite(deliveryLocation?.longitude)});
- }finally{b3OrderTiming('delivery_quote',quoteStarted)}
+ try{quote=await acceptedStoreQuote(entry,selected,address,district)}
+ finally{b3OrderTiming('delivery_quote',quoteStarted)}
  if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
@@ -1002,6 +1033,9 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   // asesor aunque la confirmacion de entrega tarde. Nunca permite pagar sin ACK.
   ensureFormDelivery(entry);
  }
+ // Prepare the accepted-store delivery fee during the human approval wait.
+ // Nothing here starts the payment clock or authorizes checkout.
+ warmAcceptedStoreQuote(entry,selected,address,district);
  if(!active())return false;
  deliveryValidationStep='ESPERANDO_RESPUESTA';
  deliveryAvailability={status:'WAITING_APPROVAL',storeName:selected.name,candidateNames:[],
