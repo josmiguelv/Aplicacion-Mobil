@@ -1786,11 +1786,17 @@ function trackCard(o){
  return '<div class="b3-track">'+(isDemoOrder(o)?'<p class="b3-demo-alert">SIMULACIÓN LOCAL — No son estados reportados por Pollos B3.</p>':'')+
  '<div class="b3-track-heading"><strong>Seguimiento visual</strong><span>'+Math.round((index+1)/ORDER_STAGES.length*100)+'% de etapas</span></div>'+
  '<div class="b3-track-bar"><div style="width:'+((index+1)/ORDER_STAGES.length*100)+'%"></div></div>'+
- ORDER_STAGES.map(([id,title,info],i)=>'<div class="b3-track-stage '+(i<index?'done':i===index?'current':'upcoming')+'"><span class="b3-track-dot">'+(i<index?'✓':i+1)+'</span><div><b>'+title+'</b><small>'+(i<index?'Completado':i===index?info:'Pendiente')+'</small></div></div>').join('')+
+ ORDER_STAGES.map(([id,title,info],i)=>{
+  const completed=i<=index;
+  return '<div class="b3-track-stage '+(completed?'done':i===index+1?'current':'upcoming')+'"><span class="b3-track-dot">'+(completed?'✓':i+1)+'</span><div><b>'+title+'</b><small>'+(completed?'Completado':i===index+1?info:'Pendiente')+'</small></div></div>';
+ }).join('')+
  (isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-demo-next="'+esc(o.id)+'">Simular siguiente etapa</button>':'')+
  (!isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-tracking-refresh="1">Actualizar seguimiento</button>':'')+'</div>';
 }
 function orderDetail(){
+ const confirmed=window.B3OrderAvailability?.readInteraction?.();
+ if(confirmed?.interactionId===selectedOrderId&&confirmed.paymentConfirmation?.status==='ACCEPTED')
+  recordVerifiedPaymentOrder(confirmed);
  const o=findLocalOrder(selectedOrderId);
  if(!o)return '<div class="page">'+heading('Pedido no disponible','app')+'</div>';
  const active=activeTracking(o);
