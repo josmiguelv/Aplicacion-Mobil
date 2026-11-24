@@ -556,13 +556,16 @@
           'AGENT_CLOSED_UNCONFIRMED';
     }
     else if(data.status==='ACCEPTED'){
-      // Technical acceptance/assignment does not confirm the commercial order.
-      const agent=interpretAgentDecision(data.agentMessages);
-      decision=agent.decision;agentMessageId=agent.agentMessageId;
+      // A technical agent assignment is not a commercial approval. During
+      // a temporary history outage preserve only a previously verified answer.
+      const agent=interpretAgentDecision(verifiedMessages);
+      decision=agent.decision;
+      agentMessageId=agent.agentMessageId;
       entry.status=decision||'PENDING';
     }
     else {
-      const agent=interpretAgentDecision(data.agentMessages);
+      // Do not erase an already verified reply when history is temporarily unavailable.
+      const agent=interpretAgentDecision(verifiedMessages);
       decision=agent.decision;agentMessageId=agent.agentMessageId;
       if(decision==='ACCEPTED')entry.status='ACCEPTED';
       else if(decision==='REJECTED')entry.status='REJECTED';
