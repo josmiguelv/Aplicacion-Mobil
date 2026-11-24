@@ -580,6 +580,28 @@
     return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
       decision,agentMessageId,clientStatus:entry.status};
   }
+  // Read-only verified OUTBOUND conversation messages for delivery follow-up.
+  // This does not reinterpret the first order approval or mutate the payment.
+  async function readTrackingMessages(entry){
+    if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey))
+      throw Error('No existe una interacción para seguir el pedido.');
+    const response=await nativeRequest({operation:'INTERACTION_STATUS',
+      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
+      appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200)
+      throw responseError(response,'No se pudo actualizar el seguimiento del pedido');
+    const data=response.data||{};
+    if(data.interactionId!==entry.interactionId||data.storeId!==entry.body.storeId||
+       !Array.isArray(data.agentMessages)||data.agentMessages.length>100||
+       data.agentMessages.some(m=>!m||!UUID.test(m.id)||typeof m.text!=='string'||
+        m.text.length>8000||typeof m.createdAt!=='string'))
+      throw Error('La respuesta de seguimiento no corresponde a este pedido.');
+    if(data.messagesAvailable!==true)
+      return {available:false,messages:[],conversationState:data.conversationState};
+    return {available:true,messages:data.agentMessages.map(m=>({
+      id:m.id,text:m.text,createdAt:m.createdAt
+    })),conversationState:data.conversationState};
+  }
   async function uploadPaymentReceipt(entry) {
     if(!entry||entry.status!=='ACCEPTED'||entry.agentDecision!=='ACCEPTED'||
        !UUID.test(entry.interactionId)||!entry.paymentExpiresAt||
@@ -803,6 +825,6 @@
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
-    uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
+    readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
