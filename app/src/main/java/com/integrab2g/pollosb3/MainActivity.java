@@ -384,6 +384,38 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Intent.ACTION_VIEW, uri));
             } catch (Exception ignored) { }
         }
+        /** Download only a published Pollos B3 payment image from the configured API.
+         * Never accept arbitrary hosts or content URIs from the WebView.
+         */
+        @JavascriptInterface public void downloadPaymentImage(String url) {
+            try {
+                java.net.URI source = new java.net.URI(url);
+                java.net.URI base = new java.net.URI(getString(R.string.b3_api_base).trim().replaceAll("/+$", ""));
+                if (!"https".equalsIgnoreCase(source.getScheme()) ||
+                    source.getHost() == null || base.getHost() == null ||
+                    !source.getHost().equalsIgnoreCase(base.getHost()) ||
+                    source.getPort() != base.getPort() ||
+                    source.getUserInfo() != null || source.getRawQuery() != null ||
+                    source.getRawFragment() != null ||
+                    !source.getPath().matches("/api/v1/mobile/images/[a-zA-Z0-9/_-]+"))
+                    return;
+                android.app.DownloadManager.Request request =
+                    new android.app.DownloadManager.Request(Uri.parse(url));
+                request.setTitle("Imagen de pago Pollos B3");
+                request.setDescription("Imagen publicada por Pollos B3");
+                request.setMimeType("image/png");
+                request.setNotificationVisibility(
+                    android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                request.setDestinationInExternalFilesDir(MainActivity.this,
+                    android.os.Environment.DIRECTORY_DOWNLOADS,
+                    "PollosB3-pago-" + System.currentTimeMillis() + ".png");
+                android.app.DownloadManager manager =
+                    (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                if (manager != null) manager.enqueue(request);
+            } catch (Exception ignored) {
+                // Never fall back to loading an arbitrary URL.
+            }
+        }
         /**
          * Fixed-purpose HTTPS connector for the Administrator's public mobile order API.
          * Requests originate only from bundled WebView assets; the JS caller never
