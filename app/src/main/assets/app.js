@@ -2149,6 +2149,26 @@ function paymentWaiting(){
  '<p class="smallprint">El pago sigue pendiente hasta que el agente responda a este segundo formulario.</p>'+
  '<button class="outline full" data-checkout-leave="1">Seguir explorando</button></div>';
 }
+// Clear only the exact products belonging to a payment-approved interaction.
+// If the customer has begun another basket, never remove those new items.
+function clearApprovedOrderBasket(entry){
+ if(entry?.paymentConfirmation?.status!=='ACCEPTED'||!entry.paymentConfirmation.agentMessageId||
+    !Array.isArray(st.cart)||!st.cart.length||!Array.isArray(entry.body?.items))return false;
+ const original=entry.body.items.map(i=>[String(i.productId||'').toLowerCase(),Number(i.quantity)])
+  .sort((a,b)=>a[0].localeCompare(b[0]));
+ const current=st.cart.map(i=>[String(i.id||'').replace(/^api:/,'').toLowerCase(),Number(i.qty)])
+  .sort((a,b)=>a[0].localeCompare(b[0]));
+ if(!original.length||original.length!==current.length||
+    original.some(([id,qty],i)=>!id||!Number.isInteger(qty)||qty<=0||
+      current[i][0]!==id||current[i][1]!==qty))return false;
+ st.cart=[];
+ st.selected='';
+ st.qty=1;
+ st.cash='';
+ st.quote=null;
+ save();
+ return true;
+}
 // Registramos una sola entrada local por interacción con la segunda validación real.
 // Nunca usamos finalizeDemoOrder, ni inventamos un identificador comercial.
 function recordVerifiedPaymentOrder(entry){
@@ -2160,6 +2180,7 @@ function recordVerifiedPaymentOrder(entry){
   if(previouslyRecorded.paymentStatus==='ACCEPTED'&&previouslyRecorded.status==='RECEIVED'){
    previouslyRecorded.status='ACCEPTED';previouslyRecorded.paymentApprovedAt=previouslyRecorded.paymentApprovedAt||Date.now();save();
   }
+  if(previouslyRecorded.paymentStatus==='ACCEPTED')clearApprovedOrderBasket(entry);
   return true;
  }
  const fields=approval.form?.form?.fields;
@@ -2184,7 +2205,8 @@ function recordVerifiedPaymentOrder(entry){
   district:entry.body.customer?.district||'',
   demo:false,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false
  });
- save();
+ save(); // Persist the confirmed order before changing the checkout basket.
+ clearApprovedOrderBasket(entry);
  return true;
 }
 function paymentOutcome(){
