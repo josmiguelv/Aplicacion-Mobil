@@ -517,15 +517,22 @@ public class MainActivity extends Activity {
                         // Reject all legacy text or other message types at the native boundary.
                         JSONObject form = payload.optJSONObject("form");
                         JSONArray fields = form == null ? null : form.optJSONArray("fields");
+                        boolean orderApproval = "VALIDACIÓN DE PEDIDO".equals(form == null ? "" : form.optString("title",""));
+                        boolean paymentApproval = form != null &&
+                            form.optString("title","").matches("PAGO REALIZADO - (YAPE|PLIN|TARJETA)");
                         if (!"FORM".equals(payload.optString("type", "")) ||
                             payload.length() != 4 || form == null || form.length() != 3 ||
                             form.optString("title", "").length() > 180 ||
                             form.optString("subtitle", "").length() > 350 ||
-                            !"VALIDACIÓN DE PEDIDO".equals(form.optString("title", "")) ||
-                            !"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
-                            fields == null || fields.length() != 3)
-                            throw new IllegalArgumentException("Invalid Delivery approval FORM");
-                        String[] allowedFields = {"Productos", "Subtotal", "Dirección y referencia"};
+                            !(orderApproval || paymentApproval) ||
+                            (orderApproval && (!"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
+                                fields == null || fields.length() != 3)) ||
+                            (paymentApproval && (!"Comprobante pendiente de adjuntar".equals(form.optString("subtitle", "")) ||
+                                fields == null || fields.length() != 5)))
+                            throw new IllegalArgumentException("Invalid Pollos B3 approval FORM");
+                        String[] allowedFields = orderApproval ?
+                            new String[]{"Productos","Subtotal","Dirección y referencia"} :
+                            new String[]{"Pedido","Subtotal","Delivery","Dirección","Total"};
                         for (int i = 0; i < fields.length(); i++) {
                             JSONObject field = fields.optJSONObject(i);
                             if (field == null || field.length() != 2 ||
