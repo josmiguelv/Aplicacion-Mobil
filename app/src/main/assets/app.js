@@ -247,6 +247,7 @@ let publishedPaymentWaitMinutes=10;
 let publishedReminderCount=2;
 let receiptPreviewUrl='';
 let receiptFileSelected=false;
+let paymentFormBusy=false,paymentFormError='',paymentDecisionBusy=false,paymentDecisionTimer=null;
 let splashLoadError=false;
 let splashRequestPending=false;
 let publishedPromotions=[];
@@ -307,7 +308,7 @@ function paymentConfirmationForm(){
  ];
  if(fields.length!==5||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario excede el limite de cinco campos');
  return {type:'FORM',form:{title:'PAGO REALIZADO - '+names[st.pay],
-  subtitle:'Comprobante enviado anteriormente',fields}};
+  subtitle:'Comprobante pendiente de adjuntar',fields}};
 }
 function paymentOptions(){
  const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];
@@ -1356,7 +1357,9 @@ function personalCheckoutBanner(){
 function returnToPersonalCheckout(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry)return;
- if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('prepaymentReview');
+ if(['ACCEPTED','REJECTED'].includes(entry.paymentConfirmation?.status))screen('paymentOutcome');
+ else if(entry.paymentConfirmation)screen('paymentWaiting');
+ else if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('prepaymentReview');
  else if(entry.status==='REJECTED'){
   const store=shops.find(x=>x.id===entry.body?.storeId);
   const closedWithoutDecision=entry.rejectionReason==='AGENT_CLOSED_WITHOUT_CONFIRMATION';
@@ -1937,17 +1940,86 @@ function paymentInstructions(){
   '<button class="primary full" data-payment-done="1" '+(!image?'disabled':'')+'>Pago realizado</button></div>';
 }
 function paymentProofPreview(){
- const valid=st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'&&deliveryQuoteValid();
- if(!valid)return '<div class="page"><div class="notice">La solicitud no esta habilitada.</div></div>';
- const form=paymentConfirmationForm();
- return '<div class="page">'+heading('Subir comprobante','paymentInstructions')+
-  personalCheckoutTimeHtml()+'<p class="sub">Adjunta la imagen de tu comprobante para que la sede revise el pago.</p>'+
-  '<label>Selecciona imagen JPG o PNG (máximo 5 MB)<input type="file" id="b3-payment-proof" accept="image/jpeg,image/png"></label>'+ 
-  (receiptPreviewUrl?'<img src="'+esc(receiptPreviewUrl)+'" alt="Vista previa del comprobante" style="display:block;max-height:300px;max-width:100%;margin:12px auto;object-fit:contain">':'')+
-  '<div class="notice">El comprobante se puede seleccionar y revisar, pero aún no se puede enviar: la API de carga de imágenes está pendiente. No se registrará el pago hasta su validación.</div>'+
-  '<div class="summary-card"><h2>'+esc(form.form.title)+'</h2>'+
-  form.form.fields.map(f=>'<p>'+esc(f.variable)+': <b>'+esc(f.value)+'</b></p>').join('')+'</div>'+
-  '<button class="primary full" disabled>Confirmar pago · Envío pendiente de integración</button></div>';
+ if(!isPaymentFormReady())return '<div class="page"><div class="notice">Solicitud no disponible.</div></div>';
+ const form=paymentConfirmationForm(),confirmation=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
+ return '<div class="page">'+heading('Confirmar pago','paymentInstructions')+personalCheckoutTimeHtml()+
+ '<p class="sub">Por ahora no se adjuntará comprobante. La sede debe verificar el pago antes de aceptarlo.</p>'+
+ '<div class="summary-card"><h2>'+esc(form.form.title)+'</h2>'+
+ form.form.fields.map(f=>'<p>'+esc(f.variable)+': <b>'+esc(f.value)+'</b></p>').join('')+'</div>'+
+ (paymentFormError?'<div class="notice" role="alert">'+esc(paymentFormError)+'</div>':'')+
+ '<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy||confirmation?'disabled':'')+'>'+
+ (paymentFormBusy?'Enviando...':confirmation?'Solicitud de pago iniciada':'Confirmar pago')+'</button>'+
+ '<p class="smallprint">Enviar el formulario no significa que el pago haya sido aceptado.</p></div>';
+}
+function isPaymentFormReady(){
+ return st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'&&
+  deliveryQuoteValid()&&paymentOptions().some(x=>x[0]===st.pay)&&
+  ['yape','plin','card'].includes(st.pay);
+}
+function paymentWaiting(){
+ const c=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
+ return '<div class="page">'+heading('Validación de pago','app')+personalCheckoutTimeHtml()+
+ '<div class="summary-card"><h2>'+esc(c?.form?.form?.title||'PAGO REALIZADO')+'</h2><p>'+
+ (c?.status==='SENT'?'Esperando la respuesta de la sede.':'Comprobando entrega del formulario. No enviaremos otro automáticamente.')+
+ '</p></div>'+(paymentFormError?'<div class="notice" role="alert">'+esc(paymentFormError)+'</div>':'')+
+ '<p class="smallprint">El pago sigue pendiente hasta que el agente responda a este segundo formulario.</p>'+
+ '<button class="outline full" data-checkout-leave="1">Seguir explorando</button></div>';
+}
+function paymentOutcome(){
+ const c=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
+ if(!['ACCEPTED','REJECTED'].includes(c?.status))return paymentWaiting();
+ return '<div class="page"><div class="summary-card"><h2>'+
+ (c.status==='ACCEPTED'?'Pago aceptado por la sede':'Pago rechazado por la sede')+'</h2><p>'+
+ (c.status==='ACCEPTED'?'La sede confirmó tu solicitud. Tiempo de entrega pendiente de confirmación.':
+ 'Comunícate con la sede antes de intentar otro pago.')+
+ '</p></div><button class="primary full" data-tab="inicio">Volver al inicio</button></div>';
+}
+async function submitPaymentForm(){
+ if(paymentFormBusy)return;
+ const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
+ if(!entry||!isPaymentFormReady())return toast('La solicitud no permite confirmar el pago.');
+ paymentFormBusy=true;paymentFormError='';render();
+ try{
+  await api.preparePaymentConfirmation(entry,paymentConfirmationForm());
+  screen('paymentWaiting');
+  await api.sendPaymentConfirmation(api.readInteraction());
+  if(st.stage==='paymentWaiting')render();
+  schedulePaymentDecisionPoll(1000);
+ }catch(error){
+  paymentFormError=String(error?.message||'No se pudo confirmar el envío del formulario');
+  if(api.readInteraction()?.paymentConfirmation&&st.stage!=='paymentWaiting')screen('paymentWaiting');
+  else render();
+ }finally{
+  paymentFormBusy=false;
+  if(['paymentProofPreview','paymentWaiting'].includes(st.stage))render();
+ }
+}
+function schedulePaymentDecisionPoll(delay=2500){
+ if(paymentDecisionTimer!==null)clearTimeout(paymentDecisionTimer);
+ paymentDecisionTimer=null;
+ if(paymentDecisionBusy||window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation?.status!=='SENT')return;
+ paymentDecisionTimer=setTimeout(()=>{paymentDecisionTimer=null;void pollPaymentDecision()},Math.max(1000,delay));
+}
+async function pollPaymentDecision(){
+ if(paymentDecisionBusy)return;
+ const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
+ if(entry?.paymentConfirmation?.status!=='SENT')return;
+ paymentDecisionBusy=true;let delay=2500;
+ try{
+  const result=await api.pollPaymentConfirmation(entry);
+  if(['ACCEPTED','REJECTED'].includes(result.decision)){
+   if(st.stage==='paymentWaiting')screen('paymentOutcome');
+   else toast(result.decision==='ACCEPTED'?'La sede aceptó el pago':'La sede rechazó el pago');
+   return;
+  }
+ }catch(error){
+  delay=error?.httpStatus===429?65000:8000;
+  paymentFormError='No pudimos actualizar la respuesta. La solicitud sigue registrada.';
+  if(st.stage==='paymentWaiting')render();
+ }finally{
+  paymentDecisionBusy=false;
+  if(api.readInteraction()?.paymentConfirmation?.status==='SENT')schedulePaymentDecisionPoll(delay);
+ }
 }
 function payment(){
  const available=paymentOptions();
@@ -2321,7 +2393,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
+function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
   `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
@@ -2457,7 +2529,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -2723,7 +2795,8 @@ if(b.hasAttribute('data-phone-next')){
  }
  void revalidateCheckout('payment');return}
 if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
-if(b.hasAttribute('data-payment-done')){if(paymentOptions().some(x=>x[0]===st.pay)&&paymentImageUrl(st.pay)){if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;screen('paymentProofPreview')}return}
+if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';screen('paymentProofPreview')}return}
+if(b.hasAttribute('data-payment-confirm')){void submitPaymentForm();return}
 if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);if(url&&window.AndroidBridge?.downloadPaymentImage)window.AndroidBridge.downloadPaymentImage(url);else toast('La descarga de imágenes requiere una actualización de Android');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
 if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
@@ -2950,7 +3023,7 @@ window.handleB3Back=()=>{
   if(st.stage==='availability'&&window.B3OrderAvailability?.readInteraction?.()?.status==='REJECTED'){
     nav('inicio');return true;
   }
-  if(['availability','prepaymentReview','payment','summary'].includes(st.stage)&&activePersonalCheckout()){
+  if(['availability','prepaymentReview','payment','paymentInstructions','paymentProofPreview','paymentWaiting','summary'].includes(st.stage)&&activePersonalCheckout()){
     nav('inicio');return true;
   }
   if(st.stage==='login'){
@@ -3013,7 +3086,9 @@ document.addEventListener('visibilitychange',()=>{
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry)return;
  if(['SUBMITTING','PENDING'].includes(entry.status))scheduleAgentDecisionPoll(500);
+ if(entry.paymentConfirmation?.status==='SENT')schedulePaymentDecisionPoll(1000);
  if(['SUBMITTING','PENDING','ACCEPTED'].includes(entry.status))window.AndroidBridge?.requestPersonalPushToken?.();
 });
+if(activeAtLaunch?.paymentConfirmation?.status==='SENT')schedulePaymentDecisionPoll(2000);
 // La salida del splash espera datos esenciales, sin temporizador fijo.
 })();
