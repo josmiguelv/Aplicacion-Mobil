@@ -592,8 +592,10 @@
       throw Error('El pedido cambió durante la carga del comprobante.');
     if(!current.receiptUpload)current.receiptUpload={receiptId:uuid(),status:'PREPARED'};
     const item=current.receiptUpload;
-    if(item.status==='UPLOADING'||item.status==='UNCERTAIN')
-      throw Error('No se conoce el resultado de la carga anterior. No se duplicará automáticamente.');
+    if(item.status==='UPLOADING')
+      throw Error('La carga del comprobante ya está en curso.');
+    // A retry after a network outage reuses the SAME receipt UUID. The
+    // Administrator verifies that the bytes match, so no duplicate is created.
     item.status='UPLOADING';persistInteraction(current);
     let response;
     try{
