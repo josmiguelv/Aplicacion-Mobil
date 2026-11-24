@@ -1987,20 +1987,28 @@ function paymentWaiting(){
 // Nunca usamos finalizeDemoOrder, ni inventamos un identificador comercial.
 function recordVerifiedPaymentOrder(entry){
  const approval=entry?.paymentConfirmation;
- if(!entry?.interactionId||approval?.status!=='ACCEPTED'||!approval.agentMessageId||
-    !Array.isArray(st.cart)||!st.cart.length||!deliveryQuoteValid())return false;
+ if(!entry?.interactionId||approval?.status!=='ACCEPTED'||!approval.agentMessageId)return false;
  if(!Array.isArray(st.orders))st.orders=[];
  if(st.orders.some(o=>o?.interactionId===entry.interactionId||o?.id===entry.interactionId))return true;
- const items=st.cart.filter(x=>x&&typeof x.id==='string'&&Number.isInteger(x.qty)&&x.qty>0)
-  .map(x=>({id:x.id,qty:x.qty}));
- if(!items.length)return false;
- const total=orderTotal();
- if(!Number.isFinite(total)||total<=0)return false;
+ const fields=approval.form?.form?.fields;
+ if(!Array.isArray(fields)||fields.length!==5||
+    fields.map(f=>f?.variable).join('|')!=='Pedido|Subtotal|Delivery|Dirección|Total')return false;
+ const amount=String(fields[4].value||'').match(/^S\/\s*(\d+(?:\.\d{1,2})?)$/);
+ const total=amount?Number(amount[1]):NaN;
+ const items=entry.body?.items?.map(x=>({id:'api:'+x.productId,qty:x.quantity}))||[];
+ if(!Number.isFinite(total)||total<=0||!items.length||
+    items.some(x=>!/^api:[0-9a-f-]{36}$/i.test(x.id)||!Number.isInteger(x.qty)||x.qty<1))return false;
+ const payLabel=approval.form?.form?.title?.match(/^PAGO REALIZADO - (YAPE|PLIN|TARJETA)$/);
+ if(!payLabel)return false;
+ const pay={YAPE:'yape',PLIN:'plin',TARJETA:'card'}[payLabel[1]];
+ // This is a durable, locally indexed record of the confirmed conversation.
+ // It is not a new commercial order on the Administrator backend.
  st.orders.unshift({
   id:entry.interactionId,interactionId:entry.interactionId,ts:Date.now(),
-  total,items,mode:'delivery',pay:st.pay,
+  total,items,mode:'delivery',pay,
   status:'RECEIVED',paymentStatus:'ACCEPTED',paymentAgentMessageId:approval.agentMessageId,
-  storeId:st.store,address:st.profile.address,district:st.profile.district,
+  storeId:entry.body.storeId,address:entry.body.customer?.address||'',
+  district:entry.body.customer?.district||'',
   demo:false,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false
  });
  save();
