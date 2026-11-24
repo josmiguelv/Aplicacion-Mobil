@@ -108,7 +108,7 @@
         const error = Error('La consulta tardó demasiado. Puedes volver a comprobar sin duplicar tu solicitud.');
         error.code = 'TIMEOUT';
         reject(error);
-      }, action.operation==='INTERACTION_MESSAGE'?35000:25000);
+      }, action.operation==='INTERACTION_RECEIPT_UPLOAD'?65000:action.operation==='INTERACTION_MESSAGE'?35000:25000);
       requests.set(requestId,{resolve,reject,timer});
       try {
         root.AndroidBridge.orderAvailabilityRequest(JSON.stringify({...action,requestId}));
