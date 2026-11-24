@@ -942,19 +942,30 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
    screen('availability');return false;
  }
  let selected=null;
+ let agentChecksFailed=false;
  for(const {store} of consultable){
   if(!active())return false;
   deliveryAvailability={status:'CHECKING_STORES',storeName:store.name,candidateNames:[],
    message:'Consultando atención en '+store.name+'.'};
   render();
   deliveryValidationStep='DISPONIBILIDAD_AGENTE';
-  const check=await api.checkAgentAvailability({appId:APP_ID,storeId:store.id});
+  let check;
+  try{check=await api.checkAgentAvailability({appId:APP_ID,storeId:store.id})}
+  catch(error){
+   if(!active())return false;
+   agentChecksFailed=true;
+   // A failed connectivity check says NOTHING about the agent's status.
+   // Check other eligible stores without creating a new interaction.
+   continue;
+  }
   if(!active())return false;
   if(check.available){selected=store;break}
  }
  if(!selected){
   deliveryAvailability={status:'UNAVAILABLE',storeName:'',candidateNames:[],
-   message:'Por ahora, ninguna de las sedes elegibles tiene personal disponible para confirmar tu pedido por Delivery. No se ha enviado un nuevo pedido. Puedes elegir Recojo en tienda o intentar Delivery más tarde.',reason:'NO_AGENTS'};
+   message:agentChecksFailed?
+    'No pudimos confirmar la conexión con los agentes de las sedes disponibles. No se envió ningún pedido. Puedes volver a consultar o elegir Recojo en tienda.':
+    'Por ahora, ninguna de las sedes elegibles tiene personal disponible para confirmar tu pedido por Delivery. No se ha enviado un nuevo pedido. Puedes elegir Recojo en tienda o intentar Delivery más tarde.',reason:agentChecksFailed?'AGENT_CHECK_FAILED':'NO_AGENTS'};
    screen('availability');return false;
  }
  st.store=selected.id;st.quote=null;save();
@@ -1178,10 +1189,12 @@ window.b3DeliveryGpsAddress=(token,street,district,hasNumber,error)=>{
   deliveryGpsMessage='No se pudo identificar la calle automáticamente. Completa calle, número y distrito; puedes conservar las coordenadas GPS como punto de entrega.';
  }else{
   st.profile.address=String(street).trim();
-  if(String(district||'').trim())st.profile.district=String(district).trim();
+  // A GPS result without a verified administrative district requires manual confirmation.
+  st.profile.district=String(district||'').trim();
   deliveryGpsMessage=hasNumber
-   ?'Dirección encontrada. Revisa la calle, el número y el distrito antes de continuar.'
-   :'Ubicación encontrada. Completa el número de puerta y revisa el distrito.';
+   ?'Dirección encontrada. Confirma el distrito antes de continuar.'
+   :'Ubicación encontrada. Completa el número de puerta y el distrito antes de continuar.';
+  if(!st.profile.district)deliveryGpsMessage='Encontramos la calle, pero no pudimos confirmar el distrito. Escríbelo antes de consultar sedes.';
  }
  if(deliveryLocation?.source==='gps')deliveryLocation.key=deliveryAddressKey(st.profile.address,st.profile.district);
  deliveryRequestError='';save();render();
@@ -2313,7 +2326,8 @@ function address(){return `<div class="page form b3-address-page">${heading('Dir
  <label>Referencia (opcional)<input id="reference" maxlength="180" value="${esc(st.profile.reference||'')}"></label>
  <label class="b3-address-check"><input type="checkbox" id="delivery-save-address"> Guardar para próximos pedidos</label>
  ${deliveryRequestError?`<div class="notice" role="alert">${esc(deliveryRequestError)}</div>`:""}
- <button class="primary full" data-address-next="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Buscando sedes...":"Consultar disponibilidad"}</button></div>`}
+ <button class="primary full" data-address-next="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Buscando sedes...":"Consultar disponibilidad"}</button>
+ ${deliveryRequestPending&&!activePersonalCheckout()?'<button type="button" class="outline full" data-delivery-stop-check="1">Detener búsqueda y revisar dirección</button>':''}</div>`}
 function maybeSaveDeliveryAddress(){
  if(!document.getElementById('delivery-save-address')?.checked)return;
  const street=v('address'),district=v('district'),reference=v('reference');
@@ -2844,6 +2858,12 @@ if(b.hasAttribute('data-availability-pickup')){
   }
   return;
  }
+if(b.hasAttribute('data-delivery-stop-check')){
+ if(activePersonalCheckout())return toast('La solicitud ya fue enviada. Puedes consultar su estado sin duplicarla.');
+ ++deliveryValidationGeneration;deliveryRequestPending=false;deliveryValidationStep='DETENIDO';
+ deliveryRequestError='Consulta detenida. Revisa tu dirección y vuelve a intentarlo cuando quieras.';
+ screen('deliveryAddress');return;
+}
 if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');if(!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status))resetDeliveryOrderContact();st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.mode='delivery';invalidateDeliverySelection();maybeSaveDeliveryAddress();save();void resolveDelivery();return}
 if(b.hasAttribute('data-identity-next')){
  if(v('first').length<2||v('last').length<2||v('first').length>60||v('last').length>60)
@@ -2899,8 +2919,16 @@ root.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&(e.target
 root.addEventListener('submit',e=>{if(e.target.id==='home-search-form'){e.preventDefault();st.search=(document.getElementById('home-search-field')?.value||'').trim().slice(0,60);st.category='Todos';nav('carta');return}if(e.target.id==='chat-form'){e.preventDefault();toast('El chat se habilitará después de confirmar el pago.')}});
 root.addEventListener('input',e=>{if(e.target.id==='address'||e.target.id==='district'){
  deliveryGpsPending=false; // Do not overwrite customer edits with a delayed GPS reverse-geocoding callback.
- deliveryLocation=null;invalidateDeliverySelection();
- deliveryGpsMessage='Dirección editada: se volverá a verificar su ubicación antes de calcular el reparto.';
+ const correctingGpsDistrict=e.target.id==='district'&&deliveryLocation?.source==='gps'&&
+  String(document.getElementById('address')?.value||'').trim()===st.profile.address;
+ if(correctingGpsDistrict){
+  st.profile.district=e.target.value.trim();
+  deliveryLocation.key=deliveryAddressKey(st.profile.address,st.profile.district);
+  deliveryGpsMessage='Distrito corregido. Conservamos el punto GPS elegido para esta misma dirección.';
+ }else{
+  deliveryLocation=null;invalidateDeliverySelection();
+  deliveryGpsMessage='Dirección editada: se volverá a verificar su ubicación antes de calcular el reparto.';
+ }
  deliveryRequestError='';const warning=root.querySelector('[role="alert"]');if(warning)warning.remove()
 }if(e.target.id==='cash'){st.cash=e.target.value;let change=document.getElementById('change');if(change)change.textContent=Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total';}});
 
