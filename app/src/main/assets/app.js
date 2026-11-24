@@ -545,7 +545,7 @@ function deliveryOrderTicketForm(address,district){
  });
  if(Math.abs(subtotalCents/100-subtotal())>.015)
   throw Error('El subtotal del ticket no coincide con el carrito publicado.');
- const productsValue=lines.join('\n');
+ // FORM values must not contain control characters: Admin validText rejects LF.\n const productsValue=lines.join(' · ');
  if(productsValue.length>500)throw Error('El detalle de Productos supera los 500 caracteres permitidos. Revisa el carrito antes de enviar el pedido.');
  const addr=String(address||'').trim(),area=String(district||'').trim();
  if(addr.length<6||addr.length>180||area.length<2||area.length>80)
