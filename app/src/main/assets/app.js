@@ -1846,7 +1846,11 @@ async function sendDeliveredSurvey(order){
   }
   const comment=(document.getElementById('review-comment')?.value||'').trim();
   if(comment.length>500){toast('El comentario no puede superar 500 caracteres');return}
-  submission={key:newSurveyId(),rating,tags:[...reviewTags],comment};
+  try{submission={key:newSurveyId(),rating,tags:[...reviewTags],comment}}
+  catch(error){
+   reviewSendError=String(error?.message||'No se pudo preparar un envío seguro de la encuesta.');
+   render();return;
+  }
   order.surveySubmission=submission;
   save(); // Keep the idempotency key and exact payload for any retry.
  }
