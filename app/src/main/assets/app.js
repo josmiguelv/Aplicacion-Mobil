@@ -242,6 +242,9 @@ function notificationDetailScreen(){
 // La lista de locales permanece vacía hasta que la API devuelva sus registros.
 let publishedRevision=0;
 let catalogRequestFinished=false;
+let publishedPaymentImages={};
+let publishedPaymentWaitMinutes=10;
+let publishedReminderCount=2;
 let splashLoadError=false;
 let splashRequestPending=false;
 let publishedPromotions=[];
@@ -282,12 +285,35 @@ function straightDistanceKm(s){
  const a=Math.sin(dLat/2)**2+Math.cos(rad(st.coords.lat))*Math.cos(rad(Number(s.latitude)))*Math.sin(dLon/2)**2;
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
+function paymentImageUrl(method){
+ const selected=shops.find(x=>String(x.id)===String(st.store));
+ const storeUrl=selected?.paymentOptions?.[st.mode]?.find(x=>x?.method===method)?.imageUrl;
+ const raw=storeUrl||publishedPaymentImages[method];
+ if(typeof raw!=='string'||!/^\/api\/v1\/mobile\/images\/[a-zA-Z0-9/_-]+$/.test(raw))return '';
+ return API_BASE+raw;
+}
+function paymentConfirmationForm(){
+ const names={yape:'YAPE',plin:'PLIN',card:'TARJETA'};
+ if(!names[st.pay])throw Error('Metodo no compatible con comprobante');
+ const items=st.cart.map(item=>{const p=product(item.id);return (p?.name||'Producto')+' x'+item.qty}).join(', ');
+ const fields=[
+  {variable:'Pedido',value:items},
+  {variable:'Subtotal',value:cash(subtotal())},
+  {variable:'Delivery',value:cash(st.quote?.deliveryFeePen??0)},
+  {variable:'Dirección',value:[st.profile.address,st.profile.district].filter(Boolean).join(', ')},
+  {variable:'Total',value:cash(orderTotal())}
+ ];
+ if(fields.length!==5||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario excede el limite de cinco campos');
+ return {type:'FORM',form:{title:'PAGO REALIZADO - '+names[st.pay],
+  subtitle:'Comprobante enviado anteriormente',fields}};
+}
 function paymentOptions(){
  const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];
  if(!st.configReady)return []; // No published store or payment methods: never assume enabled.
  const selected=shops.find(x=>String(x.id)===String(st.store));
- const published=st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)
-  ?st.quote.paymentMethods:selected?.paymentMethods?.[st.mode];
+ const selectedMethods=selected?.paymentMethods?.[st.mode];
+ const quotedMethods=st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)?st.quote.paymentMethods:null;
+ const published=Array.isArray(selectedMethods)&&Array.isArray(quotedMethods)?selectedMethods.filter(m=>quotedMethods.includes(m)):selectedMethods||quotedMethods;
  return Array.isArray(published)?choices.filter(x=>published.includes(x[0])):[];
 }
 function productsFromApi(rows){
@@ -325,6 +351,9 @@ async function fetchConfig({strict=false}={}){
   // Locales: solo los publicados por el administrador.
   const revisionChanged=st.configReady&&publishedRevision!==c.revision;
   publishedRevision=c.revision;
+  publishedPaymentImages=c.paymentImages&&typeof c.paymentImages==='object'?c.paymentImages:{};
+  publishedPaymentWaitMinutes=Number.isInteger(c.paymentWaitMinutes)&&c.paymentWaitMinutes>0?c.paymentWaitMinutes:10;
+  publishedReminderCount=Number.isInteger(c.reminderCount)&&c.reminderCount>=0?c.reminderCount:2;
   shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null})));
   // Productos: conservar siempre la carta de muestra y anexar los publicados.
   // La lista se reconstruye, no se concatena incrementalmente, para evitar duplicados.
@@ -1885,7 +1914,7 @@ function prepaymentReview(){
   ${personalCheckoutTimeHtml()}
   <p class="b3-checkout-price-note">El delivery se estima por la distancia en línea recta y la tarifa publicada de la sede, sin Google Routes. El importe se muestra antes de elegir cómo pagar.</p>
   ${checkoutReviewNote?'<div class="notice" role="alert">'+esc(checkoutReviewNote)+'</div>':''}
-  <p class="smallprint">No se realizará ningún cobro. Solo podrás revisar los métodos de pago disponibles.</p>
+  <p class="smallprint">La sede deberá validar el pago antes de registrar el pedido.</p>
   <button class="primary full" data-prepay-payment="1" ${valid?'':'disabled'}>Elegir método de pago</button>
   <button class="outline full" data-prepay-add="1">Agregar o cambiar productos</button>
   <button class="outline full" data-prepay-cancel="1">Cancelar mi solicitud</button>
@@ -1893,19 +1922,42 @@ function prepaymentReview(){
   ${!valid?'<button class="outline full" data-prepay-retry="1">Reintentar cotización</button>':''}
  </div>`;
 }
+function paymentInstructions(){
+ const valid=st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'&&deliveryQuoteValid();
+ const image=paymentImageUrl(st.pay);
+ const title=({yape:'Yape',plin:'Plin',card:'Tarjeta'})[st.pay]||'';
+ if(!valid||!paymentOptions().some(x=>x[0]===st.pay)||!title)return '<div class="page"><div class="notice">Selecciona un método válido.</div><button class="outline full" data-screen="payment">Volver</button></div>';
+ return '<div class="page">'+heading('Pago con '+title,'payment')+personalCheckoutTimeHtml()+
+  '<div class="summary-card"><h2>Total a pagar</h2><p class="grand"><strong>'+cash(orderTotal())+'</strong></p></div>'+
+  (image?'<img src="'+esc(image)+'" alt="Imagen de pago '+esc(title)+'" style="display:block;width:100%;max-width:320px;margin:16px auto;object-fit:contain">':'<div class="notice">La sede no ha publicado una imagen para este método.</div>')+
+  '<p class="smallprint">Verifica los datos del destinatario antes de pagar. El comprobante deberá validarlo la sede.</p>'+
+  '<button class="outline full" data-payment-save-image="1" '+(!image?'disabled':'')+'>Guardar imagen de pago</button>'+
+  '<button class="primary full" data-payment-done="1" '+(!image?'disabled':'')+'>Pago realizado</button></div>';
+}
+function paymentProofPreview(){
+ const valid=st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'&&deliveryQuoteValid();
+ if(!valid)return '<div class="page"><div class="notice">La solicitud no esta habilitada.</div></div>';
+ const form=paymentConfirmationForm();
+ return '<div class="page">'+heading('Subir comprobante','paymentInstructions')+
+  personalCheckoutTimeHtml()+'<p class="sub">Adjunta la imagen de tu comprobante para que la sede revise el pago.</p>'+
+  '<div class="notice">La API del Administrador aún no admite envío de imágenes para esta interacción. No enviaremos un formulario ni registraremos un pago sin el comprobante.</div>'+
+  '<div class="summary-card"><h2>'+esc(form.form.title)+'</h2>'+
+  form.form.fields.map(f=>'<p>'+esc(f.variable)+': <b>'+esc(f.value)+'</b></p>').join('')+'</div>'+
+  '<button class="primary full" disabled>Confirmar pago</button></div>';
+}
 function payment(){
  const available=paymentOptions();
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const missing=st.configReady&&!available.length;
  return `<div class="page">${heading('Método de pago',st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?'inicio':'prepaymentReview')}
  ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?`<div class="summary-card"><h2>Total de tu pedido</h2><p>Productos <b>${cash(subtotal())}</b></p><p>Delivery estimado <b>${cash(st.quote.deliveryFeePen)}</b></p><p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
- <p class="sub">Solo aparecen los métodos habilitados para tu local y modalidad. No hay cobros reales en este piloto.</p>
+ <p class="sub">Solo aparecen los métodos habilitados para la sede. Todo pago requiere validación del local.</p>
  <div class="method-list">${available.map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>
  ${missing?`<div class="notice" role="alert">${esc(selected?.name||'La sede asignada')} no tiene métodos de pago publicados para ${st.mode==='delivery'?'delivery':'recojo'}. Deben habilitarse desde el administrador web antes de continuar.</div><button type="button" class="outline full" data-screen="${st.mode==='delivery'?'deliveryAddress':'locations'}">Cambiar sede o modalidad</button>`:''}
  ${!missing&&st.pay==='cash'?`<label>¿Con cuánto vas a pagar?<input id="cash" inputmode="decimal" placeholder="Ej. 100" value="${esc(st.cash)}"></label><div class="notice" id="change">${Number(st.cash)>=orderTotal()?`Vuelto referencial: ${cash(Number(st.cash)-orderTotal())}`:'Ingresa un monto igual o mayor al total'}</div>`:''}
  ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
  ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?
-   '<div class="notice">Puedes revisar los métodos habilitados. La confirmación y el cobro quedan para la siguiente fase.</div>':
+   '<button class="primary full" data-payment-start="1">Continuar con método seleccionado</button>':
    `<button class="primary full" data-pay-next="1" ${missing||checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando locales y costo...':'Continuar'}</button>`}
  ${st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?'<button class="outline full" data-prepay-add="1">Agregar productos (cancelar solicitud anterior)</button><button class="outline full" data-prepay-cancel="1">Cancelar solicitud</button><button class="outline full" data-checkout-leave="1">Seguir explorando</button>':''}</div>`;
 }
@@ -2265,7 +2317,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
+function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
   `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
@@ -2401,7 +2453,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -2666,6 +2718,9 @@ if(b.hasAttribute('data-phone-next')){
   void resolveDelivery();return
  }
  void revalidateCheckout('payment');return}
+if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
+if(b.hasAttribute('data-payment-done')){if(paymentOptions().some(x=>x[0]===st.pay)&&paymentImageUrl(st.pay))screen('paymentProofPreview');return}
+if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);if(url&&window.AndroidBridge?.downloadPaymentImage)window.AndroidBridge.downloadPaymentImage(url);else toast('La descarga de imágenes requiere una actualización de Android');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
 if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
 if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
