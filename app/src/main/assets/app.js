@@ -1170,8 +1170,9 @@ window.b3DeliveryGpsAddress=(token,street,district,hasNumber,error)=>{
 // Android permission allows access but cannot switch the device's master GPS
 // toggle on. Offer a user-controlled route to the proper system settings.
 let locationSettingsModal=null;
+let locationPromptDismissed=false;
 function showLocationSettingsPrompt(code){
- if(locationSettingsModal)return;
+ if(locationSettingsModal||locationPromptDismissed)return;
  const permissions=code==='PERMISSION_DENIED'||code==='LOCATION_PRECISION_REQUIRED';
  const prompt=code==='LOCATION_DISABLED'?
   'La ubicación del teléfono está apagada. Para ver las sedes cercanas, actívala en Ajustes de Android.':
@@ -1192,9 +1193,10 @@ function showLocationSettingsPrompt(code){
  layer.addEventListener('click',event=>{
   const settings=event.target.closest('[data-location-settings]');
   const later=event.target.closest('[data-location-later]');
-  if(!settings&&!later)return;
+  const outside=event.target.closest('.b3-location-permission-backdrop');
+  if(!settings&&!later&&!outside)return;
   layer.remove();locationSettingsModal=null;
-  if(later){deliveryGpsRequested=false;return}
+  if(later||outside){locationPromptDismissed=true;deliveryGpsRequested=false;return}
   if(permissions)window.AndroidBridge?.openAppLocationSettings?.();
   else window.AndroidBridge?.openLocationSettings?.();
  });
@@ -1206,8 +1208,8 @@ window.b3NativeLocation=(lat,lng,error)=>{
  deliveryGpsRequested=false;
  if(error){
   if(['LOCATION_DISABLED','LOCATION_PRECISION_REQUIRED','PERMISSION_DENIED'].includes(error)){
-   // Preserve delivery intent while the customer enables GPS in Android.
-   deliveryGpsRequested=forDelivery;
+   // A location failure must never trap the user or re-prompt automatically.
+   deliveryGpsRequested=false;
    showLocationSettingsPrompt(error);
   }else toast(error);
   return;
@@ -2393,7 +2395,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true;setTimeout(()=>{if(st.stage==='app'&&st.tab==='inicio'&&window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation()},150)}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
+function render(){if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
   `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
@@ -2667,7 +2669,7 @@ if(b.hasAttribute('data-modal-save-delivery')){
  save();void resolveDelivery();return;
 }
 if(b.dataset.modalPickstore){void confirmStore('pickup',b.dataset.modalPickstore);return;}
-if(b.hasAttribute('data-gps')){deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.hasAttribute('data-checkout-return')){returnToPersonalCheckout();return}
+if(b.hasAttribute('data-gps')){locationPromptDismissed=false;deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.hasAttribute('data-checkout-return')){returnToPersonalCheckout();return}
 if(b.hasAttribute('data-checkout-leave')){nav('inicio');return}
 if(b.hasAttribute('data-rejected-new-catalog')){
  if(window.B3OrderAvailability?.readInteraction?.()?.status!=='REJECTED')return;
@@ -3014,6 +3016,7 @@ window.handleB3Back=()=>{
   if(b3ConfirmDismiss){b3ConfirmDismiss();return true}
   if(chatOverlay){closeChatOverlay();return true}
   if(marketingPromptVisible){localStorage.setItem(MARKETING_PROMPT_KEY,'later');marketingPromptVisible=false;render();return true}
+  if(locationSettingsModal){locationPromptDismissed=true;deliveryGpsRequested=false;locationSettingsModal.remove();locationSettingsModal=null;return true}
   if(fulfillmentModal){checkoutPending=false;fulfillmentModal=null;render();return true}
   if(st.stage==='app'){
     if(st.tab!=='inicio'){nav('inicio');return true}
