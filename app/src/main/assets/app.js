@@ -153,7 +153,7 @@ const API_BASE=(()=>{
  return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):'';
 })();
 // Fase locales: conservar catálogo, imágenes, promociones y vacantes de demostración.
-const catalogPublished=false;
+let catalogPublished=false;
 const NOTIFICATIONS_API_BASE=(()=>{const raw=window.AndroidBridge?.getNotificationsApiBase?.()||'';return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):''})();
 let commercialNotifications=[],notificationsLoading=false,notificationsError='',notificationsRequestId=0;
 let notificationsLoaded=false,selectedNotificationId='',pendingPushNotificationId='';
@@ -242,6 +242,8 @@ function notificationDetailScreen(){
 // La lista de locales permanece vacía hasta que la API devuelva sus registros.
 let publishedRevision=0;
 let catalogRequestFinished=false;
+let splashLoadError=false;
+let splashRequestPending=false;
 let publishedPromotions=[];
 let publishedVacancies=[];
 let complaintsBookUrl=null;
@@ -326,7 +328,10 @@ async function fetchConfig({strict=false}={}){
   shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null})));
   // Productos: conservar siempre la carta de muestra y anexar los publicados.
   // La lista se reconstruye, no se concatena incrementalmente, para evitar duplicados.
-  products.splice(0,products.length,...demoProducts,...productsFromApi(c.products));
+  products.splice(0,products.length,...productsFromApi(c.products));
+  catalogPublished=true;
+  publishedPromotions=Array.isArray(c.promotions)?c.promotions.filter(p=>p&&typeof p.title==='string'&&p.title.trim()):[];
+  publishedVacancies=Array.isArray(c.jobVacancies)?c.jobVacancies:[];
   storeGeocoding=false;
   if(st.coords)resolveStoreDistances();
   st.configReady=true;
@@ -344,7 +349,7 @@ async function fetchConfig({strict=false}={}){
   const ongoing=['SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status);
   if(!ongoing){
    shops.splice(0,shops.length);st.configReady=false;st.quote=null;st.store='';
-   clearDeliveryAvailability();products.splice(0,products.length,...demoProducts);
+   clearDeliveryAvailability();products.splice(0,products.length);catalogPublished=false;publishedPromotions=[];
   }
   // An internet/catalog interruption must not erase a previously submitted order,
   // its stable idempotency key or a confirmed agent decision.
@@ -1627,7 +1632,7 @@ function splash(){return `<div class="splash b3-splash" aria-label="Pollos B3, l
   <div class="b3-splash-halo" aria-hidden="true"></div>
   <img class="b3-splash-logo" src="images/pollosb3-header-logo.png" alt="Pollos B3">
   <h1 class="b3-splash-slogan"><span>LA POLLERÍA MÁS VIRAL DE</span><strong>SANTA ANITA</strong></h1>
-  <div class="b3-splash-loading"><span>PREPARANDO TU CARTA...</span><div class="b3-splash-track" role="progressbar" aria-label="Preparando la carta"><i></i></div></div>
+  <div class="b3-splash-loading"><span>${splashLoadError?"NO PUDIMOS CARGAR LA CARTA":"PREPARANDO TU CARTA..."}</span>${splashLoadError?'<p role="alert" style="color:white;text-align:center;padding:12px">Revisa tu conexión. La carta no está disponible.</p><button type="button" data-splash-retry="1" style="background:white;color:#a90016;border:0;border-radius:24px;padding:12px 24px;font-weight:700">Reintentar</button>':'<div class="b3-splash-track" role="progressbar" aria-label="Preparando la carta"><i></i></div>'}</div>
 </div>`}
 function login(){return `<div class="login"><div class="login-photo">${products.length?img(products[0]):'<img src="images/pollosb3-header-logo.png" alt="Pollos B3" loading="eager">'}</div><div class="login-body"><h1>Bienvenido a <em>Pollos B3</em></h1><p>Tu pollo favorito está a unos toques de distancia.</p><button class="primary" data-screen="signin-phone">${ic('phone')} Continuar con número</button><button class="outline" data-screen="signin-email">${ic('mail')} Continuar con correo</button><button class="outline facebook" data-social="facebook"><b>f</b> Continuar con Facebook</button><span class="or">o</span><button class="guest" data-guest="1">Continuar como invitado</button><small class="hint">Accesos de demostración. No ingreses contraseñas reales.</small></div></div>`}
 function heading(title,back){return `<div class="screen-heading"><button aria-label="Regresar" data-screen="${back||'app'}">${ic('back')}</button>${title?`<h1>${esc(title)}</h1>`:''}</div>`}
@@ -2375,7 +2380,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -2876,12 +2881,33 @@ window.handleB3Back=()=>{
   const previous={availability:'deliveryAddress',notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
   screen(previous[st.stage]||'app');return true
 };
+async function preloadInitialCatalogImages(){
+ const sources=[...new Set(products.slice(0,4).map(p=>photo(p)).filter(Boolean))].slice(0,4);
+ if(!sources.length||typeof Image==='undefined')return;
+ await Promise.race([Promise.all(sources.map(src=>new Promise(resolve=>{
+  const image=new Image();image.onload=resolve;image.onerror=resolve;image.src=src;if(image.complete)resolve();
+ }))),new Promise(resolve=>setTimeout(resolve,1400))]);
+}
+async function initializeCatalogAtSplash(){
+ if(splashRequestPending||st.stage!=='splash')return;
+ splashRequestPending=true;splashLoadError=false;render();
+ const started=Date.now();
+ try{
+  await fetchConfig({strict:true});
+  await Promise.all([preloadInitialCatalogImages(),new Promise(resolve=>setTimeout(resolve,Math.max(0,700-(Date.now()-started))))]);
+  if(st.stage==='splash')screen(enteredBefore?'app':'login');
+ }catch(error){
+  splashLoadError=true;
+  console.warn('Initial catalog unavailable',error?.message||'error');
+  if(st.stage==='splash')render();
+ }finally{splashRequestPending=false}
+}
 render();
 const activeAtLaunch=window.B3OrderAvailability?.readInteraction?.();
 if(activeAtLaunch&&['PENDING','SUBMITTING','ACCEPTED'].includes(activeAtLaunch.status))
  window.AndroidBridge?.requestPersonalPushToken?.();
-fetchConfig();
-// Refresh inbox silently; individual offers are still validated when opened.
+void initializeCatalogAtSplash();
+// Las notificaciones son opcionales y no bloquean Inicio.
 void fetchNotifications();
 // FCM is used in the background; server time is authoritative for expiration.
 let lastExpirySync=0,expirySyncBusy=false;
@@ -2908,6 +2934,5 @@ document.addEventListener('visibilitychange',()=>{
  if(['SUBMITTING','PENDING'].includes(entry.status))scheduleAgentDecisionPoll(500);
  if(['SUBMITTING','PENDING','ACCEPTED'].includes(entry.status))window.AndroidBridge?.requestPersonalPushToken?.();
 });
-// Present branded artwork only on cold launch, then clear it from the navigation stack.
-setTimeout(()=>{if(st.stage==='splash')screen(enteredBefore?'app':'login')},3000);
+// La salida del splash espera datos esenciales, sin temporizador fijo.
 })();
