@@ -295,7 +295,7 @@ function paymentImageUrl(method){
  if(typeof raw!=='string'||!/^\/api\/v1\/mobile\/images\/[a-zA-Z0-9/_-]+$/.test(raw))return '';
  return API_BASE+raw;
 }
-function paymentConfirmationForm(){
+function paymentConfirmationForm(imageUrl=''){
  const names={yape:'YAPE',plin:'PLIN',card:'TARJETA'};
  if(!names[st.pay])throw Error('Metodo no compatible con comprobante');
  const items=st.cart.map(item=>{const p=product(item.id);return (p?.name||'Producto')+' x'+item.qty}).join(', ');
@@ -308,7 +308,7 @@ function paymentConfirmationForm(){
  ];
  if(fields.length!==5||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario excede el limite de cinco campos');
  return {type:'FORM',form:{title:'PAGO REALIZADO - '+names[st.pay],
-  subtitle:'Comprobante pendiente de adjuntar',fields}};
+  subtitle:'Comprobante adjunto',...(imageUrl?{imageUrl}:{}),fields}};
 }
 function paymentOptions(){
  const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];
@@ -1945,11 +1945,13 @@ function paymentProofPreview(){
  if(!isPaymentFormReady())return '<div class="page"><div class="notice">Solicitud no disponible.</div></div>';
  const form=paymentConfirmationForm(),confirmation=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
  return '<div class="page">'+heading('Confirmar pago','paymentInstructions')+personalCheckoutTimeHtml()+
- '<p class="sub">Por ahora no se adjuntará comprobante. La sede debe verificar el pago antes de aceptarlo.</p>'+
+ '<p class="sub">Adjunta el comprobante. Se enviará como imagen dentro del mismo FORM de pago.</p>'+ 
+ '<label>Comprobante JPG/PNG (máximo 4 MB)<input type="file" id="b3-payment-proof" accept="image/jpeg,image/png"></label>'+ 
+ (receiptPreviewUrl?'<img src="'+esc(receiptPreviewUrl)+'" alt="Comprobante seleccionado" style="display:block;max-height:300px;max-width:100%;margin:12px auto;object-fit:contain">':'')+
  '<div class="summary-card"><h2>'+esc(form.form.title)+'</h2>'+
  form.form.fields.map(f=>'<p>'+esc(f.variable)+': <b>'+esc(f.value)+'</b></p>').join('')+'</div>'+
  (paymentFormError?'<div class="notice" role="alert">'+esc(paymentFormError)+'</div>':'')+
- '<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy||confirmation?'disabled':'')+'>'+
+ '<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy||confirmation||(!receiptFileSelected&&window.B3OrderAvailability?.readInteraction?.()?.receiptUpload?.status!=='UPLOADED')?'disabled':'')+'>'+
  (paymentFormBusy?'Enviando...':confirmation?'Solicitud de pago iniciada':'Confirmar pago')+'</button>'+
  '<p class="smallprint">Enviar el formulario no significa que el pago haya sido aceptado.</p></div>';
 }
@@ -1982,7 +1984,11 @@ async function submitPaymentForm(){
  if(!entry||!isPaymentFormReady())return toast('La solicitud no permite confirmar el pago.');
  paymentFormBusy=true;paymentFormError='';render();
  try{
-  await api.preparePaymentConfirmation(entry,paymentConfirmationForm());
+  if(!receiptFileSelected&&entry.receiptUpload?.status!=='UPLOADED')throw Error('Selecciona un comprobante antes de confirmar el pago.');
+  const uploaded=await api.uploadPaymentReceipt(entry);
+  if(!API_BASE||!/^\/api\/v1\/mobile\/payment-receipts\/[0-9a-f-]{36}$/i.test(uploaded.imagePath))
+   throw Error('No se recibió una URL de comprobante válida.');
+  await api.preparePaymentConfirmation(api.readInteraction(),paymentConfirmationForm(API_BASE+uploaded.imagePath));
   screen('paymentWaiting');
   await api.sendPaymentConfirmation(api.readInteraction());
   if(st.stage==='paymentWaiting')render();
@@ -2797,7 +2803,7 @@ if(b.hasAttribute('data-phone-next')){
  }
  void revalidateCheckout('payment');return}
 if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
-if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';screen('paymentProofPreview')}return}
+if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
 if(b.hasAttribute('data-payment-confirm')){void submitPaymentForm();return}
 if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);if(url&&window.AndroidBridge?.downloadPaymentImage)window.AndroidBridge.downloadPaymentImage(url);else toast('La descarga de imágenes requiere una actualización de Android');return}
 if(b.dataset.pay){if(!paymentOptions().some(x=>x[0]===b.dataset.pay))return toast('Método no habilitado');st.pay=b.dataset.pay;checkoutReviewNote='';render();return}
@@ -2816,7 +2822,7 @@ if(b.hasAttribute('data-clear')){
  return;
 }
 });
-root.addEventListener('change',e=>{if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>5*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 5 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
+root.addEventListener('change',e=>{if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
  if(b3ConfirmDismiss){e.preventDefault();b3ConfirmDismiss();return}
