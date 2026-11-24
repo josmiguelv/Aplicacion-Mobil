@@ -580,6 +580,104 @@
     return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
       decision,agentMessageId,clientStatus:entry.status};
   }
+  // A second FORM is independent of the store availability approval ticket.
+  // Capture the verified outbound history BEFORE POST so the first "Aceptar"
+  // cannot ever approve the payment.
+  async function preparePaymentConfirmation(entry,form) {
+    if(!entry||entry.status!=='ACCEPTED'||entry.agentDecision!=='ACCEPTED'||
+       !UUID.test(entry.interactionId)||!entry.paymentExpiresAt)
+      throw Error('La sede debe aprobar el pedido y habilitar el plazo de pago.');
+    if(Date.parse(entry.paymentExpiresAt)<=Date.now())
+      throw Error('El plazo de pago termino.');
+    if(!form||form.type!=='FORM'||!form.form||
+       !/^PAGO REALIZADO - (YAPE|PLIN|TARJETA)$/.test(form.form.title)||
+       !Array.isArray(form.form.fields)||form.form.fields.length!==5||
+       form.form.fields.map(x=>x?.variable).join('|')!=='Pedido|Subtotal|Delivery|Dirección|Total'||
+       form.form.fields.some(x=>typeof x.value!=='string'||!x.value.trim()||x.value.length>500))
+      throw Error('El formulario de pago no cumple el contrato de cinco campos.');
+    if(entry.paymentConfirmation){
+      if(entry.paymentConfirmation.form?.form?.title!==form.form.title)
+        throw Error('Este pedido ya tiene otra confirmacion de pago iniciada.');
+      return entry.paymentConfirmation;
+    }
+    const response=await nativeRequest({operation:'INTERACTION_STATUS',
+      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
+      appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200)throw responseError(response,'No se pudo verificar el historial previo al pago');
+    const data=response.data||{};
+    if(data.interactionId!==entry.interactionId||data.storeId!==entry.body.storeId||
+       data.messagesAvailable!==true||!Array.isArray(data.agentMessages)||
+       data.agentMessages.some(m=>!m||!UUID.test(m.id)))
+      throw Error('No se pudo verificar el historial del agente. No se envio el FORM.');
+    const current=readInteraction();
+    if(current?.interactionId!==entry.interactionId)
+      throw Error('El pedido cambio durante la preparacion del pago.');
+    const confirmation={form,baselineIds:data.agentMessages.map(m=>m.id),
+      messageKey:uuid(),status:'PREPARED'};
+    current.paymentConfirmation=confirmation;
+    persistInteraction(current);
+    entry.paymentConfirmation=confirmation;
+    return confirmation;
+  }
+  async function sendPaymentConfirmation(entry) {
+    const confirmation=entry?.paymentConfirmation;
+    if(!confirmation||!UUID.test(entry.interactionId)||!UUID.test(confirmation.messageKey))
+      throw Error('Falta preparar la confirmacion de pago.');
+    if(confirmation.status==='SENT'||confirmation.status==='ACCEPTED'||confirmation.status==='REJECTED')
+      return confirmation;
+    if(confirmation.status==='UNCERTAIN')
+      throw Error('No se pudo verificar si el FORM llego. No se reenviara para evitar duplicados.');
+    if(confirmation.status!=='PREPARED')
+      throw Error('La confirmacion de pago esta en curso.');
+    if(Date.parse(entry.paymentExpiresAt)<=Date.now())
+      throw Error('El plazo de pago termino.');
+    confirmation.status='SENDING';persistInteraction(entry);
+    let response;
+    try {
+      response=await nativeRequest({operation:'INTERACTION_MESSAGE',
+        interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
+        idempotencyKey:confirmation.messageKey,
+        body:{appId:entry.body.appId,storeId:entry.body.storeId,...confirmation.form}});
+    }catch(error){
+      confirmation.status='UNCERTAIN';persistInteraction(entry);
+      throw error;
+    }
+    if(Number(response.status)!==200||response.data?.delivered!==true||
+       response.data?.type!=='FORM'||response.data?.interactionId!==entry.interactionId||
+       !UUID.test(response.data?.messageId||'')){
+      confirmation.status='UNCERTAIN';persistInteraction(entry);
+      throw responseError(response,'No se pudo certificar el FORM de pago');
+    }
+    confirmation.status='SENT';
+    confirmation.messageId=response.data.messageId;
+    persistInteraction(entry);
+    return confirmation;
+  }
+  async function pollPaymentConfirmation(entry){
+    const confirmation=entry?.paymentConfirmation;
+    if(!confirmation||!['SENT','ACCEPTED','REJECTED'].includes(confirmation.status))
+      return {decision:null,status:confirmation?.status||'NOT_SENT'};
+    if(['ACCEPTED','REJECTED'].includes(confirmation.status))
+      return {decision:confirmation.status,status:confirmation.status};
+    const response=await nativeRequest({operation:'INTERACTION_STATUS',
+      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
+      appId:entry.body.appId,storeId:entry.body.storeId});
+    if(Number(response.status)!==200)throw responseError(response,'No se pudo consultar la validacion de pago');
+    const data=response.data||{};
+    if(data.interactionId!==entry.interactionId||data.storeId!==entry.body.storeId||
+       !Array.isArray(data.agentMessages)||data.agentMessages.some(m=>!m||!UUID.test(m.id)||typeof m.text!=='string'))
+      throw Error('El historial de validacion no corresponde a este pedido.');
+    if(data.messagesAvailable!==true)return {decision:null,status:'PENDING'};
+    const baseline=new Set(confirmation.baselineIds);
+    // Only NEW outbound messages qualify. Never reuse the earlier order approval.
+    const fresh=data.agentMessages.filter(m=>!baseline.has(m.id));
+    const answer=interpretAgentDecision(fresh);
+    if(!answer.decision)return {decision:null,status:'PENDING'};
+    confirmation.status=answer.decision;
+    confirmation.agentMessageId=answer.agentMessageId;
+    persistInteraction(entry);
+    return {decision:answer.decision,status:answer.decision};
+  }
   async function registerPersonalDevice(entry,fcmToken){
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey))
       throw Error('No existe una solicitud a la cual asociar el dispositivo.');
@@ -647,5 +745,6 @@
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
+    preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
