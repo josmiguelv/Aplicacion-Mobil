@@ -233,7 +233,7 @@
     if(!entry||!current||current.interactionId!==entry.interactionId||
        current.idempotencyKey!==entry.idempotencyKey)return entry;
     for(const key of ['messageDelivered','messageIdempotencyKey','messageRetryAt',
-      'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked']){
+      'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked','paymentConfirmation']){
       if(Object.prototype.hasOwnProperty.call(current,key))entry[key]=current[key];
       else delete entry[key];
     }
@@ -625,7 +625,7 @@
       throw Error('Falta preparar la confirmacion de pago.');
     if(confirmation.status==='SENT'||confirmation.status==='ACCEPTED'||confirmation.status==='REJECTED')
       return confirmation;
-    if(confirmation.status==='UNCERTAIN')
+    if(confirmation.status==='UNCERTAIN'||confirmation.status==='SENDING')
       throw Error('No se pudo verificar si el FORM llego. No se reenviara para evitar duplicados.');
     if(confirmation.status!=='PREPARED')
       throw Error('La confirmacion de pago esta en curso.');
