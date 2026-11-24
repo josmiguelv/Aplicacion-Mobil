@@ -581,6 +581,8 @@ function applyBackendQuote(result,entry,address,district){
  deliveryAvailability={status:'READY',storeName:st.quote.storeName,candidateNames:[],message:''};save();
 }
 let agentDecisionTimer=null,agentDecisionPolling=false;
+// Never retry a confirmed order's delivery quotation without a bound.
+let acceptedQuoteFailures=0,acceptedQuotePaused=false,acceptedQuoteInteractionId='';
 function currentCartSignature(){
  return JSON.stringify(publishedOrderItems().slice().sort((a,b)=>a.productId.localeCompare(b.productId)));
 }
@@ -669,7 +671,7 @@ function formWaitingMessage(entry){
 }
 function scheduleAgentDecisionPoll(delay=2000){
  stopAgentDecisionPoll();
- if(agentDecisionPolling)return;
+ if(agentDecisionPolling||acceptedQuotePaused)return;
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(entry?.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&
     st.stage!=='availability'&&(st.stage!=='chat'||!!entry.paymentExpiresAt))return;
@@ -680,6 +682,7 @@ function scheduleAgentDecisionPoll(delay=2000){
 }
 async function completeAcceptedQuote(entry){
  const api=window.B3OrderAvailability;
+ if(acceptedQuoteInteractionId!==entry.interactionId){acceptedQuoteInteractionId=entry.interactionId;acceptedQuoteFailures=0;acceptedQuotePaused=false;}
  const address=st.profile.address,district=st.profile.district;
  if(!interactionMatchesCart(entry,address,district))
   throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
@@ -724,6 +727,7 @@ async function completeAcceptedQuote(entry){
   distanceSource:'SERVER_STRAIGHT_LINE',quoteOrigin:'ADMIN_API_ACCEPTED',serverValidated:false,
   provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
+ acceptedQuoteFailures=0;acceptedQuotePaused=false;
  st.pay='';save();screen('prepaymentReview');
  showOrderAcceptedOnce(entry);
  return true;
@@ -845,7 +849,16 @@ async function pollAgentDecision(){
   const transientDeliveryFailure=[429,500,502,503,504].includes(error?.httpStatus)||
    ['TIMEOUT','CONNECTION_FAILED'].includes(error?.code);
   const quotePending=latest?.status==='ACCEPTED'&&latest.agentDecision==='ACCEPTED'&&
-   (!latest.body?.customer||latest.messageDelivered===true)&&transientDeliveryFailure;
+   (!latest.body?.customer||latest.messageDelivered===true);
+  if(quotePending){
+   if(acceptedQuoteInteractionId!==latest.interactionId){
+    acceptedQuoteInteractionId=latest.interactionId;acceptedQuoteFailures=0;
+   }
+   acceptedQuoteFailures++;
+   // Hard business errors need an explicit retry; transient errors get at most
+   // three automatic attempts. Never create another interaction.
+   acceptedQuotePaused=!transientDeliveryFailure||acceptedQuoteFailures>=3;
+  }
   retryMs=quotePending?(error?.httpStatus===429?65000:12000):
    error?.httpStatus===429&&!latest?.messageRetryAt?65000:8000;
   const acceptedStore=quotePending?shops.find(s=>s.id===latest.body?.storeId):null;
@@ -854,7 +867,9 @@ async function pollAgentDecision(){
     pending?'WAITING_APPROVAL':'ERROR',
    storeName:acceptedStore?.name||'',candidateNames:[],
    message:quotePending?
-    'La sede confirmó el pedido. Estamos comprobando la tarifa de Delivery antes del pago.':
+    (acceptedQuotePaused?
+     'La sede confirmó los productos, pero no fue posible verificar la tarifa de Delivery. No se realizó ningún cobro. Puedes reintentar la tarifa sin enviar otro pedido.':
+     'La sede confirmó los productos. Reintentando la tarifa de Delivery sin crear otra solicitud.'):
     recovering?'Estamos comprobando que tu solicitud haya quedado registrada. No la enviaremos dos veces.':
     sending?formWaitingMessage(latest):
     pending?'Tu solicitud está registrada. Estamos verificando la respuesta de la sede.':
@@ -2796,6 +2811,7 @@ if(b.hasAttribute('data-quote-retry')){
  if(st.stage==='availability'&&entry?.status==='ACCEPTED'&&
     entry.agentDecision==='ACCEPTED'&&
     (!entry.body?.customer||entry.messageDelivered===true)&&!agentDecisionPolling){
+  acceptedQuotePaused=false;acceptedQuoteFailures=0;
   deliveryAvailability={status:'CHECKING_STORES',storeName:deliveryAvailability.storeName,
    candidateNames:[],message:'Conservamos tu aceptación. Reintentando solamente la tarifa de delivery.'};
   render();
