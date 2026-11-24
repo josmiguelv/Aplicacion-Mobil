@@ -725,6 +725,7 @@ async function completeAcceptedQuote(entry){
   provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  st.pay='';save();screen('prepaymentReview');
+ showOrderAcceptedOnce(entry);
  return true;
 }
 async function pollAgentDecision(){
@@ -1341,16 +1342,24 @@ function queueNotice(t,options={}){
   requestAnimationFrame(()=>{if(noticeNode===node)node.classList.add('b3-toast-visible')});
  }
  if(critical)node.querySelector('.b3-toast-close')?.addEventListener('click',dismissNotice,{once:true});
- else noticeTimer=setTimeout(dismissNotice,kind==='cart'?1800:kind==='warning'?4500:2600);
+ else noticeTimer=setTimeout(dismissNotice,Number.isFinite(options.durationMs)?Math.max(500,Math.min(10000,options.durationMs)):(kind==='cart'?1800:kind==='warning'?4500:2600));
 }
 function toast(t,options={}){queueNotice(t,options)}
 function activePersonalCheckout(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  return ['SUBMITTING','PENDING','ACCEPTED'].includes(entry?.status)?entry:null;
 }
+function showOrderAcceptedOnce(entry){
+ if(!entry?.interactionId||entry.agentDecision!=='ACCEPTED')return;
+ const key='b3-last-accepted-notice-v1';
+ if(localStorage.getItem(key)===entry.interactionId)return;
+ localStorage.setItem(key,entry.interactionId);
+ toast('¡Tu pedido fue aceptado!',{durationMs:2000});
+}
 function personalCheckoutBanner(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
- if(!entry||!['SUBMITTING','PENDING','ACCEPTED','REJECTED'].includes(entry.status))return '';
+ // La aceptación es un aviso temporal, no una tarjeta flotante persistente.
+ if(!entry||!['SUBMITTING','PENDING','REJECTED'].includes(entry.status))return '';
  const rejected=entry.status==='REJECTED';
  const pending=entry.status!=='ACCEPTED'&&!rejected;
  return `<button type="button" class="b3-checkout-floating" data-checkout-return="1" aria-label="Ver estado de mi solicitud">
