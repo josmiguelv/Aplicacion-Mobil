@@ -637,6 +637,39 @@ public class MainActivity extends Activity {
                             " endpoint=/api/v1/mobile/interactions/{id}/message");
                         body = payload.toString();
                         path = "/api/v1/mobile/interactions/" + interactionId + "/message";
+                    } else if ("ORDER_SURVEY".equals(operation)) {
+                        JSONObject payload=request.optJSONObject("body");
+                        String interactionId=request.optString("interactionId","");
+                        accessKey=request.optString("accessKey","");
+                        key=request.optString("idempotencyKey","");
+                        if(payload==null||payload.length()<4||payload.length()>5||
+                           !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                           !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                           !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                           key.equalsIgnoreCase(accessKey)||
+                           !payload.optString("appId","").equals("com.integrab2g.pollosb3")||
+                           !payload.optString("storeId","").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid survey identifiers");
+                        int rating=payload.optInt("rating",-1);
+                        if(rating<1||rating>5||!payload.has("rating")||
+                           !(payload.opt("rating") instanceof Integer))
+                            throw new IllegalArgumentException("Invalid survey rating");
+                        JSONArray tags=payload.optJSONArray("tags");
+                        if(tags==null||tags.length()>5)throw new IllegalArgumentException("Invalid survey tags");
+                        java.util.HashSet<String> uniqueTags=new java.util.HashSet<>();
+                        java.util.HashSet<String> permitted=new java.util.HashSet<>(
+                            java.util.Arrays.asList("Sabor","Temperatura","Tiempo","Presentación","Atención"));
+                        for(int i=0;i<tags.length();i++){
+                            String tag=tags.optString(i,"");
+                            if(!permitted.contains(tag)||!uniqueTags.add(tag))
+                                throw new IllegalArgumentException("Invalid survey tag");
+                        }
+                        if(payload.has("comment")&&
+                           (!(payload.opt("comment") instanceof String)||
+                            payload.optString("comment","").length()>500))
+                            throw new IllegalArgumentException("Invalid survey comment");
+                        body=payload.toString();
+                        path="/api/v1/mobile/orders/"+interactionId+"/survey";
                     } else if ("INTERACTION_STATUS".equals(operation) ||
                                "INTERACTION_CANCEL".equals(operation) ||
                                "INTERACTION_DEVICE".equals(operation) ||
@@ -703,7 +736,7 @@ public class MainActivity extends Activity {
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
                             "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_PAYMENT_FORM".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
                             "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ||
-                            "INTERACTION_RECEIPT_UPLOAD".equals(operation) ? "POST" : operation;
+                            "INTERACTION_RECEIPT_UPLOAD".equals(operation) || "ORDER_SURVEY".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
                         if ("INTERACTION_MESSAGE".equals(operation) || "INTERACTION_PAYMENT_FORM".equals(operation))
                             android.util.Log.i("B3FormAudit","stage=HTTP_OUTBOUND type=FORM fields="+approvalFormFields+
