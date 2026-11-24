@@ -36,6 +36,8 @@ public class MainActivity extends Activity {
     private static final int LOCATION_REQUEST = 41;
     private static final int NOTIFICATION_REQUEST = 42;
     private static final int PERSONAL_NOTIFICATION_REQUEST = 43;
+    private static final int PAYMENT_FILE_REQUEST = 44;
+    private android.webkit.ValueCallback<Uri[]> paymentFileCallback;
     static final String MARKETING_TOPIC = "pollosb3_promotions";
     static final String NOTIFICATION_CHANNEL = "pollosb3_promotions";
     static final String PERSONAL_ORDER_CHANNEL = "pollosb3_personal_orders";
@@ -87,6 +89,16 @@ public class MainActivity extends Activity {
         web.evaluateJavascript("window.b3OpenFromLink && window.b3OpenFromLink()", null);
     }
 
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data) {
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode!=PAYMENT_FILE_REQUEST)return;
+        android.webkit.ValueCallback<Uri[]> callback=paymentFileCallback;
+        paymentFileCallback=null;
+        if(callback==null)return;
+        Uri uri=resultCode==RESULT_OK&&data!=null?data.getData():null;
+        // WebView only reads the user-selected image for local preview.
+        callback.onReceiveValue(uri==null?null:new Uri[]{uri});
+    }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
@@ -805,7 +817,26 @@ public class MainActivity extends Activity {
                     uri.getPath() != null && uri.getPath().startsWith("/assets/"));
             }
         });
-        web.setWebChromeClient(new WebChromeClient());
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onShowFileChooser(WebView view,
+                android.webkit.ValueCallback<Uri[]> callback,
+                WebChromeClient.FileChooserParams params) {
+                if (paymentFileCallback != null) paymentFileCallback.onReceiveValue(null);
+                paymentFileCallback = callback;
+                try {
+                    Intent select = new Intent(Intent.ACTION_GET_CONTENT);
+                    select.addCategory(Intent.CATEGORY_OPENABLE);
+                    select.setType("image/*");
+                    select.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"image/jpeg","image/png"});
+                    startActivityForResult(Intent.createChooser(select, "Seleccionar comprobante"), PAYMENT_FILE_REQUEST);
+                    return true;
+                } catch (Exception error) {
+                    paymentFileCallback = null;
+                    callback.onReceiveValue(null);
+                    return false;
+                }
+            }
+        });
         WebSettings settings=web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
