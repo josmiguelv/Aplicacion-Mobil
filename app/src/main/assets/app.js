@@ -299,8 +299,10 @@ function paymentConfirmationForm(imageUrl=''){
  const names={yape:'YAPE',plin:'PLIN',card:'TARJETA'};
  if(!names[st.pay])throw Error('Metodo no compatible con comprobante');
  const items=st.cart.map(item=>{const p=product(item.id);return (p?.name||'Producto')+' x'+item.qty}).join(', ');
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ const orderLabel=entry?.interactionId?orderPublicCode(entry)+' · '+items:items;
  const fields=[
-  {variable:'Pedido',value:items},
+  {variable:'Pedido',value:orderLabel},
   {variable:'Subtotal',value:cash(subtotal())},
   {variable:'Delivery',value:cash(st.quote?.deliveryFeePen??0)},
   {variable:'Dirección',value:[st.profile.address,st.profile.district].filter(Boolean).join(', ')},
@@ -1697,11 +1699,14 @@ function agentOrderStage(message){
   .trim().toLocaleLowerCase('es-PE').replace(/[.!]+$/,'').trim().replace(/\s+/g,' ');
  return DELIVERY_STATUS_WORDS[normalized]||null;
 }
-let trackingPollTimer=null,trackingPollBusy=false,trackingPollDelay=10000;
+let trackingPollTimer=null,trackingPollBusy=false;
 function visibleLiveOrder(){
  if(st.stage==='orderDetail')return findLocalOrder(selectedOrderId);
- if(st.stage==='app'&&st.tab==='pedidos')return (st.orders||[]).find(o=>o?.demo!==true&&
-  o.paymentStatus==='ACCEPTED'&&o.status!=='DELIVERED');
+ if(st.stage==='app'&&st.tab==='pedidos'){
+  const currentId=window.B3OrderAvailability?.readInteraction?.()?.interactionId;
+  return (st.orders||[]).find(o=>o?.interactionId===currentId&&o.demo!==true&&
+   o.paymentStatus==='ACCEPTED'&&o.status!=='DELIVERED');
+ }
  return null;
 }
 function scheduleLiveTracking(delay=10000){
@@ -1782,7 +1787,8 @@ function trackCard(o){
  '<div class="b3-track-heading"><strong>Seguimiento visual</strong><span>'+Math.round((index+1)/ORDER_STAGES.length*100)+'% de etapas</span></div>'+
  '<div class="b3-track-bar"><div style="width:'+((index+1)/ORDER_STAGES.length*100)+'%"></div></div>'+
  ORDER_STAGES.map(([id,title,info],i)=>'<div class="b3-track-stage '+(i<index?'done':i===index?'current':'upcoming')+'"><span class="b3-track-dot">'+(i<index?'✓':i+1)+'</span><div><b>'+title+'</b><small>'+(i<index?'Completado':i===index?info:'Pendiente')+'</small></div></div>').join('')+
- (isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-demo-next="'+esc(o.id)+'">Simular siguiente etapa</button>':'')+'</div>';
+ (isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-demo-next="'+esc(o.id)+'">Simular siguiente etapa</button>':'')+
+ (!isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-tracking-refresh="1">Actualizar seguimiento</button>':'')+'</div>';
 }
 function orderDetail(){
  const o=findLocalOrder(selectedOrderId);
@@ -2791,6 +2797,7 @@ if(b.dataset.demoNext){
  if(o.status==='DELIVERED')afterOrderDelivered(o);
  return;
 }
+if(b.hasAttribute('data-tracking-refresh')){void refreshLiveTracking();return}
 if(b.dataset.repeatOrder||b.hasAttribute('data-fav-reorder')){
  const from=b.dataset.repeatOrder?findLocalOrder(b.dataset.repeatOrder)?.items:st.favorite?.items;
  if(!Array.isArray(from)||!from.length)return;
