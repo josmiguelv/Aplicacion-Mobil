@@ -543,9 +543,52 @@ public class MainActivity extends Activity {
                                 (paymentReceiptBytes[2]&255)==78&&(paymentReceiptBytes[3]&255)==71)
                             paymentReceiptMime="image/png";
                         else throw new IllegalArgumentException("Proof must be JPEG or PNG");
-                        path="/api/v1/mobile/interactions/"+interactionId+"/payment-receipt?appId="+
+                        path="/api/v1/mobile/interactions/"+interactionId+"/payment-receipt/upload?appId="+
                             java.net.URLEncoder.encode(appId,"UTF-8")+"&storeId="+
                             java.net.URLEncoder.encode(storeId,"UTF-8");
+                    } else if ("INTERACTION_PAYMENT_FORM".equals(operation)) {
+                        JSONObject payload=request.optJSONObject("body");
+                        String interactionId=request.optString("interactionId","");
+                        accessKey=request.optString("accessKey","");
+                        key=request.optString("idempotencyKey","");
+                        if(payload==null||payload.length()!=3||
+                            !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                            key.equalsIgnoreCase(accessKey)||
+                            !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                            !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                            !payload.optString("appId","").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}")||
+                            !payload.optString("storeId","").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid payment FORM identifiers");
+                        JSONObject form=payload.optJSONObject("form");
+                        JSONArray fields=form==null?null:form.optJSONArray("fields");
+                        String[] required={"Pedido","Subtotal","Delivery","Dirección","Total"};
+                        if(form==null||form.length()!=4||
+                           !form.optString("title","").matches("PAGO REALIZADO - (YAPE|PLIN|TARJETA)")||
+                           !"Comprobante adjunto".equals(form.optString("subtitle",""))||
+                           fields==null||fields.length()!=5)
+                            throw new IllegalArgumentException("Invalid payment FORM");
+                        String imageUrl=form.optString("imageUrl","");
+                        try {
+                            java.net.URI image=new java.net.URI(imageUrl);
+                            if(!"https".equalsIgnoreCase(image.getScheme())||
+                               image.getHost()==null||image.getUserInfo()!=null||
+                               image.getRawQuery()!=null||image.getRawFragment()!=null||
+                               !image.getPath().matches("/api/v1/mobile/payment-receipts/images/[0-9a-fA-F-]{36}"))
+                                throw new IllegalArgumentException("Invalid payment receipt URL");
+                        } catch(java.net.URISyntaxException exception){
+                            throw new IllegalArgumentException("Invalid payment receipt URL");
+                        }
+                        for(int i=0;i<5;i++){
+                            JSONObject field=fields.optJSONObject(i);
+                            if(field==null||field.length()!=2||
+                               !required[i].equals(field.optString("variable",""))||
+                               field.optString("value","").trim().isEmpty()||
+                               field.optString("value","").length()>500)
+                                throw new IllegalArgumentException("Invalid payment FORM field");
+                        }
+                        approvalFormFields=5;
+                        body=payload.toString();
+                        path="/api/v1/mobile/interactions/"+interactionId+"/payment-receipt";
                     } else if ("INTERACTION_MESSAGE".equals(operation)) {
                         JSONObject payload = request.optJSONObject("body");
                         String interactionId = request.optString("interactionId", "");
@@ -658,13 +701,13 @@ public class MainActivity extends Activity {
                             "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ||
                             "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
-                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
+                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_PAYMENT_FORM".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
                             "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ||
                             "INTERACTION_RECEIPT_UPLOAD".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
-                        if ("INTERACTION_MESSAGE".equals(operation))
+                        if ("INTERACTION_MESSAGE".equals(operation) || "INTERACTION_PAYMENT_FORM".equals(operation))
                             android.util.Log.i("B3FormAudit","stage=HTTP_OUTBOUND type=FORM fields="+approvalFormFields+
-                                " method=POST endpoint=/api/v1/mobile/interactions/{id}/message"+
+                                " method=POST endpoint="+("INTERACTION_PAYMENT_FORM".equals(operation)?"/api/v1/mobile/interactions/{id}/payment-receipt":"/api/v1/mobile/interactions/{id}/message")+
                                 " contentType=application/json accessKeyValid=true messageKeyDistinct=true");
                         connection.setRequestProperty("Accept", "application/json");
                         connection.setRequestProperty("Cache-Control", "no-store");
@@ -676,7 +719,7 @@ public class MainActivity extends Activity {
                             try (java.io.OutputStream output = connection.getOutputStream()) {
                                 output.write(paymentReceiptBytes!=null?paymentReceiptBytes:body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                             }
-                            if ("INTERACTION_MESSAGE".equals(operation))
+                            if ("INTERACTION_MESSAGE".equals(operation) || "INTERACTION_PAYMENT_FORM".equals(operation))
                                 android.util.Log.i("B3FormAudit","stage=HTTP_BODY_WRITTEN type=FORM fields="+approvalFormFields);
                         } else if ("GET".equals(operation)) {
                             connection.setRequestProperty("Authorization", "Bearer " + token);
@@ -702,7 +745,7 @@ public class MainActivity extends Activity {
                             }
                             JSONObject remote = new JSONObject(bytes.toString("UTF-8"));
                             reply.put("data", remote);
-                            if("INTERACTION_MESSAGE".equals(operation)){
+                            if("INTERACTION_MESSAGE".equals(operation)||"INTERACTION_PAYMENT_FORM".equals(operation)){
                                 String responseType=remote.optString("type","");
                                 String safeType="FORM".equals(responseType)?"FORM":
                                     "TEXT".equals(responseType)?"TEXT":"OTHER";
@@ -716,7 +759,7 @@ public class MainActivity extends Activity {
                         connection.disconnect();
                     }
                 } catch (IllegalArgumentException ignored) {
-                    if ("INTERACTION_MESSAGE".equals(operation))
+                    if ("INTERACTION_MESSAGE".equals(operation)||"INTERACTION_PAYMENT_FORM".equals(operation))
                         android.util.Log.w("B3FormAudit","stage=LOCAL_REJECT httpStatus=NONE");
                     try { reply.put("error", "LOCAL_CONTRACT_REJECTED"); } catch (Exception ignored2) {}
                 } catch (Exception ignored) {
