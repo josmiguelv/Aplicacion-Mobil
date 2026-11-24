@@ -52,6 +52,7 @@ let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
 let addressEditId=null;
 let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
+let reviewSending=false,reviewSendError='';
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let fulfillmentOutcomeNote=''; // Terminal outcome only; never initiates a new request.
 let checkoutPending=false; // only when the client has explicitly chosen to continue the cart
@@ -1813,7 +1814,59 @@ function favoritePrompt(){
 function reviewSheet(){
  const o=findLocalOrder(reviewSheetOrderId);
  if(!o||!orderDelivered(o)||o.review)return '';
- return '<div class="b3-overlay" data-review-backdrop="1"><div class="b3-bottom-sheet" role="dialog" aria-modal="true" aria-label="Encuesta de satisfacción"><div class="b3-sheet-grip"></div><div class="b3-survey-head"><h2>¿Qué tal estuvo tu pedido?</h2><button data-review-close="1" aria-label="Cerrar">×</button></div><p>Tu opinión nos ayuda a mejorar.</p><div class="b3-rating-stars">'+[1,2,3,4,5].map(n=>'<button data-review-star="'+n+'" aria-label="'+n+' estrellas">'+(reviewScore>=n?'★':'☆')+'</button>').join('')+'</div><div class="b3-feedback-tags">'+['Sabor','Temperatura','Tiempo','Presentación','Atención'].map(k=>'<button class="'+(reviewTags.includes(k)?'selected':'')+'" data-review-tag="'+k+'">'+k+'</button>').join('')+'</div><label>Comentario (opcional)<textarea id="review-comment" maxlength="250" rows="3" placeholder="Cuéntanos tu experiencia"></textarea></label><button class="primary full" data-review-send="1">Enviar opinión</button>'+'<small>Solo se guarda en este dispositivo. No se envía al negocio.</small>'+'</div></div>';
+ const submission=o.surveySubmission;
+ return '<div class="b3-overlay"><div class="b3-bottom-sheet" role="dialog" aria-modal="true" aria-label="Encuesta de satisfacción"><div class="b3-sheet-grip"></div><h2>¿Qué tal estuvo tu pedido?</h2><p>Tu opinión nos ayuda a mejorar.</p>'+
+ '<div class="b3-rating-stars">'+[1,2,3,4,5].map(n=>'<button data-review-star="'+n+'" '+(reviewSending||submission?'disabled':'')+' aria-label="'+n+' estrellas">'+((submission?.rating||reviewScore)>=n?'★':'☆')+'</button>').join('')+'</div>'+
+ '<div class="b3-feedback-tags">'+['Sabor','Temperatura','Tiempo','Presentación','Atención'].map(k=>'<button class="'+((submission?.tags||reviewTags).includes(k)?'selected':'')+'" data-review-tag="'+k+'" '+(reviewSending||submission?'disabled':'')+'>'+k+'</button>').join('')+'</div>'+
+ '<label>Comentario (opcional)<textarea id="review-comment" maxlength="500" rows="3" '+(reviewSending||submission?'disabled':'')+' placeholder="Cuéntanos tu experiencia">'+esc(submission?.comment||'')+'</textarea></label>'+
+ (reviewSendError?'<div class="notice" role="alert">'+esc(reviewSendError)+'</div>':'')+
+ '<button class="primary full" data-review-send="1" '+(reviewSending?'disabled':'')+'>'+
+ (reviewSending?'Enviando encuesta...':submission?'Reintentar envío':'Enviar opinión')+'</button>'+
+ '<small>La encuesta se envía a Pollos B3. Solo aparecerá como registrada cuando el servidor la confirme.</small></div></div>';
+}
+function newSurveyId(){
+ const bytes=new Uint8Array(16);
+ if(!globalThis.crypto?.getRandomValues)throw Error('No se puede generar un identificador seguro de encuesta.');
+ globalThis.crypto.getRandomValues(bytes);
+ bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+ const hex=[...bytes].map(n=>n.toString(16).padStart(2,'0')).join('');
+ return [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-');
+}
+async function sendDeliveredSurvey(order){
+ if(reviewSending||!order||!orderDelivered(order)||order.review)return;
+ if(!order.interactionId||!order.storeId||!window.B3OrderAvailability?.submitOrderSurvey){
+  reviewSendError='Esta versión no puede enviar encuestas para el pedido seleccionado.';
+  render();return;
+ }
+ let submission=order.surveySubmission;
+ if(!submission){
+  const rating=reviewScore;
+  if(!Number.isInteger(rating)||rating<1||rating>5){
+   toast('Selecciona una calificación de 1 a 5 estrellas');return;
+  }
+  const comment=(document.getElementById('review-comment')?.value||'').trim();
+  if(comment.length>500){toast('El comentario no puede superar 500 caracteres');return}
+  submission={key:newSurveyId(),rating,tags:[...reviewTags],comment};
+  order.surveySubmission=submission;
+  save(); // Keep the idempotency key and exact payload for any retry.
+ }
+ reviewSending=true;reviewSendError='';render();
+ try{
+  const result=await window.B3OrderAvailability.submitOrderSurvey({
+   interactionId:order.interactionId,storeId:order.storeId,
+   idempotencyKey:submission.key,rating:submission.rating,
+   tags:submission.tags,comment:submission.comment
+  });
+  order.review={score:submission.rating,tags:submission.tags,comment:submission.comment,
+   createdAt:Date.parse(result.createdAt)||Date.now(),surveyId:result.surveyId,stored:true};
+  delete order.surveySubmission;
+  order.reviewDismissed=false;
+  reviewSheetOrderId=null;
+  save();
+  toast('Encuesta enviada a Pollos B3',{durationMs:2000});
+ }catch(error){
+  reviewSendError=String(error?.message||'No se pudo entregar la encuesta. Puedes reintentar.');
+ }finally{reviewSending=false;render()}
 }
 function afterOrderDelivered(o){
  if(!orderDelivered(o))return;
@@ -2850,15 +2903,16 @@ if(b.hasAttribute('data-accept-favorite')||b.hasAttribute('data-decline-favorite
 }
 if(b.dataset.openReview){
  const o=findLocalOrder(b.dataset.openReview);if(!orderDelivered(o)||o.review)return;
- reviewSheetOrderId=o.id;reviewScore=0;reviewTags=[];render();return;
+ reviewSheetOrderId=o.id;reviewScore=0;reviewTags=[];reviewSendError='';render();return;
 }
 if(b.hasAttribute('data-review-close')||b.hasAttribute('data-review-backdrop')){
  if(b.hasAttribute('data-review-backdrop')&&e.target!==b)return;
  const o=findLocalOrder(reviewSheetOrderId);if(o){o.reviewDismissed=true;save()}
- reviewSheetOrderId=null;render();return;
+ reviewSheetOrderId=null;reviewSendError='';render();return;
 }
-if(b.dataset.reviewStar){const comment=document.getElementById('review-comment')?.value||'';reviewScore=Number(b.dataset.reviewStar);render();const input=document.getElementById('review-comment');if(input)input.value=comment;return}
+if(b.dataset.reviewStar){if(reviewSending||findLocalOrder(reviewSheetOrderId)?.surveySubmission)return;const comment=document.getElementById('review-comment')?.value||'';reviewScore=Number(b.dataset.reviewStar);render();const input=document.getElementById('review-comment');if(input)input.value=comment;return}
 if(b.dataset.reviewTag){
+ if(reviewSending||findLocalOrder(reviewSheetOrderId)?.surveySubmission)return;
  const tag=b.dataset.reviewTag;
  reviewTags=reviewTags.includes(tag)?reviewTags.filter(x=>x!==tag):[...reviewTags,tag];
  const comment=document.getElementById('review-comment')?.value||'';
@@ -2866,10 +2920,8 @@ if(b.dataset.reviewTag){
 }
 if(b.hasAttribute('data-review-send')){
  const o=findLocalOrder(reviewSheetOrderId);
- if(!o||!orderDelivered(o)||o.review)return;
- if(!Number.isInteger(reviewScore)||reviewScore<1||reviewScore>5)return toast('Selecciona una calificación de 1 a 5 estrellas');
- o.review={score:reviewScore,tags:[...reviewTags],comment:(document.getElementById('review-comment')?.value||'').trim().slice(0,250),createdAt:Date.now(),localOnly:true};
- reviewSheetOrderId=null;save();render();toast('Opinión guardada localmente; no enviada a Pollos B3');return;
+ if(o)void sendDeliveredSurvey(o);
+ return;
 }
 if(b.hasAttribute('data-privacy-law')){openPrivacyLaw();return}
 if(b.hasAttribute('data-privacy-clear')){
