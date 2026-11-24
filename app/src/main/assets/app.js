@@ -714,6 +714,7 @@ async function completeAcceptedQuote(entry){
  if(!Number.isFinite(fee)||fee<0)throw Error('No se pudo determinar el costo del delivery.');
  // The server starts the per-client payment window only after the agent reply
  // has been interpreted and a real, published delivery fee is available.
+ deliveryValidationStep='HABILITANDO_PAGO';
  const paymentStarted=performance.now();
  let wait;
  try{wait=await api.beginPaymentWait(entry)}
@@ -868,8 +869,10 @@ async function pollAgentDecision(){
    storeName:acceptedStore?.name||'',candidateNames:[],
    message:quotePending?
     (acceptedQuotePaused?
-     'La sede confirmó los productos, pero no fue posible verificar la tarifa de Delivery. No se realizó ningún cobro. Puedes reintentar la tarifa sin enviar otro pedido.':
-     'La sede confirmó los productos. Reintentando la tarifa de Delivery sin crear otra solicitud.'):
+     (deliveryValidationStep==='HABILITANDO_PAGO'?
+      'La tarifa se obtuvo, pero no se pudo habilitar el plazo de pago. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.':
+      'La sede confirmó los productos, pero no fue posible verificar la tarifa de Delivery. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.'):
+     'La sede confirmó los productos. Estamos reintentando continuar al pago sin crear otra solicitud.'):
     recovering?'Estamos comprobando que tu solicitud haya quedado registrada. No la enviaremos dos veces.':
     sending?formWaitingMessage(latest):
     pending?'Tu solicitud está registrada. Estamos verificando la respuesta de la sede.':
@@ -1865,7 +1868,7 @@ function availability(){
    <div class="b3-single-wait-footer">
     <p class="b3-single-wait-summary">${cartCount()} producto(s) · Subtotal ${cash(subtotal())} · Delivery por confirmar</p>
     ${status==='QUOTE_UNAVAILABLE'&&acceptedQuote?
-      '<button class="outline full" data-quote-retry="1">Reintentar tarifa de delivery</button>':''}
+      '<button class="outline full" data-quote-retry="1">Reintentar continuar al pago</button>':''}
     ${activeEntry?`<button class="primary full" data-checkout-leave="1">Seguir explorando la app</button>
       <button class="outline full" data-checkout-cancel="1" ${checkoutCancelInFlight?'disabled':''}>${checkoutCancelInFlight?'Cancelando solicitud…':'Cancelar solicitud'}</button>`:
       '<p class="smallprint">Verificando la solicitud original. No se enviará una segunda interacción.</p>'}
