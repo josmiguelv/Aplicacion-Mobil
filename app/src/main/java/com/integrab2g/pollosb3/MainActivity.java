@@ -344,11 +344,20 @@ public class MainActivity extends Activity {
                             String number = match.getSubThoroughfare();
                             hasNumber = number != null && !number.trim().isEmpty();
                             street = road.trim() + (hasNumber ? " " + number.trim() : "");
-                            String neighborhood = match.getSubLocality();
+                            // getSubLocality() is usually a condominium,
+                            // urbanization or neighborhood, NOT a district.
+                            // Never put it into the administrative district field.
+                            String subAdmin = match.getSubAdminArea();
                             String locality = match.getLocality();
-                            district = neighborhood != null && !neighborhood.trim().isEmpty()
-                                ? neighborhood.trim()
-                                : locality != null ? locality.trim() : "";
+                            String administrative = subAdmin == null ? "" : subAdmin.trim();
+                            String city = locality == null ? "" : locality.trim();
+                            String candidate = !administrative.isEmpty() &&
+                                !administrative.equalsIgnoreCase("Lima") &&
+                                !administrative.equalsIgnoreCase("Provincia de Lima")
+                                ? administrative : city;
+                            // "Lima" alone is not enough to identify Ate,
+                            // Santa Anita or another delivery district.
+                            district = candidate.equalsIgnoreCase("Lima") ? "" : candidate;
                             break;
                         }
                     }
