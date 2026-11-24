@@ -2030,7 +2030,7 @@ function paymentProofPreview(){
  '<div class="summary-card"><h2>'+esc(form.form.title)+'</h2>'+
  form.form.fields.map(f=>'<p>'+esc(f.variable)+': <b>'+esc(f.value)+'</b></p>').join('')+'</div>'+
  (paymentFormError?'<div class="notice" role="alert">'+esc(paymentFormError)+'</div>':'')+
- '<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy||confirmation||(!receiptFileSelected&&window.B3OrderAvailability?.readInteraction?.()?.receiptUpload?.status!=='UPLOADED')?'disabled':'')+'>'+
+ '<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy||confirmation||(!receiptFileSelected&&!(window.B3OrderAvailability?.readInteraction?.()?.receiptUpload?.status==='UPLOADED'&&window.B3OrderAvailability?.readInteraction?.()?.receiptUpload?.imageUrl))?'disabled':'')+'>'+
  (paymentFormBusy?'Enviando...':confirmation?'Solicitud de pago iniciada':'Confirmar pago')+'</button>'+
  '<p class="smallprint">Enviar el formulario no significa que el pago haya sido aceptado.</p></div>';
 }
@@ -2096,11 +2096,12 @@ async function submitPaymentForm(){
  if(!entry||!isPaymentFormReady())return toast('La solicitud no permite confirmar el pago.');
  paymentFormBusy=true;paymentFormError='';render();
  try{
-  if(!receiptFileSelected&&entry.receiptUpload?.status!=='UPLOADED')throw Error('Selecciona un comprobante antes de confirmar el pago.');
+  if(!receiptFileSelected&&!(entry.receiptUpload?.status==='UPLOADED'&&entry.receiptUpload?.imageUrl))
+   throw Error('Selecciona un comprobante antes de confirmar el pago.');
   const uploaded=await api.uploadPaymentReceipt(entry);
-  if(!API_BASE||!/^\/api\/v1\/mobile\/payment-receipts\/[0-9a-f-]{36}$/i.test(uploaded.imagePath))
-   throw Error('No se recibió una URL de comprobante válida.');
-  await api.preparePaymentConfirmation(api.readInteraction(),paymentConfirmationForm(API_BASE+uploaded.imagePath));
+  if(typeof uploaded.imageUrl!=='string'||!/^https:\/\/[^\s<>"']+\/api\/v1\/mobile\/payment-receipts\/images\/[0-9a-f-]{36}$/i.test(uploaded.imageUrl))
+   throw Error('El Administrador no devolvió una URL HTTPS válida del comprobante.');
+  await api.preparePaymentConfirmation(api.readInteraction(),paymentConfirmationForm(uploaded.imageUrl));
   screen('paymentWaiting');
   await api.sendPaymentConfirmation(api.readInteraction());
   if(st.stage==='paymentWaiting')render();
