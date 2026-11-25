@@ -1536,6 +1536,7 @@ function returnToPersonalCheckout(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry)return;
  if(['ACCEPTED','REJECTED'].includes(entry.paymentConfirmation?.status))screen('paymentOutcome');
+ else if(entry.paymentConfirmation?.status==='PREPARED'&&deliveryQuoteValid())screen('paymentProofPreview');
  else if(entry.paymentConfirmation)screen('paymentWaiting');
  else if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('payment');
  else if(entry.status==='REJECTED'){
@@ -2309,8 +2310,8 @@ function paymentProofPreview(){
  '<div class="summary-card"><h2>'+esc(form.form.title)+'</h2>'+
  form.form.fields.map(f=>'<p>'+esc(f.variable)+': <b>'+esc(f.value)+'</b></p>').join('')+'</div>'+
  (paymentFormError?'<div class="notice" role="alert">'+esc(paymentFormError)+'</div>':'')+
- '<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy||confirmation||(!receiptFileSelected&&!(window.B3OrderAvailability?.readInteraction?.()?.receiptUpload?.status==='UPLOADED'&&window.B3OrderAvailability?.readInteraction?.()?.receiptUpload?.imageUrl))?'disabled':'')+'>'+
- (paymentFormBusy?'Enviando...':confirmation?'Solicitud de pago iniciada':'Confirmar pago')+'</button>'+
+ '<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy||(confirmation&&confirmation.status!=='PREPARED')||(!receiptFileSelected&&!(window.B3OrderAvailability?.readInteraction?.()?.receiptUpload?.status==='UPLOADED'&&window.B3OrderAvailability?.readInteraction?.()?.receiptUpload?.imageUrl))?'disabled':'')+'>'+
+ (paymentFormBusy?'Enviando...':confirmation?.status==='PREPARED'?'Reintentar envío del comprobante':confirmation?'Solicitud de pago iniciada':'Confirmar pago')+'</button>'+
  '<p class="smallprint">Enviar el formulario no significa que el pago haya sido aceptado.</p></div>';
 }
 function isPaymentFormReady(){
@@ -2443,7 +2444,11 @@ async function submitPaymentForm(){
   schedulePaymentDecisionPoll(1000);
  }catch(error){
   paymentFormError=String(error?.message||'No se pudo confirmar el envío del formulario');
-  if(api.readInteraction()?.paymentConfirmation&&st.stage!=='paymentWaiting')screen('paymentWaiting');
+  const confirmation=api.readInteraction()?.paymentConfirmation;
+  // A local validation rejection cannot have reached HTTP. Keep the user on
+  // the proof screen so the corrected APK can retry the same prepared message.
+  if(confirmation?.status==='PREPARED')screen('paymentProofPreview');
+  else if(confirmation&&st.stage!=='paymentWaiting')screen('paymentWaiting');
   else render();
  }finally{
   paymentFormBusy=false;
