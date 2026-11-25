@@ -770,10 +770,16 @@
     }catch(_){/* Server response must contain a valid public HTTPS image URL. */}
     if(![200,201].includes(status)||typeof url!=='string'||!imageId||
        String(response.data?.imageId||'').toLowerCase()!==imageId.toLowerCase()){
-      item.status='UNCERTAIN';
-      if(status>=400&&status<500)item.definitiveFailure=true;
+      const definitelyNotUploaded=status===429&&
+        response.data?.error==='Demasiadas solicitudes; vuelve a intentarlo más tarde';
+      // Administrator's own limiter rejects this exact 429 before reading or
+      // storing image bytes. Only in that case can the same receipt be retried.
+      item.status=definitelyNotUploaded?'PREPARED':'UNCERTAIN';
+      if(!definitelyNotUploaded&&status>=400&&status<500)item.definitiveFailure=true;
       persistInteraction(current);
-      throw responseError(response,'No se pudo certificar la carga del comprobante');
+      throw responseError(response,definitelyNotUploaded?
+        'El servidor limitó las consultas; no recibió la imagen. Reintenta después de la espera':
+        'No se pudo certificar la carga del comprobante');
     }
     item.status='UPLOADED';
     item.imageUrl=url;
