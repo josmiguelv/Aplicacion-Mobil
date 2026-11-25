@@ -617,6 +617,35 @@ let agentDecisionTimer=null,agentDecisionPolling=false;
 let acceptedQuoteFailures=0,acceptedQuotePaused=false,acceptedQuoteInteractionId='';
 let pendingDeliveryQuote=null;
 const precomputedDeliveryQuotes=new Map();
+// A quote already calculated before contacting the agent is bound to the exact
+// interaction, store, catalog, address and cart. It is NOT payment approval.
+const APPROVAL_QUOTE_KEY='b3-preapproval-delivery-quote-v1';
+function rememberPreApprovalQuote(entry,selected,address,district,quote){
+ if(!entry?.interactionId||quote?.storeId!==selected?.id||quote.revision!==publishedRevision||
+    quote.distanceSource!=='STRAIGHT_LINE'||!Number.isFinite(Number(quote.deliveryFeePen))||
+    Number(quote.deliveryFeePen)<0||!Array.isArray(quote.paymentMethods)||!quote.paymentMethods.length)return;
+ localStorage.setItem(APPROVAL_QUOTE_KEY,JSON.stringify({
+  interactionId:entry.interactionId,storeId:selected.id,revision:publishedRevision,
+  addressKey:deliveryAddressKey(address,district),cartSignature:currentCartSignature(),
+  quote
+ }));
+}
+function preApprovalQuoteFor(entry,selected,address,district){
+ try{
+  const record=JSON.parse(localStorage.getItem(APPROVAL_QUOTE_KEY)||'null');
+  if(!record||!entry?.interactionId||record.interactionId!==entry.interactionId||
+     record.storeId!==selected?.id||record.revision!==publishedRevision||
+     record.addressKey!==deliveryAddressKey(address,district)||
+     record.cartSignature!==currentCartSignature())return null;
+  const quote=record.quote;
+  if(!quote||quote.storeId!==selected.id||quote.revision!==publishedRevision||
+     quote.distanceSource!=='STRAIGHT_LINE'||
+     quote.deliveryFeePen==null||!Number.isFinite(Number(quote.deliveryFeePen))||
+     Number(quote.deliveryFeePen)<0||!Array.isArray(quote.paymentMethods)||
+     !quote.paymentMethods.length)return null;
+  return quote;
+ }catch{return null}
+}
 function deliveryQuoteKey(storeId,address,district,loc){
  return JSON.stringify([storeId,publishedRevision,deliveryAddressKey(address,district),
   loc?.latitude,loc?.longitude]);
@@ -655,10 +684,15 @@ function warmAcceptedStoreQuote(entry,selected,address,district){
  const loc=deliveryLocation;
  const key=JSON.stringify([entry.interactionId,selected?.id,publishedRevision,
   deliveryAddressKey(address,district),loc?.latitude,loc?.longitude]);
- try{pendingDeliveryQuote={key,quote:acceptedCatalogQuote(selected,address,district)}}
- catch{pendingDeliveryQuote=null}
+ try{
+  const quote=acceptedCatalogQuote(selected,address,district);
+  pendingDeliveryQuote={key,quote};
+  rememberPreApprovalQuote(entry,selected,address,district,quote);
+ }catch{pendingDeliveryQuote=null}
 }
 async function acceptedStoreQuote(entry,selected,address,district){
+ const existing=preApprovalQuoteFor(entry,selected,address,district);
+ if(existing)return existing;
  const loc=deliveryLocation;
  const key=JSON.stringify([entry.interactionId,selected.id,publishedRevision,
   deliveryAddressKey(address,district),loc?.latitude,loc?.longitude]);
@@ -784,7 +818,9 @@ async function completeAcceptedQuote(entry){
  deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
   message:'Solicitud aceptada. Calculando delivery desde '+selected.name+'.'};
  render();
- if(!hasDeliveryDestination(address,district)){
+ // The signed-in agent accepted the exact request. Use its previously
+ // calculated delivery price; geocode again only to recover a missing quote.
+ if(!preApprovalQuoteFor(entry,selected,address,district)&&!hasDeliveryDestination(address,district)){
   const geocoded=await geocodeDeliveryDestination(address,district);
   if(st.stage!=='availability')return false;
   deliveryLocation={...geocoded,key:deliveryAddressKey(address,district)};
@@ -2116,6 +2152,9 @@ function availability(){
   const confirmed=!!request?.interactionId;
   const responded=request?.agentDecision==='ACCEPTED';
   const relayDone=!request?.body?.customer||request.messageDelivered===true;
+  const selectedStore=shops.find(s=>s.id===request?.body?.storeId);
+  const storedFee=responded&&relayDone&&selectedStore?
+   preApprovalQuoteFor(request,selectedStore,st.profile.address,st.profile.district):null;
   const title=request?.cancelRequested?'Cancelando tu solicitud':responded?'La sede respondió a tu solicitud':
    confirmed&&!relayDone?'Estamos confirmando tu pedido':
    status==='CREATE_UNCERTAIN'?'Estamos registrando tu solicitud':'Esperando confirmación de la sede';
@@ -2140,7 +2179,7 @@ function availability(){
     <div class="b3-single-wait-store">${ic('store',17)} <strong>${esc(store)}</strong></div>
    </section>
    <div class="b3-single-wait-footer">
-    <p class="b3-single-wait-summary">${cartCount()} producto(s) · Subtotal ${cash(subtotal())} · Delivery por confirmar</p>
+    <p class="b3-single-wait-summary">${cartCount()} producto(s) · Subtotal ${cash(subtotal())} · ${storedFee?'Delivery calculado '+cash(storedFee.deliveryFeePen):'Delivery por confirmar'}</p>
     ${status==='QUOTE_UNAVAILABLE'&&acceptedQuote?
       '<button class="outline full" data-quote-retry="1">Reintentar continuar al pago</button>':''}
     ${activeEntry?`<button class="primary full" data-checkout-leave="1">Seguir explorando la app</button>
