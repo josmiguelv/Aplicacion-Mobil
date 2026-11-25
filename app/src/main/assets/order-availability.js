@@ -11,6 +11,7 @@
   const requests = new Map();
   // Prevent simultaneous FORM POSTs when checkout and the status poll overlap.
   const formPostsInFlight = new Map();
+  const pushRegistrationsInFlight = new Map();
   let sequence = 0;
   const secureBytes = length => {
     if (!root.crypto || typeof root.crypto.getRandomValues !== 'function')
@@ -297,7 +298,7 @@
        current.idempotencyKey!==entry.idempotencyKey)return entry;
     for(const key of ['messageDelivered','messageIdempotencyKey','messageRetryAt',
       'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked','paymentConfirmation','receiptUpload',
-      'paymentStartedAt','paymentExpiresAt','paymentDurationMinutes','paymentClockSource']){
+      'paymentStartedAt','paymentExpiresAt','paymentDurationMinutes','paymentClockSource','personalPushRegistered']){
       if(Object.prototype.hasOwnProperty.call(current,key))entry[key]=current[key];
       else delete entry[key];
     }
@@ -901,11 +902,29 @@
       throw Error('No existe una solicitud a la cual asociar el dispositivo.');
     if(typeof fcmToken!=='string'||fcmToken.length<50||fcmToken.length>4096||
        !/^[A-Za-z0-9_:.-]+$/.test(fcmToken))throw Error('Token de notificación inválido.');
-    const response=await nativeRequest({operation:'INTERACTION_DEVICE',interactionId:entry.interactionId,
-      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,fcmToken});
-    if(Number(response.status)!==200||response.data?.registered!==true)
-      throw responseError(response,'No se pudo registrar la notificación individual');
-    return response.data;
+    const current=readInteraction();
+    if(current?.interactionId===entry.interactionId&&current.personalPushRegistered===true)
+      return {registered:true};
+    if(pushRegistrationsInFlight.has(entry.interactionId))
+      return pushRegistrationsInFlight.get(entry.interactionId);
+    const task=(async()=>{
+      const response=await nativeRequest({operation:'INTERACTION_DEVICE',interactionId:entry.interactionId,
+        accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,fcmToken});
+      if(Number(response.status)!==200||response.data?.registered!==true)
+        throw responseError(response,'No se pudo registrar la notificación individual');
+      const latest=readInteraction();
+      if(latest?.interactionId===entry.interactionId&&latest.idempotencyKey===entry.idempotencyKey){
+        latest.personalPushRegistered=true;persistInteraction(latest);
+      }
+      entry.personalPushRegistered=true;
+      return response.data;
+    })();
+    pushRegistrationsInFlight.set(entry.interactionId,task);
+    try{return await task;}
+    finally{
+      if(pushRegistrationsInFlight.get(entry.interactionId)===task)
+        pushRegistrationsInFlight.delete(entry.interactionId);
+    }
   }
   // Payment start is idempotent on the server. If its response is lost, read
   // the same interaction's payment state before considering another POST.
