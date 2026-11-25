@@ -2362,7 +2362,9 @@ function recordVerifiedPaymentOrder(entry){
 // Only show one if the published store has an explicit, valid duration field.
 function publishedPreparationTime(storeId){
  const store=shops.find(x=>String(x.id)===String(storeId));
- const value=store?.preparationTimeMinutes??store?.preparationMinutes??store?.preparation_time_minutes;
+ // /api/v1/mobile/config publishes this exact field for delivery.
+ // "preparationMinutes" on the store is a reservation field; never use it.
+ const value=store?.deliveryPreparationMinutes;
  if(value===undefined||value===null||value==='')return null;
  const minutes=Number(value);
  return Number.isInteger(minutes)&&minutes>0&&minutes<=240?minutes:null;
