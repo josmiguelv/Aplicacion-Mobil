@@ -289,7 +289,20 @@
         (i===7&&name==='Productos 8 en adelante'))&&
       labels[productFields]==='Subtotal'&&
       labels[productFields+1]==='Dirección y referencia';
-    if(!legacy&&!indexed)throw Error('El FORM tiene nombres de variables incompatibles.');
+    const productNames=labels.slice(0,productFields);
+    const uniqueNames=new Set(productNames.map(x=>x.trim().toLocaleLowerCase('es-PE')));
+    const named=productFields>=1&&productFields<=8&&
+      uniqueNames.size===productNames.length&&
+      productNames.every((name,i)=>name.trim()&&
+       !['subtotal','dirección y referencia','productos'].includes(name.trim().toLocaleLowerCase('es-PE'))&&
+       (name!=='Productos restantes'||i===7))&&
+      labels[productFields]==='Subtotal'&&
+      labels[productFields+1]==='Dirección y referencia'&&
+      fields.slice(0,productFields).every((field,i)=>
+       field.variable==='Productos restantes'&&i===7?
+        field.value.includes(' × S/ '):
+        /^\d+ × S\/ \d+(?:\.\d{2})?$/.test(field.value));
+    if(!legacy&&!indexed&&!named)throw Error('El FORM tiene nombres de variables incompatibles.');
     return {title:form.title,subtitle:form.subtitle,fields};
   }
   // Diagnostic metadata only. No UUIDs, client identity, addresses or JSON bodies.
