@@ -40,14 +40,17 @@ function demoStoreClock(s){
   closesAt:slot.close,opensAt:slot.open};
 }
 
-let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,authProvider:'',authUid:'',authDisplayName:'',authGoogleEmail:'',mode:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
+let scheduleReturnToModal=false;
+let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,authProvider:'',authUid:'',authDisplayName:'',authGoogleEmail:'',mode:'',scheduleMode:'now',reservationAt:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
 try{const d=JSON.parse(localStorage.getItem(K)||'{}');st={...st,...d,stage:'splash',tab:'inicio',selected:'',notice:'',configReady:false,quote:null}}catch{}
 // The person receiving a new order must confirm their own contact again.
 // Draft data from an earlier app run must never authorize another order.
 if(st.authProvider==='google')st.registered=false; // Confirmed by native Firebase on startup.
 st.orderContactDraft=null;
 st.deliveryContactConfirmed=false;
-if(st.mode==='dine_in')st.mode=''; // Retirado de la navegación de Pollos B3 V11.
+if(st.mode==='dine_in')st.mode='';
+if(!['now','reservation'].includes(st.scheduleMode))st.scheduleMode='now';
+if(typeof st.reservationAt!=='string')st.reservationAt=''; // Retirado de la navegación de Pollos B3 V11.
 // Demo-only flag: stores whether the visitor already chose guest access or test sign-in.
 let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
@@ -1017,6 +1020,7 @@ async function pollAgentDecision(){
  }
 }
 async function requestBackendOrderAvailability({address,district,run,silent}){
+ if(st.scheduleMode==='reservation')throw Error('La reserva requiere la API pública de programación; no se enviará un pedido inmediato.');
  const api=window.B3OrderAvailability;
  if(!api?.checkAgentAvailability||!api?.quoteDelivery||!api?.createInteraction||
     !api?.sendInteractionMessage||!api?.pollInteraction)
@@ -1620,7 +1624,7 @@ function beginNewCheckoutAfterRejection(){
  checkoutRefreshPending=false;checkoutReviewNote='';
  st.cart=[];st.quote=null;st.store='';st.pay='';st.cash='';
  resetDeliveryOrderContact();
- st.mode='';st.fulfillment='';st.pickupOrigin='';st.selected='';st.qty=1;st.coords=null;
+ st.mode='';st.scheduleMode='now';st.reservationAt='';st.fulfillment='';st.pickupOrigin='';st.selected='';st.qty=1;st.coords=null;
  fulfillmentOutcomeNote='';
  clearDeliveryAvailability();save();
  return true;
@@ -2063,6 +2067,57 @@ function splash(){return `<div class="splash b3-splash" aria-label="Pollos B3, l
 </div>`}
 function login(){return `<div class="login"><div class="login-photo">${products.length?img(products[0]):'<img src="images/pollosb3-header-logo.png" alt="Pollos B3" loading="eager">'}</div><div class="login-body"><h1>Bienvenido a <em>Pollos B3</em></h1><p>Tu pollo favorito está a unos toques de distancia.</p><button class="primary" data-screen="signin-phone">${ic('phone')} Continuar con número</button><button class="outline b3-google-btn" data-google-login="1" ${googleSignInPending?'disabled':''}><span class="b3-google-mark" aria-hidden="true">G</span> ${googleSignInPending?'Conectando con Google...':'Continuar con Google'}</button><span class="or">o</span><button class="guest" data-guest="1">Continuar como invitado</button><small class="hint">Google verifica tu identidad. El acceso con número sigue en modo de prueba.</small></div></div>`}
 function heading(title,back){return `<div class="screen-heading"><button aria-label="Regresar" data-screen="${back||'app'}">${ic('back')}</button>${title?`<h1>${esc(title)}</h1>`:''}</div>`}
+// Reservation is a request, NOT an automatically accepted commercial order.
+// This UI is isolated until the Administrator publishes a reservation contract.
+function reservationMinLead(store){
+ const raw=store?.reservationMinimumMinutes;
+ return Number.isInteger(raw)&&raw>0&&raw<=10080?raw:null;
+}
+function reservationTimeValue(input){
+ if(typeof input!=='string'||!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(input))return NaN;
+ const [d,t]=input.split('T'),[y,m,day]=d.split('-').map(Number),[h,min]=t.split(':').map(Number);
+ const parsed=new Date(Date.UTC(y,m-1,day,h+5,min));
+ // America/Lima has fixed UTC-5 for the operational dates used by Pollos B3.
+ const check=new Date(Date.UTC(y,m-1,day));
+ return check.getUTCFullYear()===y&&check.getUTCMonth()===m-1&&check.getUTCDate()===day?parsed.getTime():NaN;
+}
+function reservationSummary(){
+ if(st.scheduleMode!=='reservation'||!Number.isFinite(reservationTimeValue(st.reservationAt)))return '';
+ const start=reservationTimeValue(st.reservationAt),end=new Date(start+30*60000);
+ const fmt=ms=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',
+   hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(ms));
+ const date=ms=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',
+   day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(ms));
+ return 'Reserva para el '+date(start)+' · '+fmt(start)+' a '+fmt(end)+
+    (date(start)!==date(end)?' ('+date(end)+')':'');
+}
+function scheduleChoice(){
+ const mode=st.mode==='delivery'?'Delivery':'Recojo en tienda';
+ return '<div class="page">'+heading('¿Cuándo deseas recibirlo?','choice')+
+  '<p class="sub">Modalidad seleccionada: '+esc(mode)+'</p>'+
+  '<div class="choice-list">'+
+  '<button data-schedule-choice="now">'+ic('zap',30)+'<div><b>Ahora</b><span>Continuar con el pedido inmediato</span></div>'+ic('chev')+'</button>'+
+  '<button data-schedule-choice="reservation">'+ic('calendar',30)+'<div><b>Programar reserva</b><span>Elegir fecha y hora para solicitarla a la sede</span></div>'+ic('chev')+'</button>'+
+  '</div></div>';
+}
+function reservationPicker(){
+ const mode=st.mode==='delivery'?'entrega a domicilio':'recojo en tienda';
+ const selected=shops.find(x=>String(x.id)===String(st.store));
+ const enabled=selected?.reservation_enabled===true;
+ const lead=reservationMinLead(selected);
+ const timestamp=reservationTimeValue(st.reservationAt);
+ const minimum=Date.now()+(lead??0)*60000;
+ const valid=Number.isFinite(timestamp)&&lead!==null&&timestamp>=minimum;
+ return '<div class="page">'+heading('Programar reserva','scheduleChoice')+
+  '<p class="sub">Selecciona fecha y hora para '+esc(mode)+'. La sede debe aceptar la solicitud.</p>'+
+  '<label>Fecha y hora de la reserva<input id="b3-reservation-at" type="datetime-local" value="'+esc(st.reservationAt)+'"></label>'+
+  (st.reservationAt&&!valid?'<div class="notice" role="alert">La fecha y hora deben superar la anticipación mínima publicada para la sede.</div>':'')+
+  (reservationSummary()?'<div class="summary-card"><b>'+esc(reservationSummary())+'</b></div>':'')+
+  '<div class="notice" role="status">La solicitud no está disponible todavía: la API pública del Administrador Web no publica de forma verificable el contrato completo de reservas (habilitación, anticipación mínima y fecha/hora). No enviaremos un pedido inmediato haciéndolo pasar por una reserva.</div>'+
+  '<button class="primary full" data-reservation-verify="1">Verificar disponibilidad de reserva</button>'+
+  '<button class="outline full" data-schedule-choice="now">Continuar con pedido inmediato</button>'+
+  '</div>';
+}
 function choice(){return `<div class="page">${heading('Cómo recibir tu pedido','app')}<p class="sub">Puedes modificar esta selección antes de pagar.</p><div class="choice-list">${[['delivery','bike','Pollo Delivery','Te lo llevamos'],['pickup','store','Pide y Retira','Elige dónde recoger']].map(([m,icon,title,desc])=>`<button data-mode="${m}">${ic(icon,34)}<div><b>${title}</b><span>${desc}</span></div>${ic('chev')}</button>`).join('')}</div></div>`}
 function locations(){
  const list=availableStores('pickup');
@@ -2444,6 +2499,7 @@ function publishedPreparationTime(storeId){
  return Number.isInteger(minutes)&&minutes>0&&minutes<=240?minutes:null;
 }
 function paymentOutcome(){
+ // Existing immediate-order confirmation remains untouched; reservations are not submitted until supported.
  const currentEntry=window.B3OrderAvailability?.readInteraction?.();
  const c=currentEntry?.paymentConfirmation;
  if(!['ACCEPTED','REJECTED'].includes(c?.status))return paymentWaiting();
@@ -2909,7 +2965,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){return `<div class="page form">${heading('Ingreso con número','login')}<p class="sub">Acceso de demostración: este número no está verificado. Confirma los datos del destinatario al hacer un pedido.</p><label>Celular (+51)<input id="signin-value" inputmode="numeric" maxlength="9" placeholder="9 dígitos"></label><button class="primary full" data-demo-signin="phone">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(visibleLiveOrder()&&!trackingPollBusy&&trackingPollTimer===null)scheduleLiveTracking(3000);else if(!visibleLiveOrder()&&trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='confirmDetails')html=confirmDetails();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
+function render(){if(visibleLiveOrder()&&!trackingPollBusy&&trackingPollTimer===null)scheduleLiveTracking(3000);else if(!visibleLiveOrder()&&trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='scheduleChoice')html=scheduleChoice();else if(st.stage==='reservationPicker')html=reservationPicker();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='confirmDetails')html=confirmDetails();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
   `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
@@ -2925,6 +2981,7 @@ function finalizeDemoOrder(){
  st.orders.unshift(order);st.cart=[];save();screen('success');
 }
 async function revalidateCheckout(next){
+ if(st.scheduleMode==='reservation'){checkoutReviewNote='La reserva no se puede confirmar hasta que el Administrador publique el contrato de programación.';screen('reservationPicker');return false;}
  if(checkoutRefreshPending)return false;
  checkoutRefreshPending=true;checkoutReviewNote='';render();
  const before=checkoutSnapshot();
@@ -3146,8 +3203,8 @@ if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
 if(b.dataset.modalMode){
  const next=b.dataset.modalMode;
  if(next!=='delivery'&&next!=='pickup')return;
- if(st.mode!==next){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.mode=next;st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)queueNotice('Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.')}
- fulfillmentOutcomeNote='';fulfillmentModal=next;render();if(next==='pickup'&&API_BASE)void fetchConfig();return;
+ if(st.mode!==next){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.mode=next;st.scheduleMode='now';st.reservationAt='';st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)queueNotice('Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.')}
+ fulfillmentOutcomeNote='';scheduleReturnToModal=true;fulfillmentModal=null;screen('scheduleChoice');return;
 }
 if(b.hasAttribute('data-profile-save')){saveProfile();return}
 if(b.dataset.addressCreate){addressEditId=null;screen('addressEdit');return}
@@ -3219,7 +3276,28 @@ if(b.dataset.screen){
  screen(b.dataset.screen);return;
 }
 if(b.hasAttribute('data-guest')){if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=false;st.authProvider='guest';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';save();enterApp();return}
-if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;save();if(st.mode==='delivery')screen('deliveryAddress');else {screen('locations');if(API_BASE)void fetchConfig()}return}
+if(b.dataset.scheduleChoice){
+ const choice=b.dataset.scheduleChoice;
+ if(choice==='reservation'){st.scheduleMode='reservation';save();screen('reservationPicker');return}
+ if(choice==='now'){st.scheduleMode='now';st.reservationAt='';save();
+   if(scheduleReturnToModal){scheduleReturnToModal=false;st.stage='app';st.tab='inicio';fulfillmentModal=st.mode;render();if(st.mode==='pickup'&&API_BASE)void fetchConfig();return}
+   if(st.mode==='delivery')screen('deliveryAddress');
+   else {screen('locations');if(API_BASE)void fetchConfig()}
+   return}
+}
+if(b.hasAttribute('data-reservation-verify')){
+ const chosen=document.getElementById('b3-reservation-at')?.value||'';
+ st.reservationAt=chosen;save();
+ const selected=shops.find(x=>String(x.id)===String(st.store));
+ const minutes=reservationMinLead(selected);
+ const when=reservationTimeValue(chosen);
+ if(!Number.isFinite(when))return toast('Ingresa una fecha y hora válidas.');
+ if(minutes!==null&&when<Date.now()+minutes*60000)
+   return toast('La fecha elegida no cumple la anticipación mínima de la sede.');
+ render();toast('Reserva pendiente de habilitación por la API. No se ha enviado ninguna solicitud.');
+ return;
+}
+if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;scheduleReturnToModal=false;save();screen('scheduleChoice');return}
 if(b.dataset.store){void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
