@@ -3514,7 +3514,7 @@ window.b3OpenPersonalOrderNotification=(id)=>{
  if(!entry||entry.interactionId!==id)return;
  // The clock is owned by Android and already persisted for this interaction.
  // Opening a push must never ask the Administrator to initiate/check that clock.
- if(entry.paymentExpiresAt&&Date.parse(entry.paymentExpiresAt)<=Date.now()){
+ if(entry.paymentExpiresAt&&Date.parse(entry.paymentExpiresAt)<=Date.now()&&!entry.paymentConfirmation){
   showLocalPaymentExpiry(entry);
  }else returnToPersonalCheckout();
 };
@@ -3604,7 +3604,7 @@ void fetchNotifications();
 // acceptance. No additional server request is made when the timer expires.
 let lastLocalExpiryInteractionId='';
 function showLocalPaymentExpiry(entry){
- if(!entry?.interactionId||entry.status!=='ACCEPTED'||
+ if(!entry?.interactionId||entry.status!=='ACCEPTED'||entry.paymentConfirmation||
     !Number.isFinite(Date.parse(entry.paymentExpiresAt||''))||
     Date.now()<Date.parse(entry.paymentExpiresAt))return;
  if(lastLocalExpiryInteractionId===entry.interactionId)return;
@@ -3624,7 +3624,7 @@ setInterval(()=>{
  if(!Number.isFinite(deadline)||entry?.status!=='ACCEPTED')return;
  const label=personalCheckoutCountdown();
  document.querySelectorAll('[data-checkout-remaining]').forEach(node=>{if(node.textContent!==label)node.textContent=label});
- if(Date.now()>=deadline&&!['ACCEPTED','REJECTED'].includes(entry.paymentConfirmation?.status))
+ if(Date.now()>=deadline&&!entry.paymentConfirmation)
   showLocalPaymentExpiry(entry);
 },1000);
 document.addEventListener('visibilitychange',()=>{
