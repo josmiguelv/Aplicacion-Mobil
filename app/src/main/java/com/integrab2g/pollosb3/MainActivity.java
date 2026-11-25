@@ -650,9 +650,10 @@ public class MainActivity extends Activity {
                            !payload.optString("appId","").equals("com.integrab2g.pollosb3")||
                            !payload.optString("storeId","").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
                             throw new IllegalArgumentException("Invalid survey identifiers");
-                        int rating=payload.optInt("rating",-1);
-                        if(rating<1||rating>5||!payload.has("rating")||
-                           !(payload.opt("rating") instanceof Integer))
+                        Object rawRating=payload.opt("rating");
+                        if(!(rawRating instanceof Number)||
+                           ((Number)rawRating).doubleValue()!=Math.rint(((Number)rawRating).doubleValue())||
+                           ((Number)rawRating).intValue()<1||((Number)rawRating).intValue()>5)
                             throw new IllegalArgumentException("Invalid survey rating");
                         JSONArray tags=payload.optJSONArray("tags");
                         if(tags==null||tags.length()>5)throw new IllegalArgumentException("Invalid survey tags");
@@ -791,10 +792,20 @@ public class MainActivity extends Activity {
                     } finally {
                         connection.disconnect();
                     }
-                } catch (IllegalArgumentException ignored) {
+                } catch (IllegalArgumentException rejected) {
                     if ("INTERACTION_MESSAGE".equals(operation)||"INTERACTION_PAYMENT_FORM".equals(operation))
                         android.util.Log.w("B3FormAudit","stage=LOCAL_REJECT httpStatus=NONE");
-                    try { reply.put("error", "LOCAL_CONTRACT_REJECTED"); } catch (Exception ignored2) {}
+                    if ("ORDER_SURVEY".equals(operation))
+                        android.util.Log.w("B3SurveyAudit","stage=LOCAL_REJECT httpStatus=NONE reason="+rejected.getMessage());
+                    try {
+                        reply.put("error", "LOCAL_CONTRACT_REJECTED");
+                        if ("ORDER_SURVEY".equals(operation)) {
+                            String reason=rejected.getMessage();
+                            // Enumerated validation reasons only; do not expose identifiers or comment content.
+                            if (reason!=null&&reason.startsWith("Invalid survey "))
+                                reply.put("surveyValidationError",reason);
+                        }
+                    } catch (Exception ignored2) {}
                 } catch (Exception ignored) {
                     if ("INTERACTION_MESSAGE".equals(operation))
                         android.util.Log.w("B3FormAudit","stage=TRANSPORT_ERROR httpStatus=UNKNOWN");
