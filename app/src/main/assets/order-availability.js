@@ -89,8 +89,16 @@
     root.clearTimeout(pending.timer);
     requests.delete(reply.requestId);
     if (reply.error) {
+      const surveyReasons={
+        'Invalid survey identifiers':'No se pudieron validar los identificadores del pedido y de la encuesta.',
+        'Invalid survey rating':'La calificación debe ser un número entero de 1 a 5.',
+        'Invalid survey tags':'Las categorías seleccionadas no cumplen el formato requerido.',
+        'Invalid survey tag':'Una categoría de la encuesta no está permitida.',
+        'Invalid survey comment':'El comentario supera el límite o contiene un formato inválido.'
+      };
+      const surveyFailure=reply.surveyValidationError&&surveyReasons[reply.surveyValidationError];
       const error = Error(reply.error==='LOCAL_CONTRACT_REJECTED'?
-        'Android rechazó el formato del FORM antes de emitir la petición HTTP.':
+        (surveyFailure||'Android rechazó los datos antes de emitir la petición HTTP. Revisa los datos y actualiza la APK si persiste.'):
         'No fue posible completar la comunicación con el Administrador.');
       error.code = String(reply.error);
       pending.reject(error);
