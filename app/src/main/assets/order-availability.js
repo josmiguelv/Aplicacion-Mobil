@@ -11,6 +11,7 @@
   const requests = new Map();
   // Prevent simultaneous FORM POSTs when checkout and the status poll overlap.
   const formPostsInFlight = new Map();
+  const pushRegistrationsInFlight = new Map();
   let sequence = 0;
   const secureBytes = length => {
     if (!root.crypto || typeof root.crypto.getRandomValues !== 'function')
@@ -113,9 +114,57 @@
       pending.resolve(reply);
     }
   }
-  function nativeRequest(action) {
+  // Server mobile-interaction routes share ONE counter across GET and POST
+  // (10 requests / 60s when evaluating POST). Protect the last three slots
+  // for receipt upload, fresh history baseline and payment FORM.
+  // Track only counts/times: never store names, orders, IPs or credentials.
+  const TRAFFIC_KEY='b3-mobile-interaction-traffic-v1';
+  const TRAFFIC_OPS=new Set(['AGENT_AVAILABILITY','INTERACTION_CREATE','INTERACTION_MESSAGE',
+    'INTERACTION_STATUS','INTERACTION_CANCEL','INTERACTION_DEVICE','INTERACTION_PAYMENT',
+    'INTERACTION_PAYMENT_STATUS','INTERACTION_RECEIPT_UPLOAD','INTERACTION_PAYMENT_FORM']);
+  let blockedUntil=0;
+  function recentInteractionCalls(now=Date.now()){
+    try{
+      const rows=JSON.parse(root.localStorage.getItem(TRAFFIC_KEY)||'[]');
+      return Array.isArray(rows)?rows.filter(n=>Number.isFinite(n)&&n<=now&&now-n<61000).slice(-20):[];
+    }catch(_){return []}
+  }
+  async function waitForTrafficBudget(action){
+    if(!TRAFFIC_OPS.has(action.operation))return;
+    const statusRead=action.operation==='INTERACTION_STATUS';
+    // Payment needs POST upload, GET baseline, POST FORM after acceptance.
+    // Preserve slots while the customer is waiting for the adviser.
+    const entry=readInteraction();
+    const awaitingDecision=statusRead&&['SUBMITTING','PENDING'].includes(entry?.status)&&
+      !entry?.paymentConfirmation;
+    const allowance=awaitingDecision?6:9;
+    while(true){
+      const now=Date.now(),rows=recentInteractionCalls(now);
+      const next=Math.max(blockedUntil,rows.length>=allowance?rows[0]+61000:now);
+      if(next<=now){
+        rows.push(now);root.localStorage.setItem(TRAFFIC_KEY,JSON.stringify(rows));
+        return;
+      }
+      await new Promise(resolve=>root.setTimeout(resolve,Math.min(60000,Math.max(20,next-now))));
+      // Never send payment after the local clock expires while rate-limited.
+      if(['INTERACTION_PAYMENT_FORM','INTERACTION_RECEIPT_UPLOAD'].includes(action.operation)){
+        const current=readInteraction();
+        if(!current||current.interactionId!==action.interactionId||
+           Date.parse(current.paymentExpiresAt||'')<=Date.now())
+          throw Error('El plazo de pago terminó durante la espera. No se enviará el comprobante.');
+      }
+    }
+  }
+  async function nativeRequest(action) {
     if (!root.AndroidBridge || typeof root.AndroidBridge.orderAvailabilityRequest !== 'function')
-      return Promise.reject(Error('La conexión segura de pedidos requiere la aplicación Android actualizada.'));
+      throw Error('La conexión segura de pedidos requiere la aplicación Android actualizada.');
+    await waitForTrafficBudget(action);
+    const response=await nativeRequestRaw(action);
+    if(TRAFFIC_OPS.has(action.operation)&&Number(response?.status)===429)
+      blockedUntil=Math.max(blockedUntil,Date.now()+61000);
+    return response;
+  }
+  function nativeRequestRaw(action) {
     const requestId = 'oa_' + (++sequence);
     return new Promise((resolve,reject) => {
       const timer = root.setTimeout(() => {
@@ -249,7 +298,7 @@
        current.idempotencyKey!==entry.idempotencyKey)return entry;
     for(const key of ['messageDelivered','messageIdempotencyKey','messageRetryAt',
       'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked','paymentConfirmation','receiptUpload',
-      'paymentStartedAt','paymentExpiresAt','paymentDurationMinutes','paymentClockSource']){
+      'paymentStartedAt','paymentExpiresAt','paymentDurationMinutes','paymentClockSource','personalPushRegistered']){
       if(Object.prototype.hasOwnProperty.call(current,key))entry[key]=current[key];
       else delete entry[key];
     }
@@ -721,10 +770,16 @@
     }catch(_){/* Server response must contain a valid public HTTPS image URL. */}
     if(![200,201].includes(status)||typeof url!=='string'||!imageId||
        String(response.data?.imageId||'').toLowerCase()!==imageId.toLowerCase()){
-      item.status='UNCERTAIN';
-      if(status>=400&&status<500)item.definitiveFailure=true;
+      const definitelyNotUploaded=status===429&&
+        response.data?.error==='Demasiadas solicitudes; vuelve a intentarlo más tarde';
+      // Administrator's own limiter rejects this exact 429 before reading or
+      // storing image bytes. Only in that case can the same receipt be retried.
+      item.status=definitelyNotUploaded?'PREPARED':'UNCERTAIN';
+      if(!definitelyNotUploaded&&status>=400&&status<500)item.definitiveFailure=true;
       persistInteraction(current);
-      throw responseError(response,'No se pudo certificar la carga del comprobante');
+      throw responseError(response,definitelyNotUploaded?
+        'El servidor limitó las consultas; no recibió la imagen. Reintenta después de la espera':
+        'No se pudo certificar la carga del comprobante');
     }
     item.status='UPLOADED';
     item.imageUrl=url;
@@ -807,8 +862,16 @@
     if(Number(response.status)!==200||response.data?.delivered!==true||
        response.data?.type!=='FORM'||response.data?.interactionId!==entry.interactionId||
        !UUID.test(response.data?.messageId||'')){
-      confirmation.status='UNCERTAIN';persistInteraction(entry);
-      throw responseError(response,'No se pudo certificar el FORM de pago');
+      // Only this exact 429 response is generated by the Administrator's
+      // local pre-handler rate limiter. It rejects the request BEFORE sending
+      // any FORM. Keep the same message key for a later explicit retry.
+      const definitelyNotSent=Number(response.status)===429&&
+        response.data?.error==='Demasiadas solicitudes; vuelve a intentarlo más tarde';
+      confirmation.status=definitelyNotSent?'PREPARED':'UNCERTAIN';
+      persistInteraction(entry);
+      throw responseError(response,definitelyNotSent?
+        'El servidor limitó las consultas; el formulario no se envió. Reintenta cuando se habilite':
+        'No se pudo certificar el FORM de pago');
     }
     confirmation.status='SENT';
     confirmation.messageId=response.data.messageId;
@@ -845,11 +908,29 @@
       throw Error('No existe una solicitud a la cual asociar el dispositivo.');
     if(typeof fcmToken!=='string'||fcmToken.length<50||fcmToken.length>4096||
        !/^[A-Za-z0-9_:.-]+$/.test(fcmToken))throw Error('Token de notificación inválido.');
-    const response=await nativeRequest({operation:'INTERACTION_DEVICE',interactionId:entry.interactionId,
-      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,fcmToken});
-    if(Number(response.status)!==200||response.data?.registered!==true)
-      throw responseError(response,'No se pudo registrar la notificación individual');
-    return response.data;
+    const current=readInteraction();
+    if(current?.interactionId===entry.interactionId&&current.personalPushRegistered===true)
+      return {registered:true};
+    if(pushRegistrationsInFlight.has(entry.interactionId))
+      return pushRegistrationsInFlight.get(entry.interactionId);
+    const task=(async()=>{
+      const response=await nativeRequest({operation:'INTERACTION_DEVICE',interactionId:entry.interactionId,
+        accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId,fcmToken});
+      if(Number(response.status)!==200||response.data?.registered!==true)
+        throw responseError(response,'No se pudo registrar la notificación individual');
+      const latest=readInteraction();
+      if(latest?.interactionId===entry.interactionId&&latest.idempotencyKey===entry.idempotencyKey){
+        latest.personalPushRegistered=true;persistInteraction(latest);
+      }
+      entry.personalPushRegistered=true;
+      return response.data;
+    })();
+    pushRegistrationsInFlight.set(entry.interactionId,task);
+    try{return await task;}
+    finally{
+      if(pushRegistrationsInFlight.get(entry.interactionId)===task)
+        pushRegistrationsInFlight.delete(entry.interactionId);
+    }
   }
   // Payment start is idempotent on the server. If its response is lost, read
   // the same interaction's payment state before considering another POST.

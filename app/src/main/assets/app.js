@@ -758,8 +758,10 @@ function stopAgentDecisionPoll(){
 }
 // GET de estado separado del reintento POST del FORM. Los cooldowns del
 // FORM se conservan en order-availability.js y nunca bloquean este GET.
-function agentStatusPollDelay(delay=2000){
- return Math.max(1000,Number.isFinite(delay)?delay:2000);
+function agentStatusPollDelay(delay=6000){
+ // The Administrator shares its GET and POST rate counter. Poll at a measured
+ // cadence rather than every 1-2s so one order cannot starve its own receipt POST.
+ return Math.max(6000,Number.isFinite(delay)?delay:6000);
 }
 function b3OrderTiming(stage,started){
  // Solo etapa y duracion: nunca identificadores, telefonos ni direcciones.
