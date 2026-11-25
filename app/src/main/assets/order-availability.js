@@ -806,28 +806,77 @@
       throw responseError(response,'No se pudo registrar la notificación individual');
     return response.data;
   }
-  async function beginPaymentWait(entry){
-    if(!entry||entry.status!=='ACCEPTED'||!UUID.test(entry.interactionId))
-      throw Error('Todavía no se confirmó el pedido.');
-    const response=await nativeRequest({operation:'INTERACTION_PAYMENT',interactionId:entry.interactionId,
-      accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
-    if(Number(response.status)!==200||response.data?.status!=='PAYMENT_PENDING'||
-      !Number.isFinite(Date.parse(response.data.expiresAt)))
-      throw responseError(response,'No se pudo confirmar el plazo del pago');
-    entry.paymentExpiresAt=response.data.expiresAt;
-    persistInteraction(entry);
-    recordActivity(entry,'payment_window');
-    return response.data;
-  }
+  // Payment start is idempotent on the server. If its response is lost, read
+  // the same interaction's payment state before considering another POST.
+  // Never open checkout from a locally guessed window or a stale interaction.
   async function readPaymentWait(entry){
     if(!entry||!UUID.test(entry.interactionId))throw Error('Interacción inválida.');
     const response=await nativeRequest({operation:'INTERACTION_PAYMENT_STATUS',interactionId:entry.interactionId,
       accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
     if(Number(response.status)!==200)throw responseError(response,'No se pudo actualizar el estado del pago');
-    if(response.data?.status==='EXPIRED'){
-      entry.status='EXPIRED';entry.paymentExpiresAt=response.data.expiresAt;
+    const data=response.data||{};
+    if(data.status==='EXPIRED'){
+      entry.status='EXPIRED';entry.paymentExpiresAt=data.expiresAt;
       persistInteraction(entry);recordActivity(entry,'expired');
+    }else if(data.status==='PAYMENT_PENDING'&&
+      Number.isFinite(Date.parse(data.expiresAt))&&Date.parse(data.expiresAt)>Date.now()){
+      const current=readInteraction();
+      if(!current||current.interactionId!==entry.interactionId||
+         current.idempotencyKey!==entry.idempotencyKey)
+        throw Error('La solicitud cambió durante la consulta del pago.');
+      current.paymentExpiresAt=data.expiresAt;
+      persistInteraction(current);
+      entry.paymentExpiresAt=data.expiresAt;
+      recordActivity(current,'payment_window');
     }
+    return data;
+  }
+  async function beginPaymentWait(entry){
+    if(!entry||entry.status!=='ACCEPTED'||entry.agentDecision!=='ACCEPTED'||
+       !UUID.test(entry.interactionId))
+      throw Error('Todavía no se confirmó el pedido.');
+    const current=readInteraction();
+    if(!current||current.interactionId!==entry.interactionId||
+       current.idempotencyKey!==entry.idempotencyKey)
+      throw Error('La solicitud cambió antes de habilitar el pago.');
+    let response;
+    try{
+      response=await nativeRequest({operation:'INTERACTION_PAYMENT',interactionId:entry.interactionId,
+        accessKey:entry.idempotencyKey,appId:entry.body.appId,storeId:entry.body.storeId});
+    }catch(error){
+      // Recover only by an authoritative GET. No duplicate POST and no invented timer.
+      try{
+        const recovered=await readPaymentWait(entry);
+        if(recovered.status==='PAYMENT_PENDING'&&
+           Number.isFinite(Date.parse(recovered.expiresAt))&&Date.parse(recovered.expiresAt)>Date.now())
+          return recovered;
+      }catch(_){/* Preserve the original transport error. */}
+      throw error;
+    }
+    if(Number(response.status)!==200||response.data?.status!=='PAYMENT_PENDING'||
+       !Number.isFinite(Date.parse(response.data.expiresAt))||
+       Date.parse(response.data.expiresAt)<=Date.now()){
+      const error=responseError(response,'No se pudo confirmar el plazo del pago');
+      // A 5xx or uncertain success can mean the server committed despite an
+      // invalid/lost response; check its state once before offering a retry.
+      if(Number(response.status)>=500||Number(response.status)===200){
+        try{
+          const recovered=await readPaymentWait(entry);
+          if(recovered.status==='PAYMENT_PENDING'&&
+             Number.isFinite(Date.parse(recovered.expiresAt))&&Date.parse(recovered.expiresAt)>Date.now())
+            return recovered;
+        }catch(_){/* Do not mask the original failure. */}
+      }
+      throw error;
+    }
+    entry.paymentExpiresAt=response.data.expiresAt;
+    const latest=readInteraction();
+    if(!latest||latest.interactionId!==entry.interactionId||
+       latest.idempotencyKey!==entry.idempotencyKey)
+      throw Error('La solicitud cambió mientras se habilitaba el pago.');
+    latest.paymentExpiresAt=response.data.expiresAt;
+    persistInteraction(latest);
+    recordActivity(latest,'payment_window');
     return response.data;
   }
   function requestCancelWhenRecovered(entry){
