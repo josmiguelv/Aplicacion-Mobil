@@ -248,7 +248,8 @@
     if(!entry||!current||current.interactionId!==entry.interactionId||
        current.idempotencyKey!==entry.idempotencyKey)return entry;
     for(const key of ['messageDelivered','messageIdempotencyKey','messageRetryAt',
-      'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked','paymentConfirmation','receiptUpload']){
+      'message429Attempts','messageDeliveryUncertain','messageDeliveryBlocked','paymentConfirmation','receiptUpload',
+      'paymentStartedAt','paymentExpiresAt','paymentDurationMinutes','paymentClockSource']){
       if(Object.prototype.hasOwnProperty.call(current,key))entry[key]=current[key];
       else delete entry[key];
     }
@@ -616,6 +617,46 @@
     return {interactionId:data.interactionId,storeId:data.storeId,status:data.status,
       decision,agentMessageId,clientStatus:entry.status};
   }
+  // Android owns the checkout clock. Use the timestamp of the verified
+  // outbound acceptance message, never a fresh timestamp on every render/retry.
+  // This is a local client deadline, not a server-authoritative expiry.
+  function startLocalPaymentWindow(entry,minutes){
+    if(!entry||entry.status!=='ACCEPTED'||entry.agentDecision!=='ACCEPTED'||
+       !UUID.test(entry.interactionId)||!UUID.test(entry.agentMessageId)||
+       !Number.isInteger(minutes)||minutes<5||minutes>30)
+      throw Error('No hay aceptación verificada o plazo configurado válido.');
+    const latest=readInteraction();
+    if(!latest||latest.interactionId!==entry.interactionId||
+       latest.idempotencyKey!==entry.idempotencyKey||
+       latest.status!=='ACCEPTED'||latest.agentDecision!=='ACCEPTED'||
+       latest.agentMessageId!==entry.agentMessageId)
+      throw Error('La confirmación del asesor cambió; revisa la solicitud.');
+    const oldDeadline=Date.parse(latest.paymentExpiresAt||'');
+    if(Number.isFinite(oldDeadline)){
+      if(oldDeadline<=Date.now())throw Error('El plazo para pagar ya terminó.');
+      entry.paymentExpiresAt=latest.paymentExpiresAt;
+      return {status:'PAYMENT_PENDING',expiresAt:latest.paymentExpiresAt};
+    }
+    const accepted=Array.isArray(latest.agentMessages)?
+      latest.agentMessages.find(m=>m.id===latest.agentMessageId):null;
+    const verifiedAt=Date.parse(accepted?.createdAt||'');
+    const startedAt=Number.isFinite(verifiedAt)&&verifiedAt<=Date.now()+120000?
+      verifiedAt:Date.now();
+    const expiresAt=new Date(startedAt+minutes*60000).toISOString();
+    if(Date.parse(expiresAt)<=Date.now())
+      throw Error('El plazo para pagar ya terminó.');
+    latest.paymentStartedAt=new Date(startedAt).toISOString();
+    latest.paymentExpiresAt=expiresAt;
+    latest.paymentDurationMinutes=minutes;
+    latest.paymentClockSource='ANDROID_LOCAL';
+    persistInteraction(latest);
+    entry.paymentStartedAt=latest.paymentStartedAt;
+    entry.paymentExpiresAt=expiresAt;
+    entry.paymentDurationMinutes=minutes;
+    entry.paymentClockSource='ANDROID_LOCAL';
+    recordActivity(latest,'payment_window');
+    return {status:'PAYMENT_PENDING',expiresAt};
+  }
   // Read-only verified OUTBOUND conversation messages for delivery follow-up.
   // This does not reinterpret the first order approval or mutate the payment.
   async function readTrackingMessages(entry){
@@ -931,7 +972,7 @@
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
-    pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,beginPaymentWait,readPaymentWait,
+    pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
     submitOrderSurvey,readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
