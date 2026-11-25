@@ -797,7 +797,11 @@
         idempotencyKey:confirmation.messageKey,
         body:{appId:entry.body.appId,storeId:entry.body.storeId,form:confirmation.form.form}});
     }catch(error){
-      confirmation.status='UNCERTAIN';persistInteraction(entry);
+      // Native contract rejection happens BEFORE the HTTP request. It is safe
+      // to correct the APK and retry the same FORM with its original message key.
+      // Network errors remain UNCERTAIN: never resend without confirmation.
+      confirmation.status=error?.code==='LOCAL_CONTRACT_REJECTED'?'PREPARED':'UNCERTAIN';
+      persistInteraction(entry);
       throw error;
     }
     if(Number(response.status)!==200||response.data?.delivered!==true||
