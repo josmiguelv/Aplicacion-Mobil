@@ -2892,6 +2892,7 @@ function startCheckout(){
   checkoutPending=true;
   if(!hasDeliveryDestination(st.profile.address,st.profile.district)){screen('deliveryAddress');return}
   confirmedDeliveryReviewKey=null;
+  if(!deliveryContactReady()){screen('identity');return}
   screen('confirmDetails');return
  }
  checkoutPending=false;void revalidateCheckout('identity');
@@ -3225,7 +3226,8 @@ if(b.hasAttribute('data-phone-next')){
  save();
  if(st.mode==='delivery'){
   if(!st.profile.address||!st.profile.district){screen('deliveryAddress');return}
-  void resolveDelivery();return
+  confirmedDeliveryReviewKey=null;
+  screen('confirmDetails');return
  }
  void revalidateCheckout('payment');return}
 if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
