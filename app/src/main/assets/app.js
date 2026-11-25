@@ -533,46 +533,63 @@ function publishedOrderItems(){
 function deliveryOrderTicketForm(address,district){
  const items=publishedOrderItems();
  let subtotalCents=0;
+ // Product titles are the left column; quantity and line total are the right.
+ // Keep the exact published name (including 1/4, 1/2, combo presentation).
  const lines=items.map(({productId,quantity})=>{
   const p=product('api:'+productId),cents=Math.round(Number(p?.price)*100);
   if(!p?.isPublished||p.disabled||typeof p.name!=='string'||!p.name.trim()||
-     /[\x00-\x1f]/.test(p.name)||!Number.isSafeInteger(cents)||cents<0)
+     /[\x00-\x1f\x7f]/.test(p.name)||!Number.isSafeInteger(cents)||cents<0)
    throw Error('No se puede preparar el ticket: revisa el catálogo publicado.');
   const lineCents=cents*quantity;
   if(!Number.isSafeInteger(lineCents)||!Number.isSafeInteger(subtotalCents+lineCents))
    throw Error('El importe del ticket supera el límite permitido.');
   subtotalCents+=lineCents;
-  return quantity+' x '+p.name.trim()+' — '+cash(lineCents/100);
+  return {name:p.name.trim(),quantity,lineCents};
  });
  if(Math.abs(subtotalCents/100-subtotal())>.015)
   throw Error('El subtotal del ticket no coincide con el carrito publicado.');
- // TU VERSO supports at most ten optional fields. Reserve two for totals
- // and delivery destination; display each product separately where possible.
- // When there are more than eight distinct lines, the eighth row carries the
- // remaining items, separated without control characters or line breaks.
- const shown=lines.slice(0,7).map((line,i)=>({variable:'Producto '+(i+1),value:line}));
- if(lines.length>=8){
-  const overflow=lines.slice(7).join(' · ');
-  if(overflow.length>500)throw Error('El detalle de los productos supera el espacio disponible del FORM. Reduce los productos distintos del pedido.');
-  shown.push({variable:lines.length===8?'Producto 8':'Productos 8 en adelante',value:overflow});
+ const reserved=new Set(['subtotal','dirección y referencia','productos restantes','productos']);
+ const used=new Set();
+ const named=lines.map(({name,quantity,lineCents})=>{
+  if(name.length>80)throw Error('Un nombre de producto supera los 80 caracteres permitidos por el FORM.');
+  let label=name;
+  // The FORM requires distinct variable names. Preserve the product name;
+  // add a suffix only when two catalog entries share that exact same name.
+  let n=2;
+  while(reserved.has(label.toLocaleLowerCase('es-PE'))||used.has(label.toLocaleLowerCase('es-PE'))){
+   const suffix=' ('+n+++')';
+   if(name.length+suffix.length>80)
+    throw Error('Hay productos con nombres repetidos demasiado largos para el FORM.');
+   label=name+suffix;
+  }
+  used.add(label.toLocaleLowerCase('es-PE'));
+  return {variable:label,value:quantity+' × '+cash(lineCents/100)};
+ });
+ const shown=named.length<=8?named:[...named.slice(0,7)];
+ if(named.length>8){
+  const overflow=lines.slice(7).map(x=>x.name+' ('+x.quantity+' × '+cash(x.lineCents/100)+')').join(' · ');
+  if(overflow.length>500)
+   throw Error('El pedido tiene demasiados productos para mostrar su detalle completo en el FORM. Reduce la cantidad de productos distintos.');
+  shown.push({variable:'Productos restantes',value:overflow});
  }
  const addr=String(address||'').trim(),area=String(district||'').trim();
  if(addr.length<6||addr.length>180||area.length<2||area.length>80)
   throw Error('Confirma una dirección válida antes de crear el ticket.');
  const reference=String(st.profile.reference||'').trim();
- if(reference.length>180||/[\x00-\x1f]/.test(reference))
+ if(reference.length>180||/[\x00-\x1f\x7f]/.test(reference))
   throw Error('Revisa la referencia de entrega.');
  const destination=addr+', '+area+(reference?' — '+reference:'');
- if(destination.length>500)throw Error('La dirección y referencia superan los 500 caracteres permitidos para el formulario.');
+ if(destination.length>500)
+  throw Error('La dirección y referencia superan los 500 caracteres permitidos para el formulario.');
  const fields=[
   ...shown,
   {variable:'Subtotal',value:cash(subtotalCents/100)},
   {variable:'Dirección y referencia',value:destination}
  ];
  const title='VALIDACIÓN DE PEDIDO',subtitle='Confirmar disponibilidad para delivery';
- if(title.length>180||subtitle.length>350||fields.some(({variable,value})=>
-    variable.length>80||value.length>500))
-  throw Error('El formulario supera los límites permitidos de título, subtítulo o variables.');
+ if(fields.length>10||fields.some(({variable,value})=>
+    variable.length>80||value.length>500||!value.trim()))
+  throw Error('El formulario supera los límites permitidos de variables.');
  return {title,subtitle,fields};
 }
 function applyBackendQuote(result,entry,address,district){
