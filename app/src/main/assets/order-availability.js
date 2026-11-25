@@ -707,10 +707,11 @@
        form.form.imageUrl!==entry.receiptUpload.imageUrl||
        !/^https:\/\/[^\s<>"']+$/i.test(form.form.imageUrl)||
        !/^PAGO REALIZADO - (YAPE|PLIN|TARJETA)$/.test(form.form.title)||
-       !Array.isArray(form.form.fields)||form.form.fields.length!==5||
-       form.form.fields.map(x=>x?.variable).join('|')!=='Pedido|Subtotal|Delivery|Dirección|Total'||
+       !Array.isArray(form.form.fields)||form.form.fields.length!==6||
+       form.form.fields.map(x=>x?.variable).join('|')!=='N.º de pedido|Pedido|Subtotal|Delivery|Dirección|Total'||
+       form.form.fields[0]?.value!=='B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase()||
        form.form.fields.some(x=>typeof x.value!=='string'||!x.value.trim()||x.value.length>500))
-      throw Error('El formulario de pago no cumple el contrato de cinco campos.');
+      throw Error('El formulario de pago no cumple el contrato de seis campos.');
     if(entry.paymentConfirmation){
       if(entry.paymentConfirmation.form?.form?.title!==form.form.title)
         throw Error('Este pedido ya tiene otra confirmacion de pago iniciada.');
