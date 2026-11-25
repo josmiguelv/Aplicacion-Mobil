@@ -113,9 +113,57 @@
       pending.resolve(reply);
     }
   }
-  function nativeRequest(action) {
+  // Server mobile-interaction routes share ONE counter across GET and POST
+  // (10 requests / 60s when evaluating POST). Protect the last three slots
+  // for receipt upload, fresh history baseline and payment FORM.
+  // Track only counts/times: never store names, orders, IPs or credentials.
+  const TRAFFIC_KEY='b3-mobile-interaction-traffic-v1';
+  const TRAFFIC_OPS=new Set(['AGENT_AVAILABILITY','INTERACTION_CREATE','INTERACTION_MESSAGE',
+    'INTERACTION_STATUS','INTERACTION_CANCEL','INTERACTION_DEVICE','INTERACTION_PAYMENT',
+    'INTERACTION_PAYMENT_STATUS','INTERACTION_RECEIPT_UPLOAD','INTERACTION_PAYMENT_FORM']);
+  let blockedUntil=0;
+  function recentInteractionCalls(now=Date.now()){
+    try{
+      const rows=JSON.parse(root.localStorage.getItem(TRAFFIC_KEY)||'[]');
+      return Array.isArray(rows)?rows.filter(n=>Number.isFinite(n)&&n<=now&&now-n<61000).slice(-20):[];
+    }catch(_){return []}
+  }
+  async function waitForTrafficBudget(action){
+    if(!TRAFFIC_OPS.has(action.operation))return;
+    const statusRead=action.operation==='INTERACTION_STATUS';
+    // Payment needs POST upload, GET baseline, POST FORM after acceptance.
+    // Preserve slots while the customer is waiting for the adviser.
+    const entry=readInteraction();
+    const awaitingDecision=statusRead&&['SUBMITTING','PENDING'].includes(entry?.status)&&
+      !entry?.paymentConfirmation;
+    const allowance=awaitingDecision?6:9;
+    while(true){
+      const now=Date.now(),rows=recentInteractionCalls(now);
+      const next=Math.max(blockedUntil,rows.length>=allowance?rows[0]+61000:now);
+      if(next<=now){
+        rows.push(now);root.localStorage.setItem(TRAFFIC_KEY,JSON.stringify(rows));
+        return;
+      }
+      await new Promise(resolve=>root.setTimeout(resolve,Math.min(60000,Math.max(20,next-now))));
+      // Never send payment after the local clock expires while rate-limited.
+      if(['INTERACTION_PAYMENT_FORM','INTERACTION_RECEIPT_UPLOAD'].includes(action.operation)){
+        const current=readInteraction();
+        if(!current||current.interactionId!==action.interactionId||
+           Date.parse(current.paymentExpiresAt||'')<=Date.now())
+          throw Error('El plazo de pago terminó durante la espera. No se enviará el comprobante.');
+      }
+    }
+  }
+  async function nativeRequest(action) {
     if (!root.AndroidBridge || typeof root.AndroidBridge.orderAvailabilityRequest !== 'function')
-      return Promise.reject(Error('La conexión segura de pedidos requiere la aplicación Android actualizada.'));
+      throw Error('La conexión segura de pedidos requiere la aplicación Android actualizada.');
+    await waitForTrafficBudget(action);
+    const response=await nativeRequestRaw(action);
+    if(TRAFFIC_OPS.has(action.operation)&&Number(response?.status)===429)
+      blockedUntil=Math.max(blockedUntil,Date.now()+61000);
+    return response;
+  }
+  function nativeRequestRaw(action) {
     const requestId = 'oa_' + (++sequence);
     return new Promise((resolve,reject) => {
       const timer = root.setTimeout(() => {
