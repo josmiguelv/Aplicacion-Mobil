@@ -617,7 +617,7 @@ public class MainActivity extends Activity {
                             (orderApproval && (!"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
                                 fields == null || fields.length() < 3 || fields.length() > 10)) ||
                             (paymentApproval && (!"Comprobante adjunto".equals(form.optString("subtitle", "")) ||
-                                !form.optString("imageUrl","").matches("https://[^\\\\s<>\\\\\"]+/api/v1/mobile/payment-receipts/[0-9a-fA-F-]{36}") ||
+                                !form.optString("imageUrl","").matches("https://[^\\s<>\\\"]+/api/v1/mobile/payment-receipts/[0-9a-fA-F-]{36}") ||
                                 fields == null || fields.length() != 5)))
                             throw new IllegalArgumentException("Invalid Pollos B3 approval FORM");
                         int productsCount=orderApproval?fields.length()-2:0;
