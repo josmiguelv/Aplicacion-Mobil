@@ -289,6 +289,7 @@ function straightDistanceKm(s){
  const a=Math.sin(dLat/2)**2+Math.cos(rad(st.coords.lat))*Math.cos(rad(Number(s.latitude)))*Math.sin(dLon/2)**2;
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
+const prefetchedPaymentImages=new Map();
 function paymentImageUrl(method){
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const storeUrl=selected?.paymentOptions?.[st.mode]?.find(x=>x?.method===method)?.imageUrl;
@@ -483,16 +484,16 @@ function deliveryQuoteValid(){
  if(st.quote.deliveryFeePen==null||!Number.isFinite(fee)||fee<0||
     st.quote.destinationKey!==deliveryAddressKey(st.profile.address,st.profile.district)||
     !Number.isFinite(st.quote.quotedAt)||
-    (st.quote.quoteOrigin!=='ADMIN_API_ACCEPTED'&&Date.now()-st.quote.quotedAt>=900000))return false;
- if(st.quote.quoteOrigin==='ADMIN_API_ACCEPTED'){
+    (st.quote.quoteOrigin!=='ANDROID_CATALOG_ACCEPTED'&&Date.now()-st.quote.quotedAt>=900000))return false;
+ if(st.quote.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'){
   const deadline=Date.parse(window.B3OrderAvailability?.readInteraction?.()?.paymentExpiresAt||'');
   if(!Number.isFinite(deadline)||Date.now()>=deadline)return false;
  }
- if(st.quote.quoteOrigin==='ADMIN_API_ACCEPTED'){
+ if(st.quote.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'){
   const entry=window.B3OrderAvailability?.readInteraction?.();
   return entry?.status==='ACCEPTED'&&entry.body?.storeId===st.store&&entry.body?.catalogRevision===publishedRevision&&
     st.quote.storeId===st.store&&st.quote.quoteRevision===publishedRevision&&
-    st.quote.distanceSource==='SERVER_STRAIGHT_LINE'&&
+    st.quote.distanceSource==='STRAIGHT_LINE'&&
     st.quote.cartSignature===currentCartSignature()&&
     shops.some(x=>x.id===st.store&&x.active===true&&x.delivery_enabled===true);
  }
@@ -588,52 +589,34 @@ let agentDecisionTimer=null,agentDecisionPolling=false;
 // Never retry a confirmed order's delivery quotation without a bound.
 let acceptedQuoteFailures=0,acceptedQuotePaused=false,acceptedQuoteInteractionId='';
 let pendingDeliveryQuote=null;
-// A delivered quote remains reusable for the same interaction, store, catalog
-// revision and destination while the customer waits and while payment is retried.
-const APPROVED_QUOTE_CACHE_MS=300000;
-function validAcceptedStoreQuote(quote,selected){
- return !!quote&&quote.storeId===selected.id&&quote.revision===publishedRevision&&
-  quote.deliveryFeePen!==null&&quote.deliveryFeePen!==undefined&&
-  Number.isFinite(Number(quote.deliveryFeePen))&&Number(quote.deliveryFeePen)>=0&&
-  Array.isArray(quote.paymentMethods);
+// All pricing inputs come from the published catalog loaded at splash.
+function acceptedCatalogQuote(selected,address,district){
+ const loc=deliveryLocation;
+ if(!selected?.id||!hasDeliveryDestination(address,district)||
+    !Number.isFinite(loc?.latitude)||!Number.isFinite(loc?.longitude))
+  throw Error('No hay coordenadas válidas de entrega para calcular el delivery.');
+ const candidate=eligibleDeliveryCandidates(loc).find(x=>x.store.id===selected.id);
+ if(!candidate)throw Error('La sede que aceptó no cumple la cobertura y tarifa publicadas.');
+ const local=quoteForDeliveryCandidate(candidate);
+ if(!Array.isArray(local.paymentMethods)||!local.paymentMethods.length)
+  throw Error('La sede no tiene medios de pago habilitados para delivery.');
+ return {...local,revision:publishedRevision,quoteOrigin:'ANDROID_CATALOG_ACCEPTED'};
 }
 function warmAcceptedStoreQuote(entry,selected,address,district){
+ if(!entry?.interactionId)return;
  const loc=deliveryLocation;
- if(!entry?.interactionId||!selected?.id||!hasDeliveryDestination(address,district))return;
- const key=JSON.stringify([entry.interactionId,selected.id,publishedRevision,
-  deliveryAddressKey(address,district),loc.latitude,loc.longitude]);
- if(pendingDeliveryQuote?.key===key&&
-    Date.now()-pendingDeliveryQuote.startedAt<=APPROVED_QUOTE_CACHE_MS&&
-    (!pendingDeliveryQuote.finished||validAcceptedStoreQuote(pendingDeliveryQuote.result,selected)))return;
- const request={key,startedAt:Date.now(),result:null,promise:null,finished:false};
- pendingDeliveryQuote=request;
- // Read-only quote, not a payment, reservation, order or agent decision.
- request.promise=window.B3OrderAvailability.quoteDelivery({
-  appId:APP_ID,storeId:selected.id,address,district,
-  latitude:loc.latitude,longitude:loc.longitude,useGps:true
- }).then(quote=>{
-  if(pendingDeliveryQuote===request)request.result=quote;
-  return quote;
- }).catch(()=>null).finally(()=>{request.finished=true});
+ const key=JSON.stringify([entry.interactionId,selected?.id,publishedRevision,
+  deliveryAddressKey(address,district),loc?.latitude,loc?.longitude]);
+ try{pendingDeliveryQuote={key,quote:acceptedCatalogQuote(selected,address,district)}}
+ catch{pendingDeliveryQuote=null}
 }
 async function acceptedStoreQuote(entry,selected,address,district){
  const loc=deliveryLocation;
- const key=hasDeliveryDestination(address,district)?
-  JSON.stringify([entry.interactionId,selected.id,publishedRevision,
-   deliveryAddressKey(address,district),loc.latitude,loc.longitude]):null;
- const warmed=pendingDeliveryQuote;
- if(key&&warmed?.key===key&&Date.now()-warmed.startedAt<=APPROVED_QUOTE_CACHE_MS){
-  const quote=warmed.result||(warmed.finished?null:await warmed.promise);
-  if(validAcceptedStoreQuote(quote,selected))return quote;
- }
- const quote=await window.B3OrderAvailability.quoteDelivery({
-  appId:APP_ID,storeId:selected.id,address,district,
-  latitude:loc?.latitude,longitude:loc?.longitude,
-  useGps:Number.isFinite(loc?.latitude)&&Number.isFinite(loc?.longitude)
- });
- if(!validAcceptedStoreQuote(quote,selected))
-  throw Error('La cotización no incluye una tarifa y medios de pago válidos para la sede.');
- if(key)pendingDeliveryQuote={key,startedAt:Date.now(),result:quote,promise:Promise.resolve(quote),finished:true};
+ const key=JSON.stringify([entry.interactionId,selected.id,publishedRevision,
+  deliveryAddressKey(address,district),loc?.latitude,loc?.longitude]);
+ if(pendingDeliveryQuote?.key===key)return pendingDeliveryQuote.quote;
+ const quote=acceptedCatalogQuote(selected,address,district);
+ pendingDeliveryQuote={key,quote};
  return quote;
 }
 function currentCartSignature(){
@@ -753,10 +736,7 @@ async function completeAcceptedQuote(entry){
   if(st.stage!=='availability')return false;
   deliveryLocation={...geocoded,key:deliveryAddressKey(address,district)};
  }
- const quoteStarted=performance.now();
- let quote;
- try{quote=await acceptedStoreQuote(entry,selected,address,district)}
- finally{b3OrderTiming('delivery_quote',quoteStarted)}
+ const quote=await acceptedStoreQuote(entry,selected,address,district);
  if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
@@ -781,7 +761,7 @@ async function completeAcceptedQuote(entry){
  st.quote={storeId:selected.id,storeName:selected.name,deliveryFeePen:fee,
   paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
   routeDistanceKm:Number.isFinite(Number(quote.routeDistanceKm))?Number(quote.routeDistanceKm):null,
-  distanceSource:'SERVER_STRAIGHT_LINE',quoteOrigin:'ADMIN_API_ACCEPTED',serverValidated:false,
+  distanceSource:'STRAIGHT_LINE',quoteOrigin:'ANDROID_CATALOG_ACCEPTED',serverValidated:false,
   provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  acceptedQuoteFailures=0;acceptedQuotePaused=false;
@@ -2191,7 +2171,7 @@ function prepaymentReview(){
  </div>`;
 }
 function paymentInstructions(){
- const valid=st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'&&deliveryQuoteValid();
+ const valid=st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&deliveryQuoteValid();
  const image=paymentImageUrl(st.pay);
  const title=({yape:'Yape',plin:'Plin',card:'Tarjeta'})[st.pay]||'';
  if(!valid||!paymentOptions().some(x=>x[0]===st.pay)||!title)return '<div class="page"><div class="notice">Selecciona un método válido.</div><button class="outline full" data-screen="payment">Volver</button></div>';
@@ -2217,7 +2197,7 @@ function paymentProofPreview(){
  '<p class="smallprint">Enviar el formulario no significa que el pago haya sido aceptado.</p></div>';
 }
 function isPaymentFormReady(){
- return st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'&&
+ return st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&
   deliveryQuoteValid()&&paymentOptions().some(x=>x[0]===st.pay)&&
   ['yape','plin','card'].includes(st.pay);
 }
@@ -2358,7 +2338,7 @@ function payment(){
  const available=paymentOptions();
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const missing=st.configReady&&!available.length;
- const acceptedDelivery=st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED';
+ const acceptedDelivery=st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED';
  return `<div class="page">${heading(acceptedDelivery?'Pagar pedido':'Método de pago',acceptedDelivery?'inicio':'prepaymentReview')}
  ${acceptedDelivery?`<div class="summary-card"><h2>Pedido aceptado · ${esc(selected?.name||'Sede asignada')}</h2><p>Productos <b>${cash(subtotal())}</b></p><p>Delivery <b>${cash(st.quote.deliveryFeePen)}</b></p><p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
  <p class="sub">${acceptedDelivery?'Toca cómo deseas pagar. Se mostrará la imagen configurada por la sede.':'Solo aparecen los métodos habilitados para la sede.'}</p>
@@ -2375,7 +2355,7 @@ function summary(){
  const selectedStore=shops.find(x=>String(x.id)===String(st.store));
  const items=st.cart.map(x=>{const p=product(x.id);return '<p>'+esc(p?.name||'Producto retirado')+' ×'+x.qty+' <b>'+(p?cash(x.qty*p.price):'Revisar')+'</b></p>'}).join('');
  const methods={yape:'Yape',plin:'Plin',card:'Tarjeta',click:'Click to Pay',cash:'Efectivo al recibir'};
- return `<div class="page">${heading('Resumen de tu pedido',st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED'?'inicio':'payment')}<div class="summary-card">
+ return `<div class="page">${heading('Resumen de tu pedido',st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'?'inicio':'payment')}<div class="summary-card">
  <h2>${st.mode==='delivery'?'Delivery':'Recojo en tienda'}</h2>
  <p>${st.mode==='delivery'?esc(st.profile.address+', '+(st.profile.district||'')):(selectedStore?esc(selectedStore.name+' · '+(selectedStore.address||selectedStore.addr||'')):'Local por confirmar')}</p>
  <hr><p>Pago: <b>${esc(methods[st.pay]||'Por seleccionar')}</b></p>
@@ -3156,7 +3136,7 @@ if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);
 if(b.dataset.pay){
  const method=b.dataset.pay;
  if(!paymentOptions().some(x=>x[0]===method))return toast('Método no habilitado');
- const accepted=st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED';
+ const accepted=st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED';
  if(accepted&&(!deliveryQuoteValid()||
     window.B3OrderAvailability?.readInteraction?.()?.status!=='ACCEPTED'))
   return toast('La aceptación y la cotización deben estar vigentes.');
@@ -3167,8 +3147,8 @@ if(b.dataset.pay){
  }
  render();return;
 }
-if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
-if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ADMIN_API_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
+if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
+if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
 if(b.dataset.social){toast('Facebook requiere una integración real. Usa invitado para probar.');return}
 if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin==='phone'?!/^9\d{8}$/.test(x):!/^\S+@\S+\.\S+$/.test(x))return toast('Completa el dato con un formato válido');st.registered=true;if(b.dataset.demoSignin==='phone')st.profile.phone=x;else st.profile.email=x;save();enterApp();return}
 if(b.hasAttribute('data-logout')){st.registered=false;save();render();return}
@@ -3412,6 +3392,26 @@ window.handleB3Back=()=>{
   const previous={availability:'deliveryAddress',notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
   screen(previous[st.stage]||'app');return true
 };
+function preloadPublishedPaymentImages(){
+ const urls=new Set();
+ function addPath(path){
+  if(typeof path==='string'&&path.startsWith('/api/v1/mobile/images/')&&
+     !path.includes('..')&&!/[?#]/.test(path))urls.add(API_BASE+path);
+ }
+ for(const method of ['yape','plin','card']){
+  addPath(publishedPaymentImages[method]);
+  for(const store of shops)for(const mode of ['delivery','pickup','reservation']){
+   addPath(store.paymentOptions?.[mode]?.find(x=>x?.method===method)?.imageUrl);
+  }
+ }
+ return Promise.all([...urls].map(url=>new Promise(resolve=>{
+  if(prefetchedPaymentImages.has(url)){resolve();return}
+  const image=new Image();
+  image.onload=()=>{prefetchedPaymentImages.set(url,image);resolve()};
+  image.onerror=()=>resolve();
+  image.src=url;
+ })));
+}
 async function preloadInitialCatalogImages(){
  const sources=[...new Set(products.slice(0,4).map(p=>photo(p)).filter(Boolean))].slice(0,4);
  if(!sources.length||typeof Image==='undefined')return;
@@ -3425,6 +3425,8 @@ async function initializeCatalogAtSplash(){
  const started=Date.now();
  try{
   await fetchConfig({strict:true});
+  // Start payment image fetch during splash. Slow images never block the storefront.
+  void preloadPublishedPaymentImages().catch(error=>console.warn('Payment image prefetch',error?.message||'error'));
   await Promise.all([preloadInitialCatalogImages(),new Promise(resolve=>setTimeout(resolve,Math.max(0,700-(Date.now()-started))))]);
   if(st.stage==='splash')screen(enteredBefore?'app':'login');
  }catch(error){
