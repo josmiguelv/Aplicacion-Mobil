@@ -34,6 +34,16 @@ if (apiUri.scheme != 'https' || !apiUri.host || apiUri.rawUserInfo != null ||
 }
 apiBase = apiUri.toString().replaceAll('/+$', '')
 
+// Public OAuth Web client ID, NOT an OAuth client secret.
+// Empty disables Google login but keeps the existing APK build working.
+def configuredGoogleId = project.findProperty('B3_GOOGLE_WEB_CLIENT_ID') ?:
+        System.getenv('B3_GOOGLE_WEB_CLIENT_ID') ?:
+        (localEnvFile.isFile() ? localEnv.getProperty('B3_GOOGLE_WEB_CLIENT_ID') : exampleEnv.getProperty('B3_GOOGLE_WEB_CLIENT_ID'))
+def googleClientId = configuredGoogleId == null ? '' : configuredGoogleId.toString().trim()
+if (googleClientId && !(googleClientId ==~ /[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com/)) {
+    throw new GradleException('B3_GOOGLE_WEB_CLIENT_ID debe ser un OAuth Client ID tipo Web válido.')
+}
+
 android {
     namespace 'com.integrab2g.pollosb3'
     compileSdk 35
@@ -48,6 +58,7 @@ android {
         // One origin for all Android API calls (catalog, quotes, orders, FORM, notifications).
         resValue 'string', 'b3_api_base', apiBase
         resValue 'string', 'b3_notifications_api_base', apiBase
+        resValue 'string', 'b3_google_web_client_id', googleClientId
     }
 }
 
@@ -55,4 +66,8 @@ dependencies {
     implementation 'androidx.webkit:webkit:1.14.0'
     implementation platform('com.google.firebase:firebase-bom:35.2.0')
     implementation 'com.google.firebase:firebase-messaging'
+    implementation 'com.google.firebase:firebase-auth'
+    implementation 'androidx.credentials:credentials:1.3.0'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
 }
