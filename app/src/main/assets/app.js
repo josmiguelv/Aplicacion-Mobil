@@ -2286,12 +2286,17 @@ function isPaymentFormReady(){
 }
 function paymentWaiting(){
  const c=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
- return '<div class="page">'+heading('Validación de pago','app')+personalCheckoutTimeHtml()+
- '<div class="summary-card"><h2>'+esc(c?.form?.form?.title||'PAGO REALIZADO')+'</h2><p>'+
- (c?.status==='SENT'?'Esperando la respuesta de la sede.':'Comprobando entrega del formulario. No enviaremos otro automáticamente.')+
- '</p></div>'+(paymentFormError?'<div class="notice" role="alert">'+esc(paymentFormError)+'</div>':'')+
- '<p class="smallprint">El pago sigue pendiente hasta que el agente responda a este segundo formulario.</p>'+
- '<button class="outline full" data-checkout-leave="1">Seguir explorando</button></div>';
+ return '<div class="page b3-payment-status-page">'+heading('Confirmación de pago','app')+
+  '<div class="b3-payment-status-main" role="status" aria-live="polite">'+
+  '<div class="b3-payment-status-anim" aria-hidden="true"><div class="b3-payment-status-ring"></div><div class="b3-payment-status-center">'+ic('card',34)+'</div><span class="b3-payment-status-orbit"></span></div>'+
+  '<div class="b3-payment-status-eyebrow">POLLOS B3 · VALIDACIÓN</div>'+
+  '<h2>Estamos verificando tu pago</h2>'+
+  '<p>'+(c?.status==='SENT'?'La sede está revisando el comprobante. Te avisaremos en cuanto confirme.':'Estamos verificando la entrega del comprobante a la sede. No se enviará de nuevo automáticamente.')+'</p>'+
+  '<div class="b3-payment-status-note"><span class="b3-payment-status-dot"></span>Esperando confirmación del asesor</div>'+
+  '</div>'+
+  (paymentFormError?'<div class="notice" role="alert">'+esc(paymentFormError)+'</div>':'')+
+  '<p class="smallprint" style="text-align:center">El comprobante enviado no representa una aprobación. Conservamos tu solicitud mientras esperamos la respuesta real.</p>'+
+  '<button class="outline full" data-checkout-leave="1">Seguir explorando</button></div>';
 }
 // Clear only the exact products belonging to a payment-approved interaction.
 // If the customer has begun another basket, never remove those new items.
@@ -2353,16 +2358,36 @@ function recordVerifiedPaymentOrder(entry){
  clearApprovedOrderBasket(entry);
  return true;
 }
+// The current Android checkout API does not include an order-preparation ETA.
+// Only show one if the published store has an explicit, valid duration field.
+function publishedPreparationTime(storeId){
+ const store=shops.find(x=>String(x.id)===String(storeId));
+ const value=store?.preparationTimeMinutes??store?.preparationMinutes??store?.preparation_time_minutes;
+ if(value===undefined||value===null||value==='')return null;
+ const minutes=Number(value);
+ return Number.isInteger(minutes)&&minutes>0&&minutes<=240?minutes:null;
+}
 function paymentOutcome(){
  const currentEntry=window.B3OrderAvailability?.readInteraction?.();
  const c=currentEntry?.paymentConfirmation;
  if(!['ACCEPTED','REJECTED'].includes(c?.status))return paymentWaiting();
- if(c.status==='ACCEPTED')recordVerifiedPaymentOrder(currentEntry);
- return '<div class="page"><div class="summary-card"><h2>'+
- (c.status==='ACCEPTED'?'Pago aceptado por la sede':'Pago rechazado por la sede')+'</h2><p>'+
- (c.status==='ACCEPTED'?'La sede confirmó tu solicitud. Tiempo de entrega pendiente de confirmación.':
- 'Comunícate con la sede antes de intentar otro pago.')+
- '</p></div>'+(c.status==='ACCEPTED'?'<button class="primary full" data-tab="pedidos">Ver mis pedidos</button>':'')+'<button class="outline full" data-tab="inicio">Volver al inicio</button></div>';
+ const approved=c.status==='ACCEPTED';
+ if(approved)recordVerifiedPaymentOrder(currentEntry);
+ const minutes=approved?publishedPreparationTime(currentEntry?.body?.storeId):null;
+ return '<div class="page b3-payment-status-page">'+heading(approved?'Pago confirmado':'Validación del pago','app')+
+ '<div class="b3-payment-status-main '+(approved?'b3-payment-status-approved':'b3-payment-status-rejected')+'" role="status">'+
+ '<div class="b3-payment-status-result-icon" aria-hidden="true">'+ic(approved?'check':'info',43)+'</div>'+
+ '<div class="b3-payment-status-eyebrow">POLLOS B3 · TU PEDIDO</div>'+
+ '<h2>'+(approved?'¡Pago confirmado!':'El pago no fue aprobado')+'</h2>'+
+ '<p>'+(approved?'Tu comprobante fue aprobado por la sede. <strong>Tu pedido ya está listo para ser atendido.</strong>':
+ 'La sede no confirmó el pago. Comunícate con la sede antes de volver a intentarlo.')+'</p>'+
+ (approved?'<div class="b3-payment-status-note">'+
+ (minutes!==null?'Tiempo de preparación publicado: <strong>'+minutes+' minutos</strong>':
+ 'Tiempo de preparación pendiente de confirmación por la sede.')+
+ '</div><p class="smallprint">Puedes consultar el avance real desde Mis pedidos. La preparación comienza cuando la sede lo indique.</p>':'')+
+ '</div>'+
+ (approved?'<button class="primary full" data-tab="pedidos">Ver seguimiento del pedido</button>':'')+
+ '<button class="outline full" data-tab="inicio">Volver al inicio</button></div>';
 }
 async function submitPaymentForm(){
  if(paymentFormBusy)return;
