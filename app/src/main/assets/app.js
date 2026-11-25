@@ -304,15 +304,16 @@ function paymentConfirmationForm(imageUrl=''){
  if(!names[st.pay])throw Error('Metodo no compatible con comprobante');
  const items=st.cart.map(item=>{const p=product(item.id);return (p?.name||'Producto')+' x'+item.qty}).join(', ');
  const entry=window.B3OrderAvailability?.readInteraction?.();
- const orderLabel=entry?.interactionId?orderPublicCode(entry)+' · '+items:items;
+ if(!entry?.interactionId)throw Error('Falta el identificador confirmado del pedido.');
  const fields=[
-  {variable:'Pedido',value:orderLabel},
+  {variable:'N.º de pedido',value:orderPublicCode(entry)},
+  {variable:'Pedido',value:items},
   {variable:'Subtotal',value:cash(subtotal())},
   {variable:'Delivery',value:cash(st.quote?.deliveryFeePen??0)},
   {variable:'Dirección',value:[st.profile.address,st.profile.district].filter(Boolean).join(', ')},
   {variable:'Total',value:cash(orderTotal())}
  ];
- if(fields.length!==5||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario excede el limite de cinco campos');
+ if(fields.length!==6||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario de pago requiere seis campos válidos');
  return {type:'FORM',form:{title:'PAGO REALIZADO - '+names[st.pay],
   subtitle:'Comprobante adjunto',...(imageUrl?{imageUrl}:{}),fields}};
 }
