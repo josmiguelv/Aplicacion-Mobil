@@ -615,19 +615,29 @@ public class MainActivity extends Activity {
                             form.optString("subtitle", "").length() > 350 ||
                             !(orderApproval || paymentApproval) ||
                             (orderApproval && (!"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
-                                fields == null || fields.length() != 3)) ||
+                                fields == null || fields.length() < 3 || fields.length() > 10)) ||
                             (paymentApproval && (!"Comprobante adjunto".equals(form.optString("subtitle", "")) ||
-                                !form.optString("imageUrl","").matches("https://[^\\s<>\\\"]+/api/v1/mobile/payment-receipts/[0-9a-fA-F-]{36}") ||
+                                !form.optString("imageUrl","").matches("https://[^\\\\s<>\\\\\"]+/api/v1/mobile/payment-receipts/[0-9a-fA-F-]{36}") ||
                                 fields == null || fields.length() != 5)))
                             throw new IllegalArgumentException("Invalid Pollos B3 approval FORM");
-                        String[] allowedFields = orderApproval ?
-                            new String[]{"Productos","Subtotal","Dirección y referencia"} :
-                            new String[]{"Pedido","Subtotal","Delivery","Dirección","Total"};
+                        int productsCount=orderApproval?fields.length()-2:0;
                         for (int i = 0; i < fields.length(); i++) {
                             JSONObject field = fields.optJSONObject(i);
+                            String label=field==null?"":field.optString("variable","");
+                            String expected;
+                            if(orderApproval){
+                                if(i<productsCount){
+                                    boolean isLegacy=fields.length()==3&&"Productos".equals(fields.optJSONObject(0).optString("variable",""));
+                                    expected=isLegacy?"Productos":
+                                        (i==7&&"Productos 8 en adelante".equals(label)?"Productos 8 en adelante":"Producto "+(i+1));
+                                }else expected=i==productsCount?"Subtotal":"Dirección y referencia";
+                            }else{
+                                String[] paymentLabels={"Pedido","Subtotal","Delivery","Dirección","Total"};
+                                expected=paymentLabels[i];
+                            }
                             if (field == null || field.length() != 2 ||
-                                !allowedFields[i].equals(field.optString("variable", "")) ||
-                                field.optString("variable", "").length() > 80 ||
+                                !expected.equals(label) ||
+                                label.length() > 80 ||
                                 field.optString("value", "").trim().isEmpty() ||
                                 field.optString("value", "").length() > 500)
                                 throw new IllegalArgumentException("Invalid order FORM fields");
