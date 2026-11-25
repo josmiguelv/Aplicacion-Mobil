@@ -798,11 +798,12 @@ public class MainActivity extends Activity {
                         String interactionId=request.optString("interactionId","");
                         accessKey=request.optString("accessKey","");
                         key=request.optString("idempotencyKey","");
+                        // Accept a standard UUID (8-4-4-4-12) for the same interaction used by checkout.
                         // Validate separately to identify the rejected field without
                         // logging customer identifiers or leaking authorization keys.
                         if(payload==null || payload.length()<4 || payload.length()>5)
                             throw new IllegalArgumentException("Invalid survey payload");
-                        if(!interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                        if(!interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
                             throw new IllegalArgumentException("Invalid survey interactionId");
                         if(!accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
                             throw new IllegalArgumentException("Invalid survey accessKey");
