@@ -831,20 +831,11 @@ async function completeAcceptedQuote(entry){
  if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
  const fee=Number(quote.deliveryFeePen);
  if(!Number.isFinite(fee)||fee<0)throw Error('No se pudo determinar el costo del delivery.');
- // The server starts the per-client payment window only after the agent reply
- // has been interpreted and a real, published delivery fee is available.
+ // Android starts the payment clock from the verified agent acceptance.
+ // No payment POST, extra TU VERSO read or fee recalculation is necessary here.
  deliveryValidationStep='HABILITANDO_PAGO';
- const paymentStarted=performance.now();
- let wait;
- try{
-  const previouslyEnabled=Date.parse(api.readInteraction?.()?.interactionId===entry.interactionId?
-   api.readInteraction()?.paymentExpiresAt||'':'');
-  // After a lost HTTP response, never restart an already confirmed payment clock.
-  wait=Number.isFinite(previouslyEnabled)&&previouslyEnabled>Date.now()?
-   {status:'PAYMENT_PENDING',expiresAt:new Date(previouslyEnabled).toISOString()}:
-   await api.beginPaymentWait(entry);
- }finally{b3OrderTiming('payment_window',paymentStarted)}
- if(wait.status!=='PAYMENT_PENDING')throw Error('No se pudo iniciar el plazo de pago.');
+ const wait=api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);
+ if(wait.status!=='PAYMENT_PENDING')throw Error('No se pudo iniciar el plazo local de pago.');
  if(st.stage!=='availability')return false;
  st.store=selected.id;
  st.quote={storeId:selected.id,storeName:selected.name,deliveryFeePen:fee,
@@ -2580,8 +2571,8 @@ function chatStatusLine(){
   if(entry.body?.customer&&entry.messageDelivered!==true)
    return 'Solicitud aceptada · Confirmando el detalle';
   return deliveryAvailability.status==='QUOTE_UNAVAILABLE'?
-   'Solicitud aceptada · Tarifa de delivery pendiente':
-   'Solicitud aceptada · Calculando delivery';
+   'Solicitud aceptada · Preparando pantalla de pago':
+   'Solicitud aceptada · Abriendo métodos de pago';
  }
  if(entry.interactionId)return 'Solicitud en validación';
  return 'Preparando solicitud';
@@ -3521,14 +3512,10 @@ window.b3PersonalPushToken=(token)=>{
 window.b3OpenPersonalOrderNotification=(id)=>{
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry||entry.interactionId!==id)return;
- if(entry.paymentExpiresAt){
-  void window.B3OrderAvailability.readPaymentWait(entry).then(result=>{
-   if(result.status==='EXPIRED'){
-    deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
-     message:'El plazo de pago terminó. Puedes iniciar un nuevo pedido.'};
-    st.quote=null;st.store='';save();screen('availability');
-   }else returnToPersonalCheckout();
-  }).catch(()=>returnToPersonalCheckout());
+ // The clock is owned by Android and already persisted for this interaction.
+ // Opening a push must never ask the Administrator to initiate/check that clock.
+ if(entry.paymentExpiresAt&&Date.parse(entry.paymentExpiresAt)<=Date.now()&&!entry.paymentConfirmation){
+  showLocalPaymentExpiry(entry);
  }else returnToPersonalCheckout();
 };
 window.b3OpenFromLink=()=>{
@@ -3613,23 +3600,32 @@ if(activeAtLaunch&&['PENDING','SUBMITTING','ACCEPTED'].includes(activeAtLaunch.s
 void initializeCatalogAtSplash();
 // Las notificaciones son opcionales y no bloquean Inicio.
 void fetchNotifications();
-// FCM is used in the background; server time is authoritative for expiration.
-let lastExpirySync=0,expirySyncBusy=false;
+// Android computes the deadline from the published minutes and verified
+// acceptance. No additional server request is made when the timer expires.
+let lastLocalExpiryInteractionId='';
+function showLocalPaymentExpiry(entry){
+ if(!entry?.interactionId||entry.status!=='ACCEPTED'||entry.paymentConfirmation||
+    !Number.isFinite(Date.parse(entry.paymentExpiresAt||''))||
+    Date.now()<Date.parse(entry.paymentExpiresAt))return;
+ if(lastLocalExpiryInteractionId===entry.interactionId)return;
+ lastLocalExpiryInteractionId=entry.interactionId;
+ st.quote=null;st.store='';st.pay='';
+ deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
+  message:'El plazo para pagar terminó. No se enviarán comprobantes fuera de plazo.'};
+ save();
+ closeChatOverlay();
+ if(['payment','paymentInstructions','paymentProofPreview','prepaymentReview','availability'].includes(st.stage))
+  screen('availability');
+ else render();
+}
 setInterval(()=>{
  const entry=window.B3OrderAvailability?.readInteraction?.();
  const deadline=Date.parse(entry?.paymentExpiresAt||'');
  if(!Number.isFinite(deadline)||entry?.status!=='ACCEPTED')return;
  const label=personalCheckoutCountdown();
  document.querySelectorAll('[data-checkout-remaining]').forEach(node=>{if(node.textContent!==label)node.textContent=label});
- if(Date.now()<deadline||expirySyncBusy||Date.now()-lastExpirySync<30000)return;
- expirySyncBusy=true;lastExpirySync=Date.now();
- void window.B3OrderAvailability.readPaymentWait(entry).then(data=>{
-  if(data.status!=='EXPIRED')return;
-  st.quote=null;st.store='';deliveryAvailability={status:'ERROR',storeName:'',candidateNames:[],
-   message:'El plazo de pago terminó. Puedes comenzar una nueva solicitud.'};
-  save();
-  if(['payment','prepaymentReview'].includes(st.stage))screen('availability');else render();
- }).catch(()=>{}).finally(()=>{expirySyncBusy=false});
+ if(Date.now()>=deadline&&!entry.paymentConfirmation)
+  showLocalPaymentExpiry(entry);
 },1000);
 document.addEventListener('visibilitychange',()=>{
  if(document.visibilityState!=='visible')return;
