@@ -971,14 +971,14 @@ public class MainActivity extends Activity {
         WebSettings settings=web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
-        // AppAssets pages have stable URLs across APK upgrades. Always use the
-        // packaged assets, never an old HTML/JS copy left in WebView disk cache.
-        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        // Cache remote catalog images and payment QRs for the active app version.
+        // Clear cache once per bundled UI version to avoid stale packaged assets.
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         if (getSharedPreferences(PREFS, MODE_PRIVATE)
-                .getInt("b3_ui_bundle_version", 0) != 19 /* Android B3 fulfillment outcomes V19 bundle */) {
+                .getInt("b3_ui_bundle_version", 0) != 20 /* Android B3 splash payment preload V20 bundle */) {
             web.clearCache(true);
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                .putInt("b3_ui_bundle_version", 19 /* Android B3 fulfillment outcomes V19 bundle */).apply();
+                .putInt("b3_ui_bundle_version", 20 /* Android B3 splash payment preload V20 bundle */).apply();
         }
         settings.setAllowFileAccess(false);
         settings.setAllowFileAccessFromFileURLs(false);
