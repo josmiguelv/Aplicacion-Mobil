@@ -2072,11 +2072,12 @@ function reservationMinLead(store){
  return Number.isInteger(raw)&&raw>0&&raw<=10080?raw:null;
 }
 function reservationTimeValue(input){
- if(typeof input!=='string'||!/^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d$/.test(input))return NaN;
+ if(typeof input!=='string'||!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(input))return NaN;
  const [d,t]=input.split('T'),[y,m,day]=d.split('-').map(Number),[h,min]=t.split(':').map(Number);
  const parsed=new Date(Date.UTC(y,m-1,day,h+5,min));
  // America/Lima has fixed UTC-5 for the operational dates used by Pollos B3.
- return parsed.getUTCFullYear()===y&&parsed.getUTCMonth()===m-1&&parsed.getUTCDate()===day?parsed.getTime():NaN;
+ const check=new Date(Date.UTC(y,m-1,day));
+ return check.getUTCFullYear()===y&&check.getUTCMonth()===m-1&&check.getUTCDate()===day?parsed.getTime():NaN;
 }
 function reservationSummary(){
  if(st.scheduleMode!=='reservation'||!Number.isFinite(reservationTimeValue(st.reservationAt)))return '';
@@ -3291,7 +3292,7 @@ if(b.hasAttribute('data-reservation-verify')){
  render();toast('Reserva pendiente de habilitación por la API. No se ha enviado ninguna solicitud.');
  return;
 }
-if(b.dataset.mode){if(activePersonalCheckout(){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;save();screen('scheduleChoice');return}
+if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;save();screen('scheduleChoice');return}
 if(b.dataset.store){void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
