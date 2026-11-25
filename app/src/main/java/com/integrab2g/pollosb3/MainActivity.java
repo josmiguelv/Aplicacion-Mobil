@@ -890,6 +890,7 @@ public class MainActivity extends Activity {
                     java.net.HttpURLConnection connection =
                         (java.net.HttpURLConnection) destination.openConnection();
                     try {
+                        final long trafficStartedAt=android.os.SystemClock.elapsedRealtime();
                         connection.setInstanceFollowRedirects(false);
                         connection.setConnectTimeout(12000);
                         // Transmits the exact FORM object; it is never serialized as TEXT.
@@ -924,6 +925,15 @@ public class MainActivity extends Activity {
                         }
                         // Neither diagnostic health GET sends an Authorization header.
                         int status = connection.getResponseCode();
+                        // Counts/durations only: never log names, phone, URLs, tokens or order IDs.
+                        if ("INTERACTION_STATUS".equals(operation)||
+                            "INTERACTION_CREATE".equals(operation)||
+                            "INTERACTION_MESSAGE".equals(operation)||
+                            "INTERACTION_RECEIPT_UPLOAD".equals(operation)||
+                            "INTERACTION_PAYMENT_FORM".equals(operation))
+                            android.util.Log.i("B3HttpAudit","operation="+operation+
+                                " method="+httpMethod+" status="+status+
+                                " durationMs="+(android.os.SystemClock.elapsedRealtime()-trafficStartedAt));
                         reply.put("status", status);
                         if (status >= 300 && status < 400) {
                             reply.put("error", "REDIRECT_BLOCKED");
