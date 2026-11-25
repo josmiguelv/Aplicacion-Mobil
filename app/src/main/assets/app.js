@@ -65,6 +65,8 @@ let deliveryValidationGeneration=0; // not persisted or treated as an agent deci
 let deliveryHealthPending=false,deliveryHealthMessage=''; // transient read-only backend diagnostic
 let deliveryGpsRequested=false,deliveryLocation=null,deliveryGeocodeTask=null,deliveryGeocodeSequence=0;
 let deliveryGpsPending=false,deliveryGpsMessage='',deliveryGpsToken='';
+// Explicit customer review for each new request (never reused after changes).
+let confirmedDeliveryReviewKey=null;
 // Geocoded coordinates are transient; never reuse GPS collected for store distances.
 function deliveryAddressKey(address,district){return String(address||'').trim().toLowerCase()+'|'+String(district||'').trim().toLowerCase()}
 function hasDeliveryDestination(address,district){
@@ -613,12 +615,33 @@ let agentDecisionTimer=null,agentDecisionPolling=false;
 // Never retry a confirmed order's delivery quotation without a bound.
 let acceptedQuoteFailures=0,acceptedQuotePaused=false,acceptedQuoteInteractionId='';
 let pendingDeliveryQuote=null;
+const precomputedDeliveryQuotes=new Map();
+function deliveryQuoteKey(storeId,address,district,loc){
+ return JSON.stringify([storeId,publishedRevision,deliveryAddressKey(address,district),
+  loc?.latitude,loc?.longitude]);
+}
+function prepareDeliveryQuotes(candidates,address,district,loc){
+ precomputedDeliveryQuotes.clear();
+ for(const candidate of candidates){
+  const local=quoteForDeliveryCandidate(candidate);
+  if(!Array.isArray(local.paymentMethods)||!local.paymentMethods.length)continue;
+  const key=deliveryQuoteKey(candidate.store.id,address,district,loc);
+  precomputedDeliveryQuotes.set(key,{...local,revision:publishedRevision,
+   quoteOrigin:'ANDROID_CATALOG_ACCEPTED'});
+ }
+ console.info('[B3 order timing] delivery_quotes_prepared',precomputedDeliveryQuotes.size);
+}
 // All pricing inputs come from the published catalog loaded at splash.
 function acceptedCatalogQuote(selected,address,district){
  const loc=deliveryLocation;
  if(!selected?.id||!hasDeliveryDestination(address,district)||
     !Number.isFinite(loc?.latitude)||!Number.isFinite(loc?.longitude))
   throw Error('No hay coordenadas válidas de entrega para calcular el delivery.');
+ const key=deliveryQuoteKey(selected.id,address,district,loc);
+ const precomputed=precomputedDeliveryQuotes.get(key);
+ if(precomputed)return precomputed;
+ // Recovery only (e.g. the app was restarted while the agent was deciding):
+ // normal checkout already calculated every candidate before sending the FORM.
  const candidate=eligibleDeliveryCandidates(loc).find(x=>x.store.id===selected.id);
  if(!candidate)throw Error('La sede que aceptó no cumple la cobertura y tarifa publicadas.');
  const local=quoteForDeliveryCandidate(candidate);
@@ -664,6 +687,11 @@ function deliveryContactReady(){
   typeof p.first==='string'&&p.first.trim().length>=2&&p.first.trim().length<=60&&
   typeof p.last==='string'&&p.last.trim().length>=2&&p.last.trim().length<=60&&
   typeof p.phone==='string'&&/^9[0-9]{8}$/.test(p.phone);
+}
+function deliveryReviewKey(){
+ const c=currentDeliveryOrderContact();
+ return JSON.stringify([st.profile.address,st.profile.district,st.profile.reference,
+  c.first,c.last,c.phone,c.doc,st.cart.map(i=>[i.id,i.qty])]);
 }
 function deliveryRequestCustomer(address,district){
  if(!deliveryContactReady())throw Error('Confirma nombres, apellidos y celular para este pedido.');
@@ -996,6 +1024,9 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   }
   throw error;
  }
+ // Calculate and cache each eligible store's delivery fee BEFORE checking an
+ // agent or creating a TU VERSO interaction. Acceptance only reads this value.
+ prepareDeliveryQuotes(candidates,address,district,loc);
  const tried=new Set(api.rejectedStores(requestSeriesKey(address,district)));
  const consultable=candidates.filter(({store})=>storeAvailabilitySetting(store)===true&&!tried.has(store.id));
  if(!consultable.length){
@@ -1194,6 +1225,12 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   deliveryRequestError='';
   currentDeliveryOrderContact();
   screen('identity');return false;
+ }
+ // A new order must be explicitly reviewed before any network request.
+ if(!['SUBMITTING','PENDING','ACCEPTED'].includes(
+    window.B3OrderAvailability?.readInteraction?.()?.status)&&
+    confirmedDeliveryReviewKey!==deliveryReviewKey()){
+  screen('confirmDetails');return false;
  }
  deliveryValidationStep='CATALOGO_PUBLICADO';
  deliveryRequestPending=true;deliveryRequestError='';deliveryHealthMessage='';st.quote=null;st.store='';
@@ -2156,6 +2193,28 @@ function phone(){
  const p=st.mode==='delivery'?currentDeliveryOrderContact():st.profile;
  return `<div class="page form">${heading('Teléfono de este pedido','identity')}<p class="sub">Confirma el celular de la persona que recibirá el pedido. Puedes cambiarlo en cada nueva solicitud.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(p.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`;
 }
+function confirmDetails(){
+ const p=currentDeliveryOrderContact();
+ return `<div class="page form">${heading('Confirma los datos de tu pedido','phone')}
+  <p class="sub">Revisa los datos antes de enviar la solicitud a la sede. Todavía no se ha enviado ningún pedido.</p>
+  <div class="summary-card">
+   <h2>Persona que recibirá</h2>
+   <p><b>Nombres:</b> ${esc(p.first)} ${esc(p.last)}</p>
+   <p><b>Teléfono:</b> +51 ${esc(p.phone)}</p>
+   <p><b>DNI o CE:</b> ${esc(p.doc||'No indicado (opcional)')}</p>
+   <button type="button" class="outline full" data-review-edit="identity">Editar datos personales</button>
+   <button type="button" class="outline full" data-review-edit="phone">Editar teléfono</button>
+   <hr>
+   <h2>Entrega</h2>
+   <p><b>Dirección:</b> ${esc(st.profile.address)}</p>
+   <p><b>Distrito:</b> ${esc(st.profile.district)}</p>
+   <p><b>Referencia:</b> ${esc(st.profile.reference||'No indicada')}</p>
+   <button type="button" class="outline full" data-review-edit="deliveryAddress">Editar dirección</button>
+  </div>
+  <button type="button" class="primary full" data-review-confirm="1">Confirmar datos y enviar solicitud</button>
+  <p class="smallprint">Después de enviar la solicitud, cualquier cambio requiere cancelarla primero.</p>
+ </div>`;
+}
 function personalCheckoutCountdown(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  const ms=Date.parse(entry?.paymentExpiresAt||'')-Date.now();
@@ -2745,7 +2804,7 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){let byPhone=st.stage==='signin-phone';return `<div class="page form">${heading('Ingreso de demostración','login')}<p class="sub">Este acceso no verifica tu identidad y solo se utiliza para probar la navegación.</p><label>${byPhone?'Celular (+51)':'Correo electrónico'}<input id="signin-value" ${byPhone?'inputmode="numeric" maxlength="9"':'type="email"'} placeholder="${byPhone?'9 dígitos':'correo@ejemplo.com'}"></label><button class="primary full" data-demo-signin="${byPhone?'phone':'email'}">Entrar en modo prueba</button><p class="smallprint">No uses información real ni contraseñas.</p></div>`}
-function render(){if(visibleLiveOrder()&&!trackingPollBusy&&trackingPollTimer===null)scheduleLiveTracking(3000);else if(!visibleLiveOrder()&&trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
+function render(){if(visibleLiveOrder()&&!trackingPollBusy&&trackingPollTimer===null)scheduleLiveTracking(3000);else if(!visibleLiveOrder()&&trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='confirmDetails')html=confirmDetails();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
   `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
@@ -2832,7 +2891,8 @@ function startCheckout(){
    resetDeliveryOrderContact();
   checkoutPending=true;
   if(!hasDeliveryDestination(st.profile.address,st.profile.district)){screen('deliveryAddress');return}
-  void resolveDelivery();return
+  confirmedDeliveryReviewKey=null;
+  screen('confirmDetails');return
  }
  checkoutPending=false;void revalidateCheckout('identity');
 }
@@ -2881,7 +2941,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-social],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -3140,6 +3200,21 @@ if(b.hasAttribute('data-identity-next')){
   st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');
  }
  save();screen('phone');return;
+}
+if(b.dataset.reviewEdit){
+ if(activePersonalCheckout())returnToPersonalCheckout();
+ else{confirmedDeliveryReviewKey=null;screen(b.dataset.reviewEdit)}
+ return;
+}
+if(b.hasAttribute('data-review-confirm')){
+ if(activePersonalCheckout())returnToPersonalCheckout();
+ else if(!deliveryContactReady()||!st.profile.address||!st.profile.district)
+  toast('Revisa primero los datos de contacto y de entrega.');
+ else {
+  confirmedDeliveryReviewKey=deliveryReviewKey();
+  void resolveDelivery();
+ }
+ return;
 }
 if(b.hasAttribute('data-phone-next')){
  if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');
@@ -3413,7 +3488,7 @@ window.handleB3Back=()=>{
   }
   if(st.stage.startsWith('signin-')){screen('login');return true}
   if(checkoutPending)checkoutPending=false;
-  const previous={availability:'deliveryAddress',notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
+  const previous={confirmDetails:'phone',availability:'deliveryAddress',notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
   screen(previous[st.stage]||'app');return true
 };
 function preloadPublishedPaymentImages(){
