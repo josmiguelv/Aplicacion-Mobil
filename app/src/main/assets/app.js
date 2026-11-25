@@ -2404,9 +2404,12 @@ function recordVerifiedPaymentOrder(entry){
   return true;
  }
  const fields=approval.form?.form?.fields;
- if(!Array.isArray(fields)||fields.length!==5||
-    fields.map(f=>f?.variable).join('|')!=='Pedido|Subtotal|Delivery|Dirección|Total')return false;
- const amount=String(fields[4].value||'').match(/^S\/\s*(\d+(?:\.\d{1,2})?)$/);
+ // Payment FORM v2 includes the public order code as its first of six fields.
+ // Validate the complete certified payload before indexing the local history.
+ if(!Array.isArray(fields)||fields.length!==6||
+    fields.map(f=>f?.variable).join('|')!=='N.º de pedido|Pedido|Subtotal|Delivery|Dirección|Total'||
+    fields[0]?.value!==orderPublicCode(entry))return false;
+ const amount=String(fields[5].value||'').match(/^S\/\s*(\d+(?:\.\d{1,2})?)$/);
  const total=amount?Number(amount[1]):NaN;
  const items=entry.body?.items?.map(x=>({id:'api:'+x.productId,qty:x.quantity}))||[];
  if(!Number.isFinite(total)||total<=0||!items.length||
