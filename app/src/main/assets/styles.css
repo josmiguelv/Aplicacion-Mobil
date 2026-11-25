@@ -1050,3 +1050,10 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 @keyframes b3-payment-pulse{50%{opacity:.32;transform:scale(.78)}}
 @keyframes b3-payment-appear{from{opacity:0;transform:scale(.7)}to{opacity:1;transform:scale(1)}}
 @media(prefers-reduced-motion:reduce){.b3-payment-status-ring,.b3-payment-status-orbit,.b3-payment-status-dot,.b3-payment-status-result-icon{animation:none!important}}
+
+/* Delivery preparation is an estimate before the order leaves the store. */
+.b3-payment-status-approved .b3-payment-status-note{flex-direction:column;gap:7px;padding:18px 16px;text-align:center}
+.b3-payment-prep-label{font-size:13px;color:#38644b;font-weight:700}
+.b3-payment-prep-minutes{font-size:clamp(28px,7vw,37px);line-height:1.1;color:#146638;letter-spacing:-.04em;font-weight:900}
+.b3-payment-prep-context{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;color:#205e3b;font-weight:800}
+.b3-payment-status-approved .b3-payment-status-note small{color:#668271;font-size:11px;line-height:1.45;font-weight:500}
