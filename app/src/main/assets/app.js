@@ -818,7 +818,10 @@ async function completeAcceptedQuote(entry){
   provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  acceptedQuoteFailures=0;acceptedQuotePaused=false;
- st.pay='';save();screen('payment');
+ st.pay='';save();
+ // Do not leave the tracking chat covering the payment choices after acceptance.
+ closeChatOverlay();
+ screen('payment');
  showOrderAcceptedOnce(entry);
  return true;
 }
