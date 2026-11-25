@@ -546,9 +546,16 @@ function deliveryOrderTicketForm(address,district){
  });
  if(Math.abs(subtotalCents/100-subtotal())>.015)
   throw Error('El subtotal del ticket no coincide con el carrito publicado.');
- // FORM values must not contain control characters: Admin validText rejects LF.
- const productsValue=lines.join(' · ');
- if(productsValue.length>500)throw Error('El detalle de Productos supera los 500 caracteres permitidos. Revisa el carrito antes de enviar el pedido.');
+ // TU VERSO supports at most ten optional fields. Reserve two for totals
+ // and delivery destination; display each product separately where possible.
+ // When there are more than eight distinct lines, the eighth row carries the
+ // remaining items, separated without control characters or line breaks.
+ const shown=lines.slice(0,7).map((line,i)=>({variable:'Producto '+(i+1),value:line}));
+ if(lines.length>=8){
+  const overflow=lines.slice(7).join(' · ');
+  if(overflow.length>500)throw Error('El detalle de los productos supera el espacio disponible del FORM. Reduce los productos distintos del pedido.');
+  shown.push({variable:lines.length===8?'Producto 8':'Productos 8 en adelante',value:overflow});
+ }
  const addr=String(address||'').trim(),area=String(district||'').trim();
  if(addr.length<6||addr.length>180||area.length<2||area.length>80)
   throw Error('Confirma una dirección válida antes de crear el ticket.');
@@ -558,7 +565,7 @@ function deliveryOrderTicketForm(address,district){
  const destination=addr+', '+area+(reference?' — '+reference:'');
  if(destination.length>500)throw Error('La dirección y referencia superan los 500 caracteres permitidos para el formulario.');
  const fields=[
-  {variable:'Productos',value:productsValue},
+  ...shown,
   {variable:'Subtotal',value:cash(subtotalCents/100)},
   {variable:'Dirección y referencia',value:destination}
  ];
