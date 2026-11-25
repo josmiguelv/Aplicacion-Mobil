@@ -621,26 +621,37 @@ public class MainActivity extends Activity {
                                 fields == null || fields.length() != 5)))
                             throw new IllegalArgumentException("Invalid Pollos B3 approval FORM");
                         int productsCount=orderApproval?fields.length()-2:0;
+                        java.util.HashSet<String> productLabels=new java.util.HashSet<>();
                         for (int i = 0; i < fields.length(); i++) {
-                            JSONObject field = fields.optJSONObject(i);
+                            JSONObject field=fields.optJSONObject(i);
                             String label=field==null?"":field.optString("variable","");
-                            String expected;
+                            String value=field==null?"":field.optString("value","");
+                            if(field==null||field.length()!=2||label.trim().isEmpty()||
+                               label.length()>80||value.trim().isEmpty()||value.length()>500||
+                               !label.trim().equals(label))
+                                throw new IllegalArgumentException("Invalid order FORM fields");
                             if(orderApproval){
                                 if(i<productsCount){
-                                    boolean isLegacy=fields.length()==3&&"Productos".equals(fields.optJSONObject(0).optString("variable",""));
-                                    expected=isLegacy?"Productos":
-                                        (i==7&&"Productos 8 en adelante".equals(label)?"Productos 8 en adelante":"Producto "+(i+1));
-                                }else expected=i==productsCount?"Subtotal":"Dirección y referencia";
+                                    boolean legacy=fields.length()==3&&"Productos".equals(fields.optJSONObject(0).optString("variable",""));
+                                    boolean indexed=("Producto "+(i+1)).equals(label)||
+                                        (i==7&&"Productos 8 en adelante".equals(label));
+                                    boolean named=!label.equalsIgnoreCase("Subtotal")&&
+                                        !label.equalsIgnoreCase("Dirección y referencia")&&
+                                        !label.equalsIgnoreCase("Productos")&&
+                                        (!label.equals("Productos restantes")||i==7)&&
+                                        (label.equals("Productos restantes")?
+                                            value.contains(" × S/ "):
+                                            value.matches("[0-9]+ × S/ [0-9]+(?:\\.[0-9]{2})?"));
+                                    if(!(legacy||indexed||named)||
+                                       !productLabels.add(label.toLowerCase(java.util.Locale.ROOT)))
+                                        throw new IllegalArgumentException("Invalid product FORM row");
+                                }else if(!(i==productsCount?"Subtotal":"Dirección y referencia").equals(label))
+                                    throw new IllegalArgumentException("Invalid order FORM summary");
                             }else{
                                 String[] paymentLabels={"Pedido","Subtotal","Delivery","Dirección","Total"};
-                                expected=paymentLabels[i];
+                                if(!paymentLabels[i].equals(label))
+                                    throw new IllegalArgumentException("Invalid payment FORM field");
                             }
-                            if (field == null || field.length() != 2 ||
-                                !expected.equals(label) ||
-                                label.length() > 80 ||
-                                field.optString("value", "").trim().isEmpty() ||
-                                field.optString("value", "").length() > 500)
-                                throw new IllegalArgumentException("Invalid order FORM fields");
                         }
                         approvalFormFields=fields.length();
                         android.util.Log.i("B3FormAudit","stage=NATIVE_VALIDATED type=FORM fields="+approvalFormFields+
