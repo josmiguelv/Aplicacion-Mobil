@@ -42,8 +42,8 @@ android {
         applicationId 'com.integrab2g.pollosb3'
         minSdk 24
         targetSdk 35
-        versionCode 21
-        versionName '1.11.0-b3-delivery-review'
+        versionCode 22
+        versionName '1.12.0-b3-payment-status'
 
         // One origin for all Android API calls (catalog, quotes, orders, FORM, notifications).
         resValue 'string', 'b3_api_base', apiBase
