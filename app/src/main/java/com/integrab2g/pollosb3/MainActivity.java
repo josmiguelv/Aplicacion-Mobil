@@ -561,11 +561,11 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid payment FORM identifiers");
                         JSONObject form=payload.optJSONObject("form");
                         JSONArray fields=form==null?null:form.optJSONArray("fields");
-                        String[] required={"Pedido","Subtotal","Delivery","Dirección","Total"};
+                        String[] required={"N.º de pedido","Pedido","Subtotal","Delivery","Dirección","Total"};
                         if(form==null||form.length()!=4||
                            !form.optString("title","").matches("PAGO REALIZADO - (YAPE|PLIN|TARJETA)")||
                            !"Comprobante adjunto".equals(form.optString("subtitle",""))||
-                           fields==null||fields.length()!=5)
+                           fields==null||fields.length()!=required.length)
                             throw new IllegalArgumentException("Invalid payment FORM");
                         String imageUrl=form.optString("imageUrl","");
                         try {
@@ -578,7 +578,7 @@ public class MainActivity extends Activity {
                         } catch(java.net.URISyntaxException exception){
                             throw new IllegalArgumentException("Invalid payment receipt URL");
                         }
-                        for(int i=0;i<5;i++){
+                        for(int i=0;i<required.length;i++){
                             JSONObject field=fields.optJSONObject(i);
                             if(field==null||field.length()!=2||
                                !required[i].equals(field.optString("variable",""))||
@@ -586,7 +586,7 @@ public class MainActivity extends Activity {
                                field.optString("value","").length()>500)
                                 throw new IllegalArgumentException("Invalid payment FORM field");
                         }
-                        approvalFormFields=5;
+                        approvalFormFields=required.length;
                         body=payload.toString();
                         path="/api/v1/mobile/interactions/"+interactionId+"/payment-receipt";
                     } else if ("INTERACTION_MESSAGE".equals(operation)) {
