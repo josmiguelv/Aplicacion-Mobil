@@ -91,6 +91,13 @@
     if (reply.error) {
       const surveyReasons={
         'Invalid survey identifiers':'No se pudieron validar los identificadores del pedido y de la encuesta.',
+        'Invalid survey payload':'La aplicación no construyó correctamente los datos de la encuesta.',
+        'Invalid survey interactionId':'El identificador del pedido no tiene un formato válido.',
+        'Invalid survey accessKey':'La autorización local del pedido no tiene un formato válido.',
+        'Invalid survey idempotencyKey':'El identificador del envío de la encuesta no es válido.',
+        'Invalid survey duplicateKey':'La encuesta está utilizando incorrectamente la clave del pedido.',
+        'Invalid survey appId':'El identificador de la aplicación no corresponde a Pollos B3.',
+        'Invalid survey storeId':'El identificador de la sede no es válido.',
         'Invalid survey rating':'La calificación debe ser un número entero de 1 a 5.',
         'Invalid survey tags':'Las categorías seleccionadas no cumplen el formato requerido.',
         'Invalid survey tag':'Una categoría de la encuesta no está permitida.',
