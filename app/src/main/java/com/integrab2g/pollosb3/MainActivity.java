@@ -663,14 +663,22 @@ public class MainActivity extends Activity {
                         String interactionId=request.optString("interactionId","");
                         accessKey=request.optString("accessKey","");
                         key=request.optString("idempotencyKey","");
-                        if(payload==null||payload.length()<4||payload.length()>5||
-                           !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
-                           !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
-                           !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
-                           key.equalsIgnoreCase(accessKey)||
-                           !payload.optString("appId","").equals("com.integrab2g.pollosb3")||
-                           !payload.optString("storeId","").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
-                            throw new IllegalArgumentException("Invalid survey identifiers");
+                        // Validate separately to identify the rejected field without
+                        // logging customer identifiers or leaking authorization keys.
+                        if(payload==null || payload.length()<4 || payload.length()>5)
+                            throw new IllegalArgumentException("Invalid survey payload");
+                        if(!interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid survey interactionId");
+                        if(!accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid survey accessKey");
+                        if(!key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid survey idempotencyKey");
+                        if(key.equalsIgnoreCase(accessKey))
+                            throw new IllegalArgumentException("Invalid survey duplicateKey");
+                        if(!payload.optString("appId","").equals("com.integrab2g.pollosb3"))
+                            throw new IllegalArgumentException("Invalid survey appId");
+                        if(!payload.optString("storeId","").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))
+                            throw new IllegalArgumentException("Invalid survey storeId");
                         Object rawRating=payload.opt("rating");
                         if(!(rawRating instanceof Number)||
                            ((Number)rawRating).doubleValue()!=Math.rint(((Number)rawRating).doubleValue())||
