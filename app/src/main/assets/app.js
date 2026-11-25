@@ -1020,6 +1020,7 @@ async function pollAgentDecision(){
  }
 }
 async function requestBackendOrderAvailability({address,district,run,silent}){
+ if(st.scheduleMode==='reservation')throw Error('La reserva requiere la API pública de programación; no se enviará un pedido inmediato.');
  const api=window.B3OrderAvailability;
  if(!api?.checkAgentAvailability||!api?.quoteDelivery||!api?.createInteraction||
     !api?.sendInteractionMessage||!api?.pollInteraction)
@@ -2498,6 +2499,7 @@ function publishedPreparationTime(storeId){
  return Number.isInteger(minutes)&&minutes>0&&minutes<=240?minutes:null;
 }
 function paymentOutcome(){
+ // Existing immediate-order confirmation remains untouched; reservations are not submitted until supported.
  const currentEntry=window.B3OrderAvailability?.readInteraction?.();
  const c=currentEntry?.paymentConfirmation;
  if(!['ACCEPTED','REJECTED'].includes(c?.status))return paymentWaiting();
@@ -2979,6 +2981,7 @@ function finalizeDemoOrder(){
  st.orders.unshift(order);st.cart=[];save();screen('success');
 }
 async function revalidateCheckout(next){
+ if(st.scheduleMode==='reservation'){checkoutReviewNote='La reserva no se puede confirmar hasta que el Administrador publique el contrato de programación.';screen('reservationPicker');return false;}
  if(checkoutRefreshPending)return false;
  checkoutRefreshPending=true;checkoutReviewNote='';render();
  const before=checkoutSnapshot();
