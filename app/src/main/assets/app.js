@@ -2384,8 +2384,8 @@ function paymentOutcome(){
  '<p>'+(approved?'Tu comprobante fue aprobado por la sede. <strong>Tu pedido ya está listo para ser atendido.</strong>':
  'La sede no confirmó el pago. Comunícate con la sede antes de volver a intentarlo.')+'</p>'+
  (approved?'<div class="b3-payment-status-note">'+
- (minutes!==null?'Tiempo de preparación publicado: <strong>'+minutes+' minutos</strong>':
- 'Tiempo de preparación pendiente de confirmación por la sede.')+
+ (minutes!==null?'<span class="b3-payment-prep-label">Tiempo estimado de preparación</span><strong class="b3-payment-prep-minutes">'+minutes+' minutos</strong><span class="b3-payment-prep-context">'+ic('store',18)+' Antes de salir de tienda</span><small>El tiempo de traslado hasta tu domicilio no está incluido.</small>':
+ 'Tiempo estimado de preparación pendiente de confirmación por la sede.')+
  '</div><p class="smallprint">Puedes consultar el avance real desde Mis pedidos. La preparación comienza cuando la sede lo indique.</p>':'')+
  '</div>'+
  (approved?'<button class="primary full" data-tab="pedidos">Ver seguimiento del pedido</button>':'')+
