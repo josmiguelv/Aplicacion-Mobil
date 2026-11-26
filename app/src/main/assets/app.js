@@ -41,7 +41,7 @@ function demoStoreClock(s){
 }
 
 let scheduleReturnToModal=false;
-let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,authProvider:'',authUid:'',authDisplayName:'',authGoogleEmail:'',mode:'',scheduleMode:'now',reservationAt:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
+let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,authProvider:'',authUid:'',authDisplayName:'',authGoogleEmail:'',mode:'',scheduleMode:'now',reservationAt:'',reservationCashExact:true,reservationCashAmount:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
 try{const d=JSON.parse(localStorage.getItem(K)||'{}');st={...st,...d,stage:'splash',tab:'inicio',selected:'',notice:'',configReady:false,quote:null}}catch{}
 // The person receiving a new order must confirm their own contact again.
 // Draft data from an earlier app run must never authorize another order.
@@ -2116,14 +2116,42 @@ function reservationTimeValue(input){
  return check.getUTCFullYear()===y&&check.getUTCMonth()===m-1&&check.getUTCDate()===day?parsed.getTime():NaN;
 }
 function reservationSummary(){
- if(st.scheduleMode!=='reservation'||!Number.isFinite(reservationTimeValue(st.reservationAt)))return '';
- const start=reservationTimeValue(st.reservationAt),end=new Date(start+30*60000);
- const fmt=ms=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',
-   hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(ms));
- const date=ms=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',
-   day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(ms));
- return 'Reserva para el '+date(start)+' · '+fmt(start)+' a '+fmt(end)+
-    (date(start)!==date(end)?' ('+date(end)+')':'');
+ if(st.scheduleMode!=='reservation'||!st.reservationAt)return '';
+ try{
+  const when=window.B3ReservationForms.schedule(st.reservationAt);
+  return 'Reserva para el '+when.date+' · '+when.interval;
+ }catch{return ''}
+}
+// Build a truthful reservation preview from the published store and verified quote.
+// This is never sent through the immediate-order API, which does not certify bookings.
+function reservationFormPreview(){
+ if(st.scheduleMode!=='reservation')return {error:'Selecciona Programar reserva.'};
+ const selected=shops.find(x=>String(x.id)===String(st.store));
+ if(!selected||selected.reservation_enabled!==true)
+  return {error:'Selecciona una sede con reservas habilitadas por el Administrador Web.'};
+ const lead=reservationMinLead(selected);
+ if(lead===null)return {error:'La sede no publicó una anticipación mínima verificable.'};
+ let when;
+ try{when=window.B3ReservationForms.schedule(st.reservationAt)}
+ catch(error){return {error:error.message}}
+ if(when.from<Date.now()+lead*60000)
+  return {error:'El inicio del intervalo no cumple la anticipación mínima publicada.'};
+ const available=paymentOptions().map(x=>x[0]);
+ if(!available.includes(st.pay))return {error:'Selecciona un método de pago publicado para esta sede y modalidad.'};
+ const priceReady=st.mode==='pickup'||(deliveryQuoteValid()&&String(st.quote?.storeId)===String(st.store));
+ if(!priceReady)return {error:'Primero se requiere una cotización de Delivery válida para calcular el total y el vuelto.'};
+ try{
+  const items=publishedOrderItems().map(i=>({name:product('api:'+i.productId).name,quantity:i.quantity}));
+  const fee=st.mode==='delivery'?Number(st.quote.deliveryFeePen):0;
+  const amount=st.reservationCashExact?undefined:st.reservationCashAmount;
+  const form=window.B3ReservationForms.request({
+   dateTime:st.reservationAt,mode:st.mode,items,subtotal:subtotal(),
+   deliveryFee:fee,total:subtotal()+fee,
+   destination:st.mode==='delivery'?[st.profile.address,st.profile.district,st.profile.reference].filter(Boolean).join(', '):'Recojo en sede',
+   method:st.pay,amount,exact:st.reservationCashExact,allowedMethods:available
+  });
+  return {form,when};
+ }catch(error){return {error:error.message||'No se pudo construir la reserva.'}}
 }
 function scheduleChoice(){
  const mode=st.mode==='delivery'?'Delivery':'Recojo en tienda';
@@ -2137,18 +2165,35 @@ function scheduleChoice(){
 function reservationPicker(){
  const mode=st.mode==='delivery'?'entrega a domicilio':'recojo en tienda';
  const selected=shops.find(x=>String(x.id)===String(st.store));
- const enabled=selected?.reservation_enabled===true;
  const lead=reservationMinLead(selected);
- const timestamp=reservationTimeValue(st.reservationAt);
- const minimum=Date.now()+(lead??0)*60000;
- const valid=Number.isFinite(timestamp)&&lead!==null&&timestamp>=minimum;
+ const allMethods=selected?paymentOptions():[];
+ const preview=reservationFormPreview();
  return '<div class="page">'+heading('Programar reserva','scheduleChoice')+
   '<p class="sub">Selecciona fecha y hora para '+esc(mode)+'. La sede debe aceptar la solicitud.</p>'+
   '<label>Fecha y hora de la reserva<input id="b3-reservation-at" type="datetime-local" value="'+esc(st.reservationAt)+'"></label>'+
-  (st.reservationAt&&!valid?'<div class="notice" role="alert">La fecha y hora deben superar la anticipación mínima publicada para la sede.</div>':'')+
   (reservationSummary()?'<div class="summary-card"><b>'+esc(reservationSummary())+'</b></div>':'')+
-  '<div class="notice" role="status">La solicitud no está disponible todavía: la API pública del Administrador Web no publica de forma verificable el contrato completo de reservas (habilitación, anticipación mínima y fecha/hora). No enviaremos un pedido inmediato haciéndolo pasar por una reserva.</div>'+
-  '<button class="primary full" data-reservation-verify="1">Verificar disponibilidad de reserva</button>'+
+  '<p class="smallprint">Intervalo: 15 minutos antes y 15 después de la hora seleccionada (Perú, UTC-5).</p>'+
+  (!selected?'<div class="notice">La sede se determinará según la modalidad y la cobertura publicada. Sin una sede asignada no podemos confirmar su habilitación de reservas.</div>':
+   selected.reservation_enabled!==true?'<div class="notice">Esta sede no tiene reservas habilitadas en la configuración publicada.</div>':
+   lead===null?'<div class="notice">La API pública no publicó la anticipación mínima de esta sede.</div>':
+   '<div class="notice">Anticipación mínima publicada: '+lead+' minutos, calculada desde el inicio del intervalo.</div>')+
+  (selected&&allMethods.length?'<h2>Forma de pago publicada</h2><div class="method-list">'+
+    allMethods.map(([id,title])=>'<button type="button" class="'+(st.pay===id?'chosen':'')+'" data-reservation-pay="'+id+'">'+
+      ic(id==='cash'?'store':'card')+'<span><b>'+esc(title)+'</b></span><span class="radio"></span></button>').join('')+'</div>':'')+
+  (st.pay==='cash'&&allMethods.some(x=>x[0]==='cash')?
+    '<div class="summary-card"><h2>Pago contraentrega</h2>'+
+    '<button type="button" class="outline full" data-reservation-cash-mode="exact">'+
+      (st.reservationCashExact?'✓ ':'')+'Pagaré el monto exacto</button>'+
+    '<button type="button" class="outline full" data-reservation-cash-mode="other">'+
+      (!st.reservationCashExact?'✓ ':'')+'Pagaré con otro monto</button>'+
+    (!st.reservationCashExact?'<label>¿Con cuánto pagarás? (S/)<input id="b3-reservation-cash-amount" inputmode="decimal" value="'+esc(st.reservationCashAmount)+'" placeholder="Ej. 100.00"></label>':'')+
+    '</div>':'')+
+  (preview.form?'<div class="summary-card"><h2>Vista previa para el agente: '+esc(preview.form.title)+'</h2>'+
+    preview.form.fields.map(f=>'<p><b>'+esc(f.variable)+':</b> '+esc(f.value)+'</p>').join('')+
+    '<p class="smallprint">'+preview.form.fields.length+' de 10 variables.</p></div>':
+    '<div class="notice" role="status">'+esc(preview.error||'Reserva no disponible')+'</div>')+
+  '<div class="notice" role="status">La solicitud de reserva no se enviará hasta que el Administrador Web publique un contrato compatible de reserva, fecha y forma de pago. Se protege al cliente frente a una confirmación falsa.</div>'+
+  '<button class="primary full" data-reservation-verify="1">Revisar datos de reserva</button>'+
   '<button class="outline full" data-schedule-choice="now">Continuar con pedido inmediato</button>'+
   '</div>';
 }
@@ -3323,16 +3368,24 @@ if(b.dataset.scheduleChoice){
    else {screen('locations');if(API_BASE)void fetchConfig()}
    return}
 }
+if(b.dataset.reservationPay){
+ if(!paymentOptions().some(x=>x[0]===b.dataset.reservationPay))return toast('Método no habilitado para esta sede.');
+ st.pay=b.dataset.reservationPay;save();render();return;
+}
+if(b.dataset.reservationCashMode){
+ st.reservationCashExact=b.dataset.reservationCashMode==='exact';
+ if(st.reservationCashExact)st.reservationCashAmount='';
+ save();render();return;
+}
 if(b.hasAttribute('data-reservation-verify')){
- const chosen=document.getElementById('b3-reservation-at')?.value||'';
- st.reservationAt=chosen;save();
- const selected=shops.find(x=>String(x.id)===String(st.store));
- const minutes=reservationMinLead(selected);
- const when=reservationTimeValue(chosen);
- if(!Number.isFinite(when))return toast('Ingresa una fecha y hora válidas.');
- if(minutes!==null&&when<Date.now()+minutes*60000)
-   return toast('La fecha elegida no cumple la anticipación mínima de la sede.');
- render();toast('Reserva pendiente de habilitación por la API. No se ha enviado ninguna solicitud.');
+ st.reservationAt=document.getElementById('b3-reservation-at')?.value||st.reservationAt;
+ if(!st.reservationCashExact)
+  st.reservationCashAmount=document.getElementById('b3-reservation-cash-amount')?.value||st.reservationCashAmount;
+ save();
+ const preview=reservationFormPreview();
+ render();
+ if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');
+ toast('Formulario validado: '+preview.form.fields.length+' de 10 variables. El envío requiere la API pública de reservas.');
  return;
 }
 if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;scheduleReturnToModal=false;save();screen('scheduleChoice');return}
@@ -3484,7 +3537,10 @@ if(b.hasAttribute('data-clear')){
  return;
 }
 });
-root.addEventListener('change',e=>{if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
+root.addEventListener('change',e=>{
+ if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;save();render();return}
+ if(e.target?.id==='b3-reservation-cash-amount'){st.reservationCashAmount=e.target.value;save();render();return}
+ if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
  if(b3ConfirmDismiss){e.preventDefault();b3ConfirmDismiss();return}
