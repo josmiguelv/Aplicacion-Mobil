@@ -37,7 +37,7 @@
  }
  function moneyInput(value){
    const raw=String(value??'').trim();
-   if(!/^(?:0|[1-9][0-9]{0,6})(?:\\.[0-9]{1,2})?$/.test(raw))
+   if(!/^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,2})?$/.test(raw))
      throw Error('Indica un monto en soles válido, con hasta dos decimales.');
    return cents(Number(raw));
  }
@@ -61,7 +61,7 @@
      if(!f||typeof f.variable!=='string'||typeof f.value!=='string'||
        !f.variable.trim()||f.variable.length>LABEL_LIMIT||
        !f.value.trim()||f.value.length>VALUE_LIMIT||
-       /[\\x00-\\x1f\\x7f]/.test(f.variable+f.value)||
+       /[\x00-\x1f\x7f]/.test(f.variable+f.value)||
        seen.has(f.variable.toLocaleLowerCase('es-PE')))
        throw Error('El FORM incluye campos inválidos, duplicados o demasiado largos.');
      seen.add(f.variable.toLocaleLowerCase('es-PE'));
@@ -75,7 +75,7 @@
    const chunks=[];
    for(const item of items){
      if(!item||typeof item.name!=='string'||!item.name.trim()||
-        /[\\x00-\\x1f\\x7f]/.test(item.name)||!Number.isInteger(item.quantity)||
+        /[\x00-\x1f\x7f]/.test(item.name)||!Number.isInteger(item.quantity)||
         item.quantity<1||item.quantity>99)throw Error('Producto inválido para el FORM.');
      // All quantities and names remain legible; no truncation or invented line prices.
      const line=item.name.trim()+' × '+item.quantity;
@@ -130,7 +130,7 @@
      {variable:'Forma de pago',value:pay.label}
    ];
    const fields=validateFields([...products({items,maxFields:LIMIT-metadata.length}),...metadata]);
-   if(typeof imageUrl!=='string'||!/^https:\/\/[^\\s<>"']+$/.test(imageUrl))
+   if(typeof imageUrl!=='string'||!/^https:\/\/[^\s<>"']+$/.test(imageUrl))
      throw Error('Falta un comprobante HTTPS validado.');
    return {type:'FORM',form:{title:'PAGO DE RESERVA REALIZADO - '+pay.label.toLocaleUpperCase('es-PE'),
      subtitle:'Comprobante adjunto',imageUrl,fields}};
