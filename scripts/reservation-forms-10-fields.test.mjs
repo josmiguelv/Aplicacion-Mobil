@@ -50,7 +50,7 @@ test('50 distinct short products are packed without losing quantities and never 
  const items=Array.from({length:50},(_,i)=>({name:'Producto '+(i+1),quantity:(i%9)+1}));
  const form=f.request({...input,items});
  assert.ok(form.fields.length<=10);
- assert.ok(form.fields.length>=7);
+ assert.ok(form.fields.length>=6);
  const payload=form.fields.filter(x=>x.variable.startsWith('Productos ')).map(x=>x.value).join(' · ');
  for(const item of items)
   assert.ok(payload.includes(item.name+' × '+item.quantity),'missing '+item.name);
@@ -68,7 +68,7 @@ test('payment proof retains reservation fields and is never a cash receipt',()=>
  assert.equal(proof.type,'FORM');
  assert.equal(proof.form.title,'PAGO DE RESERVA REALIZADO - YAPE');
  assert.ok(proof.form.fields.length<=10);
- assert.ok(proof.form.fields.some(x=>x.variable==='Intervalo'));
+ assert.equal(proof.form.fields.find(x=>x.variable==='Fecha').value,'28/11/2026 · 2:45 p. m. – 3:15 p. m.');
  assert.throws(()=>f.paymentProof({...payload,method:'cash'}),/Efectivo/);
 });
 test('reservation preview uses published values and cannot submit an immediate order',()=>{
@@ -79,4 +79,18 @@ test('reservation preview uses published values and cannot submit an immediate o
  assert.match(app,/toast\('Formulario validado:/);
  assert.match(app,/if\(b\.dataset\.reservationPay\)/);
  assert.match(app,/if\(b\.dataset\.reservationCashMode\)/);
+});
+
+test('both reservation forms use one Fecha field including the complete interval',()=>{
+ const f=fixture();
+ for(const dateTime of ['2026-11-28T15:00','2026-11-28T00:05','2026-11-28T23:55']){
+  const data={...input,dateTime,method:'yape',orderCode:'B3-TEST',imageUrl:'https://example.com/test.png'};
+  const when=f.schedule(dateTime);
+  for(const form of [f.request(data),f.paymentProof(data).form]){
+   assert.equal(form.fields.filter(x=>x.variable==='Fecha').length,1);
+   assert.equal(form.fields.find(x=>x.variable==='Fecha').value,when.date+' · '+when.interval);
+   assert.ok(!form.fields.some(x=>['Intervalo','Fecha de reserva'].includes(x.variable)));
+   assert.ok(form.fields.length<=10);
+  }
+ }
 });
