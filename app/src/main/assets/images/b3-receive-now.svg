@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 296" role="img" aria-labelledby="title desc">
+<title id="title">Pedido para ahora</title><desc id="desc">Repartidor llevando un pedido de pollo a la brasa con líneas de movimiento</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFF4E8"/><stop offset="1" stop-color="#FFCFB9"/></linearGradient>
+ <linearGradient id="box" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F6262D"/><stop offset="1" stop-color="#A80717"/></linearGradient>
+ <linearGradient id="helmet" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F4202A"/><stop offset="1" stop-color="#BA0C1D"/></linearGradient>
+ <filter id="shadow"><feDropShadow dx="0" dy="8" stdDeviation="9" flood-color="#8B1C19" flood-opacity=".15"/></filter>
+</defs>
+<rect width="480" height="296" rx="26" fill="url(#bg)"/>
+<circle cx="404" cy="57" r="70" fill="#FFF" opacity=".42"/><circle cx="70" cy="248" r="86" fill="#FFC8A5" opacity=".6"/>
+<path d="M23 107h95M38 133h71M16 158h83" fill="none" stroke="#F08B68" stroke-width="8" stroke-linecap="round" opacity=".55"/>
+<path d="M320 258h136" stroke="#D88B76" stroke-width="6" stroke-linecap="round" opacity=".55"/>
+<g filter="url(#shadow)">
+ <circle cx="143" cy="230" r="41" fill="#263448"/><circle cx="143" cy="230" r="23" fill="#F5F8FA"/><circle cx="143" cy="230" r="8" fill="#263448"/>
+ <circle cx="370" cy="230" r="41" fill="#263448"/><circle cx="370" cy="230" r="23" fill="#F5F8FA"/><circle cx="370" cy="230" r="8" fill="#263448"/>
+ <path d="M143 230l61-76 65 5 36 71h65l-49-97h-77l-44 48-57 49" fill="none" stroke="#283C50" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M207 186h90l-28-34h-36z" fill="#D61A27"/>
+ <path d="M280 178h69l19 31-13 10h-63z" fill="url(#box)"/>
+ <rect x="283" y="110" width="74" height="69" rx="10" fill="url(#box)"/>
+ <path d="M292 123h56v8h-56z" fill="#FF9B85"/><path d="M308 149h23" stroke="#FFF4DB" stroke-width="6" stroke-linecap="round"/>
+ <path d="M204 147l30-40 57 19-11 24-45 11" fill="#1E344B"/>
+ <path d="M231 109l-19 38 44 25 23-15-17-44" fill="#F8C59E"/>
+ <path d="M220 126l13 13 31-29 12 8-31 46-32-17" fill="#1E344B"/>
+ <circle cx="254" cy="87" r="27" fill="#F0BB94"/>
+ <path d="M225 84c-5-28 19-49 46-40 15 5 25 19 23 33l-39-1-19 16z" fill="url(#helmet)"/>
+ <path d="M243 76h54" stroke="#9F101C" stroke-width="8" stroke-linecap="round"/>
+ <path d="M261 94l19 2" stroke="#8B5039" stroke-width="4" stroke-linecap="round"/>
+</g>
+<g transform="translate(42 34)" filter="url(#shadow)"><rect width="93" height="44" rx="22" fill="#FFF"/><circle cx="23" cy="22" r="11" fill="#F31D2A"/><path d="M23 15v8l5 3" fill="none" stroke="#FFF" stroke-width="2.6" stroke-linecap="round"/><path d="M43 18h32M43 26h23" stroke="#D15B52" stroke-width="4" stroke-linecap="round"/></g>
+</svg>
