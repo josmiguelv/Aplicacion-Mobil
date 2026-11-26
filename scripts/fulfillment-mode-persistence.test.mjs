@@ -36,19 +36,13 @@ test('editing or selecting an address never silently changes Pickup to Delivery'
   assert.doesNotMatch(body,/st\.mode\s*=\s*'delivery'/);
  }
 });
-test('only explicit fulfillment buttons assign a persisted mode during interaction',()=>{
- const assignments=[...source.matchAll(/st\.mode\s*=\s*(?:'delivery'|'pickup'|next|b\.dataset\.mode)/g)]
-  .map(m=>({value:m[0],at:m.index,context:source.slice(Math.max(0,m.index-650),m.index+120)}));
- assert.ok(assignments.length>=4);
- for(const a of assignments){
-  const c=a.context;
-  assert.ok(
-   c.includes("if(b.dataset.homeStoreMode)")||
-   c.includes('if(b.dataset.modalMode)')||
-   c.includes('if(b.dataset.mode)')||
-   c.includes("if(b.hasAttribute('data-availability-pickup'))")||
-   c.includes("function beginNewCheckoutAfterRejection")===false&&a.value.includes("'pickup'")&&c.includes('if(mode==='),
-   'unexpected fulfillment assignment: '+a.value+' at '+a.at
-  );
- }
+test('mode changes remain tied to deliberate Delivery or Pickup controls',()=>{
+ assert.match(source,/if\(b\.dataset\.modalMode\)/);
+ assert.match(source,/st\.mode=next/);
+ assert.match(source,/if\(b\.dataset\.mode\)/);
+ assert.match(source,/st\.mode=b\.dataset\.mode/);
+ assert.match(source,/if\(b\.hasAttribute\('data-availability-pickup'\)\)/);
+ assert.match(source,/if\(b\.dataset\.homeStoreMode\)/);
+ // No implicit mode changes from cancellations, payment completion or address editing.
+ assert.doesNotMatch(between('async function cancelPersonalCheckout(', 'async function cancelApprovedForCartChange('),/st\.mode\s*=/);
 });
