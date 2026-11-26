@@ -3,7 +3,8 @@ Fecha de revisión: 2026-11-26. Rama Admin inspeccionada: `consolidate/admin-res
 
 ## Implementado en Android en esta rama
 
-- Fecha/hora de referencia y ventana en Perú: **-15/+15 minutos**. Cruces de día se muestran con ambas fechas.
+- Ambos FORM de reserva (validación y comprobante) utilizan una única variable `Fecha`, con fecha seleccionada e intervalo **-15/+15 minutos**, zona Perú UTC-5. Ejemplo: `28/11/2026 · 7:15 p. m. – 7:45 p. m.`. Cruces de medianoche conservan ambas fechas del intervalo. No se envían variables separadas `Fecha de reserva` ni `Intervalo`.
+- Límite contractual: 1 a 10 variables opcionales según contenido; título, subtítulo e imagen del comprobante son campos independientes. Al unificar Fecha se libera una posición para el detalle de productos. El constructor actual agrupa importes y forma de pago, por lo que no exige nueve ni diez variables.
 - Productos agrupados en campos "Productos N"; **máximo 10 variables por FORM**, 500 caracteres de valor por variable y 80 por nombre. Si el detalle completo no cabe se bloquea el envío; no se recorta silenciosamente.
 - Métodos de pago obtenidos de `stores[].paymentMethods.reservation`, filtrados por la cotización cuando está disponible.
 - Efectivo exacto (=total, vuelto 0) o monto superior al total con cálculo monetario entero (céntimos), validación de 2 decimales.
@@ -24,9 +25,9 @@ Fecha de revisión: 2026-11-26. Rama Admin inspeccionada: `consolidate/admin-res
 
 - Proyectar la anticipación mínima definida en el panel, separada de tiempo de preparación; o aprobar explícitamente una regla equivalente.
 - Autorizar al cliente a elegir método publicado de **reserva** y, si es efectivo, monto exacto u otro importe. El Administrador debe recalcular el total (catálogo + Delivery) y el vuelto en céntimos y persistirlos con la interacción.
-- Enviar esos valores al agente **en el primer FORM de reserva**, antes de aceptar: fecha, ventana ±15, modalidad, productos completos, subtotal, tarifa, total, método y vuelto.
+- Enviar esos valores al agente **en el primer FORM de reserva**, antes de aceptar: una sola variable `Fecha` con fecha y ventana ±15, modalidad, productos completos, subtotal, tarifa, total, método y vuelto.
 - Mantener máximo 10 variables por FORM; admitir empaquetado de ítems en varios campos y, cuando exceda el tamaño total, definir extensión de detalle verificable o múltiples mensajes autorizados sin fingir contenido.
-- Para anticipados, un segundo FORM de pago con la misma fecha/intervalo y comprobante verificable; para efectivo, no declarar pago realizado, mantener `DUE_AT_RECEIPT`.
+- Para anticipados, un segundo FORM de pago con la misma variable `Fecha` (fecha e intervalo juntos) y comprobante verificable; para efectivo, no declarar pago realizado, mantener `DUE_AT_RECEIPT`.
 - Conservar la primera decisión real del agente sobre la reserva y una segunda decisión únicamente para pagos que requieren comprobante.
 - Garantizar idempotencia y lectura de estado por pedido independiente.
 
@@ -34,3 +35,9 @@ Fecha de revisión: 2026-11-26. Rama Admin inspeccionada: `consolidate/admin-res
 
 - Ejecutar tests Node locales y Gradle; probar un backend habilitado real y pedidos con datos publicados (no datos ficticios).
 - E2E: reserva Delivery, Recojo, efectivo exacto, vuelto, Yape/Plin/tarjeta según opciones publicadas, 50 líneas cortas, límite de 10 variables y cruce de fecha.
+
+## Actualización Android — Fecha unificada
+
+- Implementación: `app/src/main/assets/reservation-forms.js`, funciones `request` y `paymentProof`.
+- Pruebas: `scripts/reservation-forms-10-fields.test.mjs`, fecha normal y cruces de medianoche en ambos formularios, sin variables duplicadas y con límite de diez.
+- Esta modificación afecta al constructor local, no habilita el POST de creación ni cambia el FORM generado por el Administrador. Los bloqueos de integración anteriores permanecen pendientes; no se modificaron Administrador ni TuVerso.
