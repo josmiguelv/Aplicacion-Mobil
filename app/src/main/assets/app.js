@@ -1719,13 +1719,23 @@ function headerAddress(){
 }
 function fulfillmentHeader(){
  const value=headerAddress();
+ const modeLabel=st.mode==='delivery'?'Delivery':st.mode==='pickup'?'Recojo en tienda':'Elegir modalidad';
  return `<header class="b3-compact-header">
    <img class="b3-header-logo" src="images/pollosb3-header-logo.png" alt="Pollos B3">
-   <button class="b3-header-target" type="button" data-open-fulfillment="1" aria-label="Cambiar modalidad o destino del pedido">
-    <span class="b3-destination-label">${esc(value.label)}</span>
-    <span class="b3-destination-line">${esc(value.line1)}</span>
-    ${value.line2?`<span class="b3-destination-line">${esc(value.line2)}</span>`:''}
-   </button>
+   <div class="b3-header-location-group">
+    <div class="b3-header-topline">
+     <span class="b3-destination-label">${esc(value.label)}</span>
+     <button class="b3-fulfillment-pill" type="button" data-open-fulfillment="1" aria-label="Modalidad actual: ${esc(modeLabel)}. Cambiar modalidad de entrega">
+      ${ic(st.mode==='delivery'?'bike':st.mode==='pickup'?'store':'chev',14)}
+      <span>${esc(modeLabel)}</span>
+      ${ic('chev',13)}
+     </button>
+    </div>
+    <button class="b3-header-target" type="button" data-open-fulfillment="1" aria-label="Cambiar dirección o destino del pedido">
+     <span class="b3-destination-line">${esc(value.line1)}</span>
+     ${value.line2?`<span class="b3-destination-line">${esc(value.line2)}</span>`:''}
+    </button>
+   </div>
    <button class="b3-header-edit" type="button" data-open-fulfillment="1" aria-label="Editar destino">${ic('chev',19)}</button>
  </header>`;
 }
