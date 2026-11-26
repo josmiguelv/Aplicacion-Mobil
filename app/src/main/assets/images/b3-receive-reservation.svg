@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 296" role="img" aria-labelledby="title desc">
+<title id="title">Pedido programado</title><desc id="desc">Calendario de reserva con reloj y plato de pollo a la brasa</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#FFF1F0"/><stop offset="1" stop-color="#FFD9C6"/></linearGradient>
+ <linearGradient id="calendar" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F72430"/><stop offset="1" stop-color="#AE1022"/></linearGradient>
+ <radialGradient id="chicken"><stop stop-color="#F7B85D"/><stop offset=".8" stop-color="#CE6A2C"/><stop offset="1" stop-color="#9D411B"/></radialGradient>
+ <filter id="shadow"><feDropShadow dx="0" dy="9" stdDeviation="9" flood-color="#83241F" flood-opacity=".15"/></filter>
+</defs>
+<rect width="480" height="296" rx="26" fill="url(#bg)"/>
+<circle cx="65" cy="265" r="103" fill="#F8C6B4" opacity=".5"/><circle cx="444" cy="10" r="90" fill="#FFF" opacity=".35"/>
+<g filter="url(#shadow)">
+ <rect x="46" y="50" width="252" height="197" rx="21" fill="#FFF"/>
+ <path d="M67 50h210a21 21 0 0 1 21 21v45H46V71a21 21 0 0 1 21-21z" fill="url(#calendar)"/>
+ <path d="M105 37v31M232 37v31" stroke="#7E2633" stroke-width="13" stroke-linecap="round"/>
+ <path d="M80 145h31M139 145h31M198 145h31M80 183h31M139 183h31M198 183h31" stroke="#F1D0CF" stroke-width="17" stroke-linecap="round"/>
+ <rect x="182" y="167" width="63" height="35" rx="10" fill="#FBE4DA"/>
+ <path d="M196 183l10 10 19-20" fill="none" stroke="#CC2130" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+<g filter="url(#shadow)">
+ <circle cx="357" cy="105" r="68" fill="#FFF"/><circle cx="357" cy="105" r="53" fill="#F7F0EB"/>
+ <circle cx="357" cy="105" r="41" fill="#FFF"/>
+ <path d="M357 72v33l23 14" fill="none" stroke="#CE2130" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+ <circle cx="357" cy="105" r="6" fill="#CE2130"/>
+</g>
+<g filter="url(#shadow)">
+ <ellipse cx="350" cy="232" rx="101" ry="45" fill="#D89A79" opacity=".25"/>
+ <ellipse cx="350" cy="224" rx="99" ry="42" fill="#FFF"/>
+ <ellipse cx="350" cy="223" rx="81" ry="32" fill="#F3F4EB"/>
+ <path d="M293 220c8-19 40-31 72-22 27 6 45 24 28 39-18 16-77 17-99 1-7-5-9-11-1-18z" fill="url(#chicken)"/>
+ <path d="M289 221c18-6 29-7 44-7M334 236c19 6 34 3 51-5" fill="none" stroke="#9F471F" stroke-width="5" stroke-linecap="round" opacity=".63"/>
+ <circle cx="280" cy="224" r="9" fill="#6B9A47"/><circle cx="291" cy="244" r="8" fill="#81A951"/><circle cx="403" cy="226" r="9" fill="#6E9D47"/>
+</g>
+</svg>
