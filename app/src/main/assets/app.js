@@ -2125,6 +2125,7 @@ let reservationQuoteGeneration=0;
 async function checkReservationQuote(){
  if(reservationQuoteBusy)return;
  const store=shops.find(x=>String(x.id)===String(st.store));
+ if(!API_BASE){reservationQuoteError='La API del Administrador no está configurada.';render();return}
  if(!store?.reservation_enabled||!store.reservationAcceptingRequests){
   reservationQuoteError='La sede no tiene recepción de reservas activa en la API pública.';render();return;
  }
@@ -2183,8 +2184,10 @@ function reservationFormPreview(){
  catch(error){return {error:error.message}}
  if(when.from<=Date.now()||(lead!==null&&when.from<Date.now()+lead*60000))
   return {error:lead===null?'El intervalo de reserva debe comenzar en el futuro.':'El inicio del intervalo no cumple la anticipación mínima publicada.'};
- const available=paymentOptions().map(x=>x[0]);
- if(!available.includes(st.pay))return {error:'Selecciona un método de pago publicado para esta sede y modalidad.'};
+ const offered=paymentOptions().map(x=>x[0]);
+ const available=reservationQuote?.storeId===st.store&&reservationQuote.dateTime===st.reservationAt?
+  offered.filter(x=>reservationQuote.paymentMethods.includes(x)):offered;
+ if(!available.includes(st.pay))return {error:'Selecciona un método de pago habilitado para esta sede y la cotización de reserva.'};
  const priceReady=st.mode==='pickup'||(reservationQuote&&reservationQuote.storeId===st.store&&reservationQuote.dateTime===st.reservationAt&&reservationQuote.mode==='delivery');
  if(!priceReady)return {error:'Primero se requiere una cotización de Delivery válida para calcular el total y el vuelto.'};
  try{
@@ -2213,7 +2216,7 @@ function reservationPicker(){
  const mode=st.mode==='delivery'?'entrega a domicilio':'recojo en tienda';
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const lead=reservationMinLead(selected);
- const allMethods=selected?paymentOptions():[];
+ const allMethods=selected?paymentOptions().filter(x=>!reservationQuote||reservationQuote.storeId!==st.store||reservationQuote.dateTime!==st.reservationAt||reservationQuote.paymentMethods.includes(x[0])):[];
  const stores=shops.filter(x=>x?.active===true&&x.reservation_enabled===true&&x[st.mode+'_enabled']===true);
  const preview=reservationFormPreview();
  return '<div class="page">'+heading('Programar reserva','scheduleChoice')+
@@ -3424,7 +3427,7 @@ if(b.dataset.scheduleChoice){
 if(b.dataset.reservationStore){
  const selected=shops.find(x=>String(x.id)===b.dataset.reservationStore);
  if(!selected?.reservation_enabled||!selected[st.mode+'_enabled'])return toast('Sede no habilitada para esta reserva.');
- st.store=selected.id;st.pay='';reservationQuote=null;reservationQuoteError='';
+ st.store=selected.id;st.pay='';reservationQuote=null;reservationQuoteError='';reservationQuoteBusy=false;
  ++reservationQuoteGeneration;save();render();return;
 }
 if(b.hasAttribute('data-reservation-quote')){void checkReservationQuote();return}
@@ -3598,7 +3601,7 @@ if(b.hasAttribute('data-clear')){
 }
 });
 root.addEventListener('change',e=>{
- if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;reservationQuote=null;++reservationQuoteGeneration;save();render();return}
+ if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;reservationQuote=null;reservationQuoteBusy=false;++reservationQuoteGeneration;save();render();return}
  if(e.target?.id==='b3-reservation-cash-amount'){st.reservationCashAmount=e.target.value;save();render();return}
  if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
