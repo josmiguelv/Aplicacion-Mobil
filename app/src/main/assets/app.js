@@ -2262,11 +2262,19 @@ function reservationFormPreview(){
 }
 function scheduleChoice(){
  const mode=st.mode==='delivery'?'Delivery':'Recojo en tienda';
- return '<div class="page">'+heading('¿Cuándo deseas recibirlo?','choice')+
+ return '<div class="page b3-schedule-page">'+heading('¿Cuándo deseas recibirlo?','choice')+
   '<p class="sub">Modalidad seleccionada: '+esc(mode)+'</p>'+
-  '<div class="choice-list">'+
-  '<button data-schedule-choice="now">'+ic('zap',30)+'<div><b>Ahora</b><span>Continuar con el pedido inmediato</span></div>'+ic('chev')+'</button>'+
-  '<button data-schedule-choice="reservation">'+ic('calendar',30)+'<div><b>Programar reserva</b><span>Elegir fecha y hora para solicitarla a la sede</span></div>'+ic('chev')+'</button>'+
+  '<div class="b3-schedule-cards" role="group" aria-label="Elegir cuándo recibir el pedido">'+
+  '<button type="button" class="b3-schedule-card" data-schedule-choice="now">'+
+   '<img src="images/b3-receive-now.svg" alt="Repartidor llevando un pedido de pollo a la brasa" width="480" height="296" loading="eager">'+
+   '<span class="b3-schedule-copy"><span class="b3-schedule-kicker">SIN PROGRAMAR</span>'+
+   '<strong>Ahora</strong><span>Solicitar tu pedido para atención inmediata</span></span>'+
+   '<span class="b3-schedule-arrow" aria-hidden="true">'+ic('chev',21)+'</span></button>'+
+  '<button type="button" class="b3-schedule-card" data-schedule-choice="reservation">'+
+   '<img src="images/b3-receive-reservation.svg" alt="Calendario y reloj para programar un pedido" width="480" height="296" loading="lazy">'+
+   '<span class="b3-schedule-copy"><span class="b3-schedule-kicker">ELIGE TU HORARIO</span>'+
+   '<strong>Programar reserva</strong><span>Seleccionar una fecha y hora para tu pedido</span></span>'+
+   '<span class="b3-schedule-arrow" aria-hidden="true">'+ic('chev',21)+'</span></button>'+
   '</div></div>';
 }
 // Query reservations automatically after a user change, never during rendering.
