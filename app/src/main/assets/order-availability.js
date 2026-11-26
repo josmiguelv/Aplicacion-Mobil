@@ -158,11 +158,22 @@
   async function nativeRequest(action) {
     if (!root.AndroidBridge || typeof root.AndroidBridge.orderAvailabilityRequest !== 'function')
       throw Error('La conexión segura de pedidos requiere la aplicación Android actualizada.');
+    const queuedAt=Date.now();
     await waitForTrafficBudget(action);
-    const response=await nativeRequestRaw(action);
-    if(TRAFFIC_OPS.has(action.operation)&&Number(response?.status)===429)
-      blockedUntil=Math.max(blockedUntil,Date.now()+61000);
-    return response;
+    const budgetWaitMs=Date.now()-queuedAt;
+    if(budgetWaitMs>=200)
+      console.info('[B3 order timing] traffic_budget_wait',action.operation,budgetWaitMs+'ms');
+    const sentAt=Date.now();
+    try{
+      const response=await nativeRequestRaw(action);
+      if(TRAFFIC_OPS.has(action.operation)&&Number(response?.status)===429)
+        blockedUntil=Math.max(blockedUntil,Date.now()+61000);
+      console.info('[B3 order timing] http',action.operation,Number(response?.status)||0,(Date.now()-sentAt)+'ms');
+      return response;
+    }catch(error){
+      console.info('[B3 order timing] http_failed',action.operation,(Date.now()-sentAt)+'ms');
+      throw error;
+    }
   }
   function nativeRequestRaw(action) {
     const requestId = 'oa_' + (++sequence);
@@ -287,7 +298,51 @@
       return entry;
     }catch(_){return null;}
   }
+  // Keep completed, payment-approved interactions available for independent
+  // tracking and surveys after a customer starts another purchase.
+  const PAID_ARCHIVE_KEY='b3-mobile-paid-interactions-v1';
+  function paidArchive(){
+    try{
+      const records=JSON.parse(root.localStorage.getItem(PAID_ARCHIVE_KEY)||'{}');
+      return records&&typeof records==='object'&&!Array.isArray(records)?records:{};
+    }catch(_){return {}}
+  }
+  function readOrderInteraction(interactionId){
+    if(!UUID.test(interactionId||''))return null;
+    const current=readInteraction();
+    if(current?.interactionId===interactionId&&
+       current.paymentConfirmation?.status==='ACCEPTED')return current;
+    const archived=paidArchive()[interactionId];
+    return archived?.interactionId===interactionId&&
+      UUID.test(archived.idempotencyKey||'')&&UUID.test(archived.body?.storeId||'')&&
+      archived.paymentConfirmation?.status==='ACCEPTED'&&
+      UUID.test(archived.paymentConfirmation.agentMessageId||'')?archived:null;
+  }
+  function archiveConfirmedInteraction(interactionId){
+    const entry=readInteraction();
+    if(!entry||entry.interactionId!==interactionId||!UUID.test(interactionId)||
+       entry.paymentConfirmation?.status!=='ACCEPTED'||
+       !UUID.test(entry.paymentConfirmation.agentMessageId||''))return false;
+    const archive=paidArchive();
+    archive[interactionId]=entry;
+    // Match the 60-day local order history; keep at most the latest 100.
+    const recent=Object.entries(archive)
+      .filter(([,v])=>Number.isFinite(v?.createdAt)&&
+        Date.now()-v.createdAt<61*24*3600000)
+      .sort((a,b)=>b[1].createdAt-a[1].createdAt).slice(0,100);
+    // Persist the authorization and conversation snapshot before releasing it.
+    root.localStorage.setItem(PAID_ARCHIVE_KEY,JSON.stringify(Object.fromEntries(recent)));
+    root.localStorage.removeItem(INTERACTION_KEY);
+    root.localStorage.removeItem(SERIES_KEY);
+    clear();
+    return true;
+  }
   function persistInteraction(entry) {
+    // An old async poll must never overwrite a newly created interaction.
+    const current=readInteraction();
+    if(entry?.interactionId&&
+       (paidArchive()[entry.interactionId]||
+        (current?.interactionId&&current.interactionId!==entry.interactionId)))return entry;
     root.localStorage.setItem(INTERACTION_KEY,JSON.stringify(entry));return entry;
   }
   // Poll and FORM POST can hold different snapshots of the same interaction.
@@ -1028,7 +1083,7 @@
     return response.data;
   }
   async function submitOrderSurvey({interactionId,storeId,idempotencyKey,rating,tags,comment}){
-    const entry=readInteraction();
+    const entry=readOrderInteraction(interactionId);
     const accepted=entry?.paymentConfirmation?.status==='ACCEPTED';
     if(!accepted||entry.interactionId!==interactionId||entry.body.storeId!==storeId||
        !UUID.test(entry.idempotencyKey)||!UUID.test(idempotencyKey)||
@@ -1053,10 +1108,11 @@
     root.localStorage.removeItem(CUSTOMER_KEY);
     root.localStorage.removeItem(INTERACTION_KEY);
     root.localStorage.removeItem(SERIES_KEY);
+    root.localStorage.removeItem(PAID_ARCHIVE_KEY);
   }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
-    checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,
+    checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,readOrderInteraction,archiveConfirmedInteraction,
     pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
     submitOrderSurvey,readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});

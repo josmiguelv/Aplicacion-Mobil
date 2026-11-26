@@ -45,15 +45,17 @@ test('extra status polling waits for the budget to renew, not more HTTP requests
  assert.equal(h.calls(h.now()).length,1)
 })
 
-test('client applies a shared budget and six-second polling',()=>{
+test('client preserves request budget and checks the first acceptance promptly without 429 storms',()=>{
  const p=app.indexOf('function agentStatusPollDelay(')
  assert.ok(p>=0)
- assert.match(app.slice(p,p+270),/Math\.max\(6000/)
+ const functionBlock=app.slice(p,app.indexOf('function b3OrderTiming(',p))
+ assert.match(functionBlock,/return 1200/)
+ assert.match(functionBlock,/Math\.max\(10500/)
+ assert.match(functionBlock,/return 100/)
  assert.match(block,/await waitForTrafficBudget\(action\)/)
  assert.match(block,/const allowance=awaitingDecision\?6:9/)
  assert.match(block,/root\.localStorage\.setItem\(TRAFFIC_KEY/)
 })
-
 test('only the exact pre-handler 429 allows an idempotent FORM retry',()=>{
  const begin=src.indexOf('async function sendPaymentConfirmation(entry)')
  const end=src.indexOf('async function pollPaymentConfirmation(entry)',begin)
