@@ -16,5 +16,5 @@ test('Now retains immediate checkout and reservation never falsely creates immed
  assert.match(js,/if\(st\.mode==='delivery'\)screen\('deliveryAddress'\)/);
  assert.match(js,/if\(choice==='reservation'\)/);
  assert.match(js,/screen\('reservationPicker'\)/);
- assert.match(js,/Reserva pendiente de habilitación por la API\. No se ha enviado ninguna solicitud/);
+ assert.match(js,/La solicitud de reserva no se enviará hasta que el Administrador Web publique un contrato compatible/);
 });
