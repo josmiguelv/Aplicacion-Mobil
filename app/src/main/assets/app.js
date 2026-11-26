@@ -319,8 +319,9 @@ function paymentConfirmationForm(imageUrl=''){
   {variable:'Dirección',value:[st.profile.address,st.profile.district].filter(Boolean).join(', ')},
   {variable:'Total',value:cash(orderTotal())}
  ];
- if(fields.length!==6||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario de pago requiere seis campos válidos');
- return {type:'FORM',form:{title:'PAGO REALIZADO - '+names[st.pay],
+ if(st.scheduleMode==='reservation'){const when=window.B3ReservationForms.schedule(st.reservationAt);fields.unshift({variable:'Fecha',value:when.date+' · '+when.interval});}
+ if(fields.length>10||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario de pago requiere seis campos válidos');
+ return {type:'FORM',form:{title:(st.scheduleMode==='reservation'?'PAGO DE RESERVA - ':'PAGO REALIZADO - ')+names[st.pay],
   subtitle:'Comprobante adjunto',...(imageUrl?{imageUrl}:{}),fields}};
 }
 function paymentOptions(){
@@ -540,7 +541,7 @@ function publishedOrderItems(){
 // UI ticket snapshot from the published B3 catalogue, not a payment authorization.
 // The administrator must recalculate the price rather than trust FORM values.
 function requireImmediateOrderFlow(){
- if(st.scheduleMode==='reservation')throw Error('La solicitud es una reserva. No se enviará como pedido inmediato.');
+ if(st.scheduleMode==='reservation')window.B3ReservationForms.schedule(st.reservationAt);
 }
 function deliveryOrderTicketForm(address,district){
  requireImmediateOrderFlow();
@@ -599,7 +600,9 @@ function deliveryOrderTicketForm(address,district){
   {variable:'Subtotal',value:cash(subtotalCents/100)},
   {variable:'Dirección y referencia',value:destination}
  ];
- const title='VALIDACIÓN DE PEDIDO',subtitle='Confirmar disponibilidad para delivery';
+ const scheduled=st.scheduleMode==='reservation';
+ if(scheduled){const when=window.B3ReservationForms.schedule(st.reservationAt);if(fields.length===10){const merged=fields.splice(6,2);fields.splice(6,0,{variable:'Detalle adicional',value:merged.map(f=>f.variable+': '+f.value).join(' · ')});}fields.unshift({variable:'Fecha',value:when.date+' · '+when.interval});}
+ const title=scheduled?'VALIDACIÓN DE RESERVA':'VALIDACIÓN DE PEDIDO',subtitle=scheduled?'Confirmar disponibilidad para delivery programado':'Confirmar disponibilidad para delivery';
  if(fields.length>10||fields.some(({variable,value})=>
     variable.length>80||value.length>500||!value.trim()))
   throw Error('El formulario supera los límites permitidos de variables.');
@@ -1039,7 +1042,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  if(!api?.checkAgentAvailability||!api?.quoteDelivery||!api?.createInteraction||
     !api?.sendInteractionMessage||!api?.pollInteraction)
   throw Error('Actualiza Android para utilizar el envío independiente del mensaje.');
- const active=()=>run===deliveryValidationGeneration&&st.scheduleMode!=='reservation'&&st.mode==='delivery'&&
+ const active=()=>run===deliveryValidationGeneration&&st.mode==='delivery'&&
   st.profile.address===address&&st.profile.district===district&&(silent||st.stage==='availability');
  deliveryValidationStep='RECUPERANDO_SOLICITUD';
  const prior=api.readInteraction?.();
@@ -1265,10 +1268,7 @@ async function checkDeliveryBackendHealth(){
  }finally{deliveryHealthPending=false;render();}
 }
 async function resolveDelivery({silent=false,skipConfig=false}={}){
- if(st.scheduleMode==='reservation'){
-  deliveryRequestError='Esta solicitud es una reserva. Comprueba su fecha y horario para continuar.';
-  screen('reservationPicker');return false;
- }
+ if(st.scheduleMode==='reservation')requireImmediateOrderFlow();
  if(deliveryRequestPending)return false;
  const run=++deliveryValidationGeneration;
  const address=String(st.profile.address||'').trim(),district=String(st.profile.district||'').trim();
@@ -2622,7 +2622,7 @@ function paymentProofPreview(){
  '<p class="smallprint">Enviar el formulario no significa que el pago haya sido aceptado.</p></div>';
 }
 function isPaymentFormReady(){
- return st.scheduleMode!=='reservation'&&st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&
+ return st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&
   deliveryQuoteValid()&&paymentOptions().some(x=>x[0]===st.pay)&&
   ['yape','plin','card'].includes(st.pay);
 }
@@ -2738,10 +2738,7 @@ function paymentOutcome(){
  '<button class="outline full" data-tab="inicio">'+(approved?'Realizar otro pedido':'Volver al inicio')+'</button></div>';
 }
 async function submitPaymentForm(){
- if(st.scheduleMode==='reservation'){
-  paymentFormError='Esta es una reserva. Su comprobante debe validarse mediante el pago asociado a la reserva, no como pedido inmediato.';
-  toast(paymentFormError);return;
- }
+
  if(paymentFormBusy)return;
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
  if(!entry||!isPaymentFormReady())return toast('La solicitud no permite confirmar el pago.');
@@ -3205,7 +3202,7 @@ function finalizeDemoOrder(){
  st.orders.unshift(order);st.cart=[];save();screen('success');
 }
 async function revalidateCheckout(next){
- if(st.scheduleMode==='reservation'){checkoutReviewNote='La reserva no se puede confirmar hasta que el Administrador publique el contrato de programación.';screen('reservationPicker');return false;}
+ 
  if(checkoutRefreshPending)return false;
  checkoutRefreshPending=true;checkoutReviewNote='';render();
  const before=checkoutSnapshot();
@@ -3541,7 +3538,8 @@ if(b.hasAttribute('data-reservation-verify')){
  const preview=reservationFormPreview();
  render();
  if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');
- toast('Formulario validado: '+preview.form.fields.length+' de 10 variables. La reserva aún no se ha enviado; falta compatibilidad del servicio de reservas.');
+ if(st.mode!=='delivery')return toast('El recojo programado aún requiere integración.');
+ resetDeliveryOrderContact();checkoutPending=true;confirmedDeliveryReviewKey=null;screen('identity');
  return;
 }
 if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;scheduleReturnToModal=false;save();screen('scheduleChoice');return}
@@ -3643,8 +3641,7 @@ if(b.hasAttribute('data-review-confirm')){
   toast('Revisa primero los datos de contacto y de entrega.');
  else {
   confirmedDeliveryReviewKey=deliveryReviewKey();
-  if(st.scheduleMode==='reservation')screen('reservationPicker');
-  else void resolveDelivery();
+  void resolveDelivery();
  }
  return;
 }
@@ -3661,8 +3658,8 @@ if(b.hasAttribute('data-phone-next')){
   screen('confirmDetails');return
  }
  void revalidateCheckout('payment');return}
-if(b.hasAttribute('data-payment-start')){if(st.scheduleMode==='reservation')return toast('El pago de una reserva debe continuar desde la reserva aceptada.');if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
-if(b.hasAttribute('data-payment-done')){if(st.scheduleMode==='reservation')return toast('La reserva requiere un comprobante vinculado a su propia solicitud.');if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
+if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
+if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
 if(b.hasAttribute('data-payment-confirm')){void submitPaymentForm();return}
 if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);if(url&&window.AndroidBridge?.downloadPaymentImage)window.AndroidBridge.downloadPaymentImage(url);else toast('La descarga de imágenes requiere una actualización de Android');return}
 if(b.dataset.pay){
