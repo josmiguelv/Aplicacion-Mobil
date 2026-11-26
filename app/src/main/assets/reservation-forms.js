@@ -99,8 +99,7 @@
    const destinationText=String(destination||'').trim();
    if(mode==='delivery'&&!destinationText)throw Error('Falta la dirección de entrega.');
    const metadata=[
-     {variable:'Fecha de reserva',value:when.date},
-     {variable:'Intervalo',value:when.interval},
+     {variable:'Fecha',value:when.date+' · '+when.interval},
      {variable:'Modalidad',value:mode==='delivery'?'Delivery':'Recojo en tienda'},
      {variable:'Importes',value:'Subtotal '+MONEY(sub)+' · Delivery '+MONEY(fee)+' · Total '+MONEY(pay.totalCents)},
      {variable:'Forma de pago',value:pay.label+(method==='cash'?
@@ -122,8 +121,7 @@
      throw Error('El comprobante no coincide con los importes.');
    const metadata=[
      {variable:'N.º de pedido',value:String(orderCode||'')},
-     {variable:'Fecha de reserva',value:when.date},
-     {variable:'Intervalo',value:when.interval},
+     {variable:'Fecha',value:when.date+' · '+when.interval},
      {variable:'Modalidad',value:mode==='delivery'?'Delivery':'Recojo en tienda'},
      {variable:'Importes',value:'Subtotal '+MONEY(sub)+' · Delivery '+MONEY(fee)+' · Total '+MONEY(pay.totalCents)},
      {variable:'Dirección',value:mode==='delivery'?String(destination||'').trim():'Recojo en sede asignada'},
