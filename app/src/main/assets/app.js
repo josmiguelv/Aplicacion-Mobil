@@ -48,7 +48,7 @@ try{const d=JSON.parse(localStorage.getItem(K)||'{}');st={...st,...d,stage:'spla
 if(st.authProvider==='google')st.registered=false; // Confirmed by native Firebase on startup.
 st.orderContactDraft=null;
 st.deliveryContactConfirmed=false;
-if(st.mode==='dine_in')st.mode='';
+if(!['','delivery','pickup'].includes(st.mode))st.mode='';
 if(!['now','reservation'].includes(st.scheduleMode))st.scheduleMode='now';
 if(typeof st.reservationAt!=='string')st.reservationAt=''; // Retirado de la navegación de Pollos B3 V11.
 // Demo-only flag: stores whether the visitor already chose guest access or test sign-in.
@@ -1455,7 +1455,8 @@ async function confirmStore(mode,id,{showDetails=false}={}){
   }
   const previousStore=String(st.store||'');
   const previousMode=st.mode;
-  st.mode='pickup';st.store=selected.id;st.fulfillment='pickup';st.quote=null;
+  if(previousMode!=='pickup')return false; // A store response must not silently choose another modality.
+  st.store=selected.id;st.fulfillment='pickup';st.quote=null;
   if(previousMode!=='pickup'||previousStore!==String(selected.id)){
    st.pay='';st.cash='';
   }
@@ -1645,7 +1646,7 @@ function beginNewCheckoutAfterRejection(){
  checkoutRefreshPending=false;checkoutReviewNote='';
  st.cart=[];st.quote=null;st.store='';st.pay='';st.cash='';
  resetDeliveryOrderContact();
- st.mode='';st.scheduleMode='now';st.reservationAt='';st.fulfillment='';st.pickupOrigin='';st.selected='';st.qty=1;st.coords=null;
+ st.scheduleMode='now';st.reservationAt='';st.fulfillment='';st.pickupOrigin='';st.selected='';st.qty=1;st.coords=null;
  fulfillmentOutcomeNote='';
  clearDeliveryAvailability();save();
  return true;
@@ -1664,7 +1665,7 @@ function beginNewOrderAfterPayment(){
  ++deliveryValidationGeneration;
  deliveryRequestPending=false;deliveryRequestError='';paymentFormError='';
  checkoutRefreshPending=false;checkoutReviewNote='';checkoutPending=false;
- st.mode='';st.scheduleMode='now';st.reservationAt='';st.store='';
+ st.scheduleMode='now';st.reservationAt='';st.store='';
  st.quote=null;st.pay='';st.cash='';st.fulfillment='';st.pickupOrigin='';
  st.coords=null;st.selected='';st.qty=1;
  resetDeliveryOrderContact();clearDeliveryAvailability();
@@ -1685,8 +1686,9 @@ function savedAddresses(){return Array.isArray(st.addresses)?st.addresses.filter
 function pickSavedAddress(id,quote=false){
  const item=savedAddresses().find(x=>x.id===id);if(!item)return toast('Dirección no disponible');
  st.profile.address=item.street;st.profile.district=item.district;st.profile.reference=item.reference||'';deliveryLocation=null;
- st.mode='delivery';invalidateDeliverySelection();save();
- if(quote){void resolveDelivery()}else{render();toast('Dirección seleccionada')}
+ // Saving an address cannot change the selected fulfillment mode.
+ if(st.mode==='delivery')invalidateDeliverySelection();save();
+ if(quote&&st.mode==='delivery'){void resolveDelivery()}else{render();toast('Dirección seleccionada')}
 }
 function savedAddressesHtml(selectForDelivery=false){
  return [...savedAddresses()].sort((a,b)=>Number(b.id===st.defaultAddressId)-Number(a.id===st.defaultAddressId)).map(a=>`<article class="b3-address-card">
@@ -3399,7 +3401,7 @@ if(b.dataset.applyVacancy){applyVacancy(b.dataset.applyVacancy);return}
 if(b.hasAttribute('data-home-store-close')){if(b.classList.contains('b3-store-detail-backdrop')&&e.target!==b)return;selectedHomeStore=null;render();return}
 if(b.dataset.homeStore){selectedHomeStore=b.dataset.homeStore;render();return}
 if(b.dataset.homeLocal!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('local',Number(b.dataset.homeLocal));return}
-if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;fulfillmentModal='delivery';render()}return}
+if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){st.mode='pickup';save();void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;save();fulfillmentModal='delivery';render()}return}
 if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
 if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;checkoutPending=false;fulfillmentModal=null;fulfillmentOutcomeNote='';render();return}
 if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
@@ -3441,8 +3443,8 @@ if(b.hasAttribute('data-modal-save-delivery')){
  if(v('address').length<6||v('district').length<2)return toast('Completa la dirección y el distrito');
  if(!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(
     window.B3OrderAvailability?.readInteraction?.()?.status))resetDeliveryOrderContact();
- st.mode='delivery';st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');invalidateDeliverySelection();maybeSaveDeliveryAddress();
- save();if(st.scheduleMode==='reservation'){screen('reservationPicker');return}void resolveDelivery();return;
+ st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');if(st.mode==='delivery')invalidateDeliverySelection();maybeSaveDeliveryAddress();
+ save();if(st.scheduleMode==='reservation'){screen('reservationPicker');return}if(st.mode==='delivery')void resolveDelivery();else render();return;
 }
 if(b.dataset.modalPickstore){void confirmStore('pickup',b.dataset.modalPickstore);return;}
 if(b.hasAttribute('data-gps')){locationPromptDismissed=false;deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.hasAttribute('data-checkout-return')){returnToPersonalCheckout();return}
@@ -3596,7 +3598,7 @@ if(b.hasAttribute('data-delivery-stop-check')){
  deliveryRequestError='Consulta detenida. Revisa tu dirección y vuelve a intentarlo cuando quieras.';
  screen('deliveryAddress');return;
 }
-if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');if(!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status))resetDeliveryOrderContact();st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');st.mode='delivery';invalidateDeliverySelection();maybeSaveDeliveryAddress();save();if(st.scheduleMode==='reservation'){screen('reservationPicker');return}void resolveDelivery();return}
+if(b.hasAttribute('data-address-next')){if(deliveryRequestPending)return;if(v('address').length<6||v('district').length<2)return toast('Completa tu dirección y distrito');if(!['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status))resetDeliveryOrderContact();st.profile.address=v('address');st.profile.district=v('district');st.profile.reference=v('reference');if(st.mode==='delivery')invalidateDeliverySelection();maybeSaveDeliveryAddress();save();if(st.scheduleMode==='reservation'){screen('reservationPicker');return}if(st.mode==='delivery')void resolveDelivery();else render();return}
 if(b.hasAttribute('data-identity-next')){
  if(v('first').length<2||v('last').length<2||v('first').length>60||v('last').length>60)
   return toast('Ingresa nombres y apellidos de hasta 60 caracteres');
