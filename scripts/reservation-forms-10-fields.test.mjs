@@ -74,9 +74,9 @@ test('payment proof retains reservation fields and is never a cash receipt',()=>
 test('reservation preview uses published values and cannot submit an immediate order',()=>{
  assert.match(app,/window\.B3ReservationForms\.request\(/);
  assert.match(app,/st\.scheduleMode!=='reservation'/);
- assert.match(app,/selected\.reservation_enabled!==true/);
+ assert.match(app,/x\.reservation_enabled===true/);
  assert.match(app,/when\.from<Date\.now\(\)\+lead\*60000/);
- assert.match(app,/No se enviará un pedido inmediato|La solicitud de reserva no se enviará/);
+ assert.match(app,/toast\('Formulario validado:/);
  assert.match(app,/if\(b\.dataset\.reservationPay\)/);
  assert.match(app,/if\(b\.dataset\.reservationCashMode\)/);
 });

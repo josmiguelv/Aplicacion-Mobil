@@ -2118,50 +2118,87 @@ function reservationTimeValue(input){
  const check=new Date(Date.UTC(y,m-1,day));
  return check.getUTCFullYear()===y&&check.getUTCMonth()===m-1&&check.getUTCDate()===day?parsed.getTime():NaN;
 }
+let reservationAddressEditing=false;
 let reservationQuote=null;
 let reservationQuoteBusy=false;
 let reservationQuoteError='';
 let reservationQuoteGeneration=0;
+// For Delivery the Admin selects the eligible store using the same location and
+// online-agent principle as immediate Delivery; no customer store selection.
+// For pickup the current reservations quote contract requires a storeId, so
+// Android tries eligible published stores until the Admin confirms an online agent.
 async function checkReservationQuote(){
  if(reservationQuoteBusy)return;
- const store=shops.find(x=>String(x.id)===String(st.store));
- if(!API_BASE){reservationQuoteError='La API del Administrador no está configurada.';render();return}
- if(!store?.reservation_enabled||!store.reservationAcceptingRequests){
-  reservationQuoteError='La sede no tiene recepción de reservas activa en la API pública.';render();return;
- }
+ if(!API_BASE){reservationQuoteError='No pudimos consultar las reservas. Intenta nuevamente.';render();return}
  let when;
  try{when=window.B3ReservationForms.schedule(st.reservationAt)}
  catch(error){reservationQuoteError=error.message;render();return}
  if(when.from<=Date.now()){
-  reservationQuoteError='El intervalo seleccionado ya comenzó.';render();return;
+  reservationQuoteError='Selecciona una fecha y hora futuras.';render();return;
+ }
+ const permitted=shops.filter(x=>x?.active===true&&x.reservation_enabled===true&&
+   x.reservationAcceptingRequests===true&&x[st.mode+'_enabled']===true);
+ if(!permitted.length){
+  reservationQuoteError='En este momento no hay sedes disponibles para recibir reservas.';render();return;
  }
  const generation=++reservationQuoteGeneration;
- const params={appId:APP_ID,catalogRevision:publishedRevision,mode:st.mode,
-  date:st.reservationAt.slice(0,10),time:st.reservationAt.slice(11),storeId:store.id};
- if(st.mode==='delivery'){
-  const loc=deliveryLocation;
-  if(!loc||!Number.isFinite(loc.latitude)||!Number.isFinite(loc.longitude)||
-    !st.profile.address||!st.profile.district){
-   reservationQuoteError='Confirma la dirección y las coordenadas de entrega antes de cotizar una reserva.';render();return;
+ const scheduledAt=st.reservationAt;
+ const mode=st.mode;
+ const params={appId:APP_ID,catalogRevision:publishedRevision,mode,
+  date:scheduledAt.slice(0,10),time:scheduledAt.slice(11)};
+ if(mode==='delivery'){
+  const address=String(st.profile.address||'').trim(),district=String(st.profile.district||'').trim();
+  if(address.length<6||district.length<2){
+   reservationQuoteError='Primero completa la dirección y distrito de entrega.';render();return;
+  }
+  let loc=deliveryLocation;
+  try{
+   if(!hasDeliveryDestination(address,district)){
+    loc=await geocodeDeliveryDestination(address,district);
+    if(generation!==reservationQuoteGeneration)return;
+    deliveryLocation={...loc,key:deliveryAddressKey(address,district)};
+   }
+  }catch(error){if(generation===reservationQuoteGeneration){reservationQuoteError='No pudimos verificar tu dirección. Revísala e intenta nuevamente.';render()}return}
+  if(!loc||!Number.isFinite(loc.latitude)||!Number.isFinite(loc.longitude)){
+   reservationQuoteError='No pudimos verificar la ubicación de entrega.';render();return;
   }
   Object.assign(params,{latitude:loc.latitude,longitude:loc.longitude,useGps:true,
-    address:st.profile.address,district:st.profile.district,reference:st.profile.reference||''});
+   address,district,reference:st.profile.reference||''});
  }
- reservationQuoteBusy=true;reservationQuote=null;reservationQuoteError='';render();
+ reservationQuoteBusy=true;reservationQuote=null;reservationQuoteError='';st.store='';st.pay='';render();
  try{
-  const response=await fetch(API_BASE+'/api/v1/mobile/reservations/quote',{
-   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params),cache:'no-store'});
-  const result=await response.json().catch(()=>({}));
-  if(!response.ok)throw Error(response.status===503?'La API de reservas todavía no está habilitada.':
-    typeof result.error==='string'?result.error:'No se pudo verificar la disponibilidad de la reserva.');
-  if(result.storeId!==store.id||result.date!==params.date||result.time!==params.time||
-    result.mode!==st.mode||result.revision!==publishedRevision||
-    !Array.isArray(result.paymentMethods)||!Number.isFinite(result.deliveryFeePen)||
-    result.deliveryFeePen<0||result.agentAvailable!==true||result.acceptingRequests!==true)
-   throw Error('La cotización no coincide con la sede y horario seleccionados.');
-  if(generation!==reservationQuoteGeneration)return;
-  reservationQuote={...result,dateTime:st.reservationAt};
- }catch(error){if(generation===reservationQuoteGeneration)reservationQuoteError=error.message||'No se pudo cotizar la reserva.'}
+  const candidates=mode==='delivery'?[null]:permitted;
+  let selected=null;
+  for(const candidate of candidates){
+   if(generation!==reservationQuoteGeneration)return;
+   const query=candidate?{...params,storeId:candidate.id}:params;
+   const response=await fetch(API_BASE+'/api/v1/mobile/reservations/quote',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(query),cache:'no-store'});
+   const result=await response.json().catch(()=>({}));
+   if(!response.ok){
+    if(mode==='pickup'&&[404,409].includes(response.status))continue;
+    throw Error(response.status===503?'La atención de reservas no está disponible por ahora.':
+     'No encontramos una sede que pueda atender la reserva en este momento.');
+   }
+   const matching=permitted.find(x=>x.id===result.storeId);
+   if(!matching||candidate&&result.storeId!==candidate.id||
+      result.date!==params.date||result.time!==params.time||
+      result.mode!==mode||result.revision!==publishedRevision||
+      !Array.isArray(result.paymentMethods)||
+      !Number.isFinite(result.deliveryFeePen)||result.deliveryFeePen<0||
+      result.agentAvailable!==true||result.acceptingRequests!==true)
+     throw Error('No pudimos confirmar la disponibilidad. Vuelve a consultar.');
+   selected=result;break;
+  }
+  if(!selected)throw Error('Ninguna sede tiene un agente disponible para confirmar esta reserva.');
+  if(generation!==reservationQuoteGeneration||st.reservationAt!==scheduledAt||st.mode!==mode)return;
+  st.store=selected.storeId;
+  reservationQuote={...selected,dateTime:scheduledAt};
+  st.pay='';
+  save();
+ }catch(error){if(generation===reservationQuoteGeneration)reservationQuoteError=
+   error.message||'No pudimos consultar la reserva.'}
  finally{if(generation===reservationQuoteGeneration){reservationQuoteBusy=false;render()}}
 }
 function reservationSummary(){
@@ -2175,9 +2212,9 @@ function reservationSummary(){
 // This is never sent through the immediate-order API, which does not certify bookings.
 function reservationFormPreview(){
  if(st.scheduleMode!=='reservation')return {error:'Selecciona Programar reserva.'};
- const selected=shops.find(x=>String(x.id)===String(st.store));
- if(!selected||selected.reservation_enabled!==true)
-  return {error:'Selecciona una sede con reservas habilitadas por el Administrador Web.'};
+ const selected=shops.find(x=>String(x.id)===String(reservationQuote?.storeId));
+ if(!selected||!reservationQuote||reservationQuote.dateTime!==st.reservationAt)
+  return {error:'Consulta primero la disponibilidad de tu reserva.'};
  const lead=reservationMinLead(selected);
  let when;
  try{when=window.B3ReservationForms.schedule(st.reservationAt)}
@@ -2185,10 +2222,9 @@ function reservationFormPreview(){
  if(when.from<=Date.now()||(lead!==null&&when.from<Date.now()+lead*60000))
   return {error:lead===null?'El intervalo de reserva debe comenzar en el futuro.':'El inicio del intervalo no cumple la anticipación mínima publicada.'};
  const offered=paymentOptions().map(x=>x[0]);
- const available=reservationQuote?.storeId===st.store&&reservationQuote.dateTime===st.reservationAt?
-  offered.filter(x=>reservationQuote.paymentMethods.includes(x)):offered;
+ const available=offered.filter(x=>reservationQuote.paymentMethods.includes(x));
  if(!available.includes(st.pay))return {error:'Selecciona un método de pago habilitado para esta sede y la cotización de reserva.'};
- const priceReady=st.mode==='pickup'||(reservationQuote&&reservationQuote.storeId===st.store&&reservationQuote.dateTime===st.reservationAt&&reservationQuote.mode==='delivery');
+ const priceReady=reservationQuote.storeId===st.store&&reservationQuote.mode===st.mode;
  if(!priceReady)return {error:'Primero se requiere una cotización de Delivery válida para calcular el total y el vuelto.'};
  try{
   const items=publishedOrderItems().map(i=>({name:product('api:'+i.productId).name,quantity:i.quantity}));
@@ -2213,43 +2249,47 @@ function scheduleChoice(){
   '</div></div>';
 }
 function reservationPicker(){
- const mode=st.mode==='delivery'?'entrega a domicilio':'recojo en tienda';
- const selected=shops.find(x=>String(x.id)===String(st.store));
- const lead=reservationMinLead(selected);
- const allMethods=selected?paymentOptions().filter(x=>!reservationQuote||reservationQuote.storeId!==st.store||reservationQuote.dateTime!==st.reservationAt||reservationQuote.paymentMethods.includes(x[0])):[];
- const stores=shops.filter(x=>x?.active===true&&x.reservation_enabled===true&&x[st.mode+'_enabled']===true);
- const preview=reservationFormPreview();
+ const selected=reservationQuote?shops.find(x=>x.id===reservationQuote.storeId):null;
+ const methods=selected&&reservationQuote?paymentOptions().filter(x=>reservationQuote.paymentMethods.includes(x[0])):[];
+ const preview=reservationQuote?reservationFormPreview():null;
  return '<div class="page">'+heading('Programar reserva','scheduleChoice')+
-  '<p class="sub">Selecciona fecha y hora para '+esc(mode)+'. La sede debe aceptar la solicitud.</p>'+
+  '<p class="sub">Elige cuándo deseas '+(st.mode==='delivery'?'recibir tu Delivery.':'recoger tu pedido.')+
+  ' Buscaremos automáticamente una sede disponible.</p>'+
   '<label>Fecha y hora de la reserva<input id="b3-reservation-at" type="datetime-local" value="'+esc(st.reservationAt)+'"></label>'+
   (reservationSummary()?'<div class="summary-card"><b>'+esc(reservationSummary())+'</b></div>':'')+
-  '<p class="smallprint">Intervalo: 15 minutos antes y 15 después de la hora seleccionada (Perú, UTC-5).</p>'+ 
-  '<h2>Selecciona una sede habilitada para reservas</h2>'+ 
-  '<div class="choice-list">'+stores.map(x=>'<button type="button" data-reservation-store="'+esc(x.id)+'" class="'+(st.store===x.id?'chosen':'')+'">'+ic('store',20)+'<span><b>'+esc(x.name)+'</b><small>'+(x.reservationAcceptingRequests?'Recepción API activa':'Recepción API no habilitada')+'</small></span></button>').join('')+'</div>'+
-  (!selected?'<div class="notice">La sede se determinará según la modalidad y la cobertura publicada. Sin una sede asignada no podemos confirmar su habilitación de reservas.</div>':
-   selected.reservation_enabled!==true?'<div class="notice">Esta sede no tiene reservas habilitadas en la configuración publicada.</div>':
-   lead===null?'<div class="notice">La API actual publica el tiempo de preparación, pero no la anticipación mínima; no utilizamos uno como si fuera el otro.</div>':
-   '<div class="notice">Anticipación mínima publicada: '+lead+' minutos, calculada desde el inicio del intervalo.</div>')+
-  (selected&&allMethods.length?'<h2>Forma de pago publicada</h2><div class="method-list">'+
-    allMethods.map(([id,title])=>'<button type="button" class="'+(st.pay===id?'chosen':'')+'" data-reservation-pay="'+id+'">'+
-      ic(id==='cash'?'store':'card')+'<span><b>'+esc(title)+'</b></span><span class="radio"></span></button>').join('')+'</div>':'')+
-  (st.pay==='cash'&&allMethods.some(x=>x[0]==='cash')?
-    '<div class="summary-card"><h2>Pago contraentrega</h2>'+
-    '<button type="button" class="outline full" data-reservation-cash-mode="exact">'+
-      (st.reservationCashExact?'✓ ':'')+'Pagaré el monto exacto</button>'+
-    '<button type="button" class="outline full" data-reservation-cash-mode="other">'+
-      (!st.reservationCashExact?'✓ ':'')+'Pagaré con otro monto</button>'+
-    (!st.reservationCashExact?'<label>¿Con cuánto pagarás? (S/)<input id="b3-reservation-cash-amount" inputmode="decimal" value="'+esc(st.reservationCashAmount)+'" placeholder="Ej. 100.00"></label>':'')+
-    '</div>':'')+
-  (selected&&selected.reservationAcceptingRequests?'<button class="outline full" data-reservation-quote="1" '+(reservationQuoteBusy?'disabled':'')+'>'+(reservationQuoteBusy?'Consultando disponibilidad...':'Consultar tarifa y disponibilidad del agente')+'</button>':'')+
+  '<p class="smallprint">Horario aproximado: 15 minutos antes y 15 después de la hora seleccionada.</p>'+
+  (st.mode==='delivery'?
+   '<div class="summary-card"><b>Dirección de entrega</b><p>'+
+     esc([st.profile.address,st.profile.district].filter(Boolean).join(', ')||'Todavía no indicada')+
+   '</p><button type="button" class="outline full" data-reservation-address="1">'+
+   (reservationAddressEditing?'Ocultar edición':'Editar dirección')+'</button>'+
+   (reservationAddressEditing?
+    '<label>Dirección<input id="b3-reservation-address" value="'+esc(st.profile.address)+'"></label>'+
+    '<label>Distrito<input id="b3-reservation-district" value="'+esc(st.profile.district)+'"></label>'+
+    '<label>Referencia<input id="b3-reservation-reference" value="'+esc(st.profile.reference||'')+'"></label>'+
+    '<button type="button" class="primary full" data-reservation-address-save="1">Guardar dirección</button>':'')+
+   '</div>':'')+
+  (!reservationQuote?
+   '<button class="primary full" data-reservation-quote="1" '+(reservationQuoteBusy?'disabled':'')+'>'+
+    (reservationQuoteBusy?'Buscando disponibilidad...':'Consultar disponibilidad de reserva')+'</button>':
+   '<div class="summary-card"><b>Atención disponible</b><p>'+
+     esc(selected?.name||'Sede disponible')+'</p>'+
+     (st.mode==='delivery'?'<p>Tarifa de entrega: '+esc(cash(reservationQuote.deliveryFeePen))+'</p>':'')+
+   '</div>')+
   (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div>':'')+
-  (reservationQuote?'<div class="summary-card"><b>Tarifa de reserva consultada</b><p>Delivery: '+esc(cash(reservationQuote.deliveryFeePen))+'</p></div>':'')+
-  (preview.form?'<div class="summary-card"><h2>Vista previa para el agente: '+esc(preview.form.title)+'</h2>'+
+  (methods.length?'<h2>¿Cómo deseas pagar?</h2><div class="method-list">'+
+    methods.map(([id,title])=>'<button type="button" class="'+(st.pay===id?'chosen':'')+'" data-reservation-pay="'+id+'">'+
+     ic(id==='cash'?'store':'card')+'<span><b>'+esc(title)+'</b></span><span class="radio"></span></button>').join('')+'</div>':'')+
+  (st.pay==='cash'&&methods.some(x=>x[0]==='cash')?
+   '<div class="summary-card"><h2>Pago en efectivo</h2>'+
+   '<button type="button" class="outline full" data-reservation-cash-mode="exact">'+(st.reservationCashExact?'✓ ':'')+'Monto exacto</button>'+
+   '<button type="button" class="outline full" data-reservation-cash-mode="other">'+(!st.reservationCashExact?'✓ ':'')+'Otro monto</button>'+
+   (!st.reservationCashExact?'<label>¿Con cuánto pagarás? (S/)<input id="b3-reservation-cash-amount" inputmode="decimal" value="'+esc(st.reservationCashAmount)+'" placeholder="Ej. 100.00"></label>':'')+
+   '</div>':'')+
+  (preview?.form?'<div class="summary-card"><h2>Resumen de la reserva</h2>'+
     preview.form.fields.map(f=>'<p><b>'+esc(f.variable)+':</b> '+esc(f.value)+'</p>').join('')+
-    '<p class="smallprint">'+preview.form.fields.length+' de 10 variables.</p></div>':
-    '<div class="notice" role="status">'+esc(preview.error||'Reserva no disponible')+'</div>')+
-  '<div class="notice" role="status">La solicitud de reserva no se enviará hasta que el Administrador Web publique un contrato compatible de reserva, fecha y forma de pago. Se protege al cliente frente a una confirmación falsa.</div>'+
-  '<button class="primary full" data-reservation-verify="1">Revisar datos de reserva</button>'+
+    '</div>':preview?.error?'<div class="notice">'+esc(preview.error)+'</div>':'')+
+  (reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Continuar con pedido inmediato</button>'+
   '</div>';
 }
@@ -3243,7 +3283,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-store],[data-reservation-quote],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-address],[data-reservation-address-save],[data-reservation-quote],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -3424,15 +3464,21 @@ if(b.dataset.scheduleChoice){
    else {screen('locations');if(API_BASE)void fetchConfig()}
    return}
 }
-if(b.dataset.reservationStore){
- const selected=shops.find(x=>String(x.id)===b.dataset.reservationStore);
- if(!selected?.reservation_enabled||!selected[st.mode+'_enabled'])return toast('Sede no habilitada para esta reserva.');
- st.store=selected.id;st.pay='';reservationQuote=null;reservationQuoteError='';reservationQuoteBusy=false;
- ++reservationQuoteGeneration;save();render();return;
+if(b.hasAttribute('data-reservation-address')){
+ reservationAddressEditing=!reservationAddressEditing;
+ render();return;
+}
+if(b.hasAttribute('data-reservation-address-save')){
+ const address=v('b3-reservation-address'),district=v('b3-reservation-district'),reference=v('b3-reservation-reference');
+ if(address.trim().length<6||district.trim().length<2)return toast('Ingresa una dirección completa y el distrito.');
+ st.profile.address=address.trim();st.profile.district=district.trim();st.profile.reference=reference.trim();
+ deliveryLocation=null;reservationQuote=null;st.store='';st.pay='';
+ reservationQuoteError='';++reservationQuoteGeneration;reservationAddressEditing=false;save();render();return;
 }
 if(b.hasAttribute('data-reservation-quote')){void checkReservationQuote();return}
 if(b.dataset.reservationPay){
- if(!paymentOptions().some(x=>x[0]===b.dataset.reservationPay))return toast('Método no habilitado para esta sede.');
+ if(!reservationQuote||!reservationQuote.paymentMethods.includes(b.dataset.reservationPay)||
+    !paymentOptions().some(x=>x[0]===b.dataset.reservationPay))return toast('Método no habilitado para esta sede.');
  st.pay=b.dataset.reservationPay;save();render();return;
 }
 if(b.dataset.reservationCashMode){
@@ -3601,7 +3647,7 @@ if(b.hasAttribute('data-clear')){
 }
 });
 root.addEventListener('change',e=>{
- if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;reservationQuote=null;reservationQuoteBusy=false;++reservationQuoteGeneration;save();render();return}
+ if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;reservationQuote=null;reservationQuoteBusy=false;st.store='';st.pay='';++reservationQuoteGeneration;save();render();return}
  if(e.target?.id==='b3-reservation-cash-amount'){st.reservationCashAmount=e.target.value;save();render();return}
  if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
