@@ -41,7 +41,7 @@ function demoStoreClock(s){
 }
 
 let scheduleReturnToModal=false;
-let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,authProvider:'',authUid:'',authDisplayName:'',authGoogleEmail:'',mode:'',scheduleMode:'now',reservationAt:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
+let st={coords:null,quote:null,configReady:false,stage:'splash',tab:'inicio',category:'Todos',cart:[],orders:[],favorite:null,orderContactDraft:null,deliveryContactConfirmed:false,addresses:[],defaultAddressId:null,profile:{first:'',last:'',phone:'',doc:'',email:'',address:'',reference:''},registered:false,authProvider:'',authUid:'',authDisplayName:'',authGoogleEmail:'',mode:'',scheduleMode:'now',reservationAt:'',reservationCashExact:true,reservationCashAmount:'',pickupOrigin:'',fulfillment:'',store:'',pay:'yape',cash:'',selected:'',qty:1,carousel:0,promo:0,local:0,chat:[],last:'',step:'',notice:'',consent:false};
 try{const d=JSON.parse(localStorage.getItem(K)||'{}');st={...st,...d,stage:'splash',tab:'inicio',selected:'',notice:'',configReady:false,quote:null}}catch{}
 // The person receiving a new order must confirm their own contact again.
 // Draft data from an earlier app run must never authorize another order.
@@ -326,8 +326,8 @@ function paymentOptions(){
  const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];
  if(!st.configReady)return []; // No published store or payment methods: never assume enabled.
  const selected=shops.find(x=>String(x.id)===String(st.store));
- const selectedMethods=selected?.paymentMethods?.[st.mode];
- const quotedMethods=st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)?st.quote.paymentMethods:null;
+ const selectedMethods=selected?.paymentMethods?.[st.scheduleMode==='reservation'?'reservation':st.mode];
+ const quotedMethods=st.scheduleMode==='reservation'?null:st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)?st.quote.paymentMethods:null;
  const published=Array.isArray(selectedMethods)&&Array.isArray(quotedMethods)?selectedMethods.filter(m=>quotedMethods.includes(m)):selectedMethods||quotedMethods;
  return Array.isArray(published)?choices.filter(x=>published.includes(x[0])):[];
 }
@@ -369,7 +369,7 @@ async function fetchConfig({strict=false}={}){
   publishedPaymentImages=c.paymentImages&&typeof c.paymentImages==='object'?c.paymentImages:{};
   publishedPaymentWaitMinutes=Number.isInteger(c.paymentWaitMinutes)&&c.paymentWaitMinutes>0?c.paymentWaitMinutes:10;
   publishedReminderCount=Number.isInteger(c.reminderCount)&&c.reminderCount>=0?c.reminderCount:2;
-  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null})));
+  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null,reservation_enabled:x.reservationSettings?.enabled===true,reservationAcceptingRequests:x.reservationSettings?.acceptingRequests===true})));
   // Productos: conservar siempre la carta de muestra y anexar los publicados.
   // La lista se reconstruye, no se concatena incrementalmente, para evitar duplicados.
   products.splice(0,products.length,...productsFromApi(c.products));
@@ -2104,8 +2104,11 @@ function heading(title,back){return `<div class="screen-heading"><button aria-la
 // Reservation is a request, NOT an automatically accepted commercial order.
 // This UI is isolated until the Administrator publishes a reservation contract.
 function reservationMinLead(store){
+ // The inspected Admin contract currently publishes reservationSettings.preparationMinutes,
+ // which is preparation duration, NOT a minimum booking lead time.
+ // Never misuse preparation time as a booking restriction.
  const raw=store?.reservationMinimumMinutes;
- return Number.isInteger(raw)&&raw>0&&raw<=10080?raw:null;
+ return Number.isInteger(raw)&&raw>=0&&raw<=10080?raw:null;
 }
 function reservationTimeValue(input){
  if(typeof input!=='string'||!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(input))return NaN;
@@ -2115,15 +2118,90 @@ function reservationTimeValue(input){
  const check=new Date(Date.UTC(y,m-1,day));
  return check.getUTCFullYear()===y&&check.getUTCMonth()===m-1&&check.getUTCDate()===day?parsed.getTime():NaN;
 }
+let reservationQuote=null;
+let reservationQuoteBusy=false;
+let reservationQuoteError='';
+let reservationQuoteGeneration=0;
+async function checkReservationQuote(){
+ if(reservationQuoteBusy)return;
+ const store=shops.find(x=>String(x.id)===String(st.store));
+ if(!API_BASE){reservationQuoteError='La API del Administrador no está configurada.';render();return}
+ if(!store?.reservation_enabled||!store.reservationAcceptingRequests){
+  reservationQuoteError='La sede no tiene recepción de reservas activa en la API pública.';render();return;
+ }
+ let when;
+ try{when=window.B3ReservationForms.schedule(st.reservationAt)}
+ catch(error){reservationQuoteError=error.message;render();return}
+ if(when.from<=Date.now()){
+  reservationQuoteError='El intervalo seleccionado ya comenzó.';render();return;
+ }
+ const generation=++reservationQuoteGeneration;
+ const params={appId:APP_ID,catalogRevision:publishedRevision,mode:st.mode,
+  date:st.reservationAt.slice(0,10),time:st.reservationAt.slice(11),storeId:store.id};
+ if(st.mode==='delivery'){
+  const loc=deliveryLocation;
+  if(!loc||!Number.isFinite(loc.latitude)||!Number.isFinite(loc.longitude)||
+    !st.profile.address||!st.profile.district){
+   reservationQuoteError='Confirma la dirección y las coordenadas de entrega antes de cotizar una reserva.';render();return;
+  }
+  Object.assign(params,{latitude:loc.latitude,longitude:loc.longitude,useGps:true,
+    address:st.profile.address,district:st.profile.district,reference:st.profile.reference||''});
+ }
+ reservationQuoteBusy=true;reservationQuote=null;reservationQuoteError='';render();
+ try{
+  const response=await fetch(API_BASE+'/api/v1/mobile/reservations/quote',{
+   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params),cache:'no-store'});
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok)throw Error(response.status===503?'La API de reservas todavía no está habilitada.':
+    typeof result.error==='string'?result.error:'No se pudo verificar la disponibilidad de la reserva.');
+  if(result.storeId!==store.id||result.date!==params.date||result.time!==params.time||
+    result.mode!==st.mode||result.revision!==publishedRevision||
+    !Array.isArray(result.paymentMethods)||!Number.isFinite(result.deliveryFeePen)||
+    result.deliveryFeePen<0||result.agentAvailable!==true||result.acceptingRequests!==true)
+   throw Error('La cotización no coincide con la sede y horario seleccionados.');
+  if(generation!==reservationQuoteGeneration)return;
+  reservationQuote={...result,dateTime:st.reservationAt};
+ }catch(error){if(generation===reservationQuoteGeneration)reservationQuoteError=error.message||'No se pudo cotizar la reserva.'}
+ finally{if(generation===reservationQuoteGeneration){reservationQuoteBusy=false;render()}}
+}
 function reservationSummary(){
- if(st.scheduleMode!=='reservation'||!Number.isFinite(reservationTimeValue(st.reservationAt)))return '';
- const start=reservationTimeValue(st.reservationAt),end=new Date(start+30*60000);
- const fmt=ms=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',
-   hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(ms));
- const date=ms=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',
-   day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(ms));
- return 'Reserva para el '+date(start)+' · '+fmt(start)+' a '+fmt(end)+
-    (date(start)!==date(end)?' ('+date(end)+')':'');
+ if(st.scheduleMode!=='reservation'||!st.reservationAt)return '';
+ try{
+  const when=window.B3ReservationForms.schedule(st.reservationAt);
+  return 'Reserva para el '+when.date+' · '+when.interval;
+ }catch{return ''}
+}
+// Build a truthful reservation preview from the published store and verified quote.
+// This is never sent through the immediate-order API, which does not certify bookings.
+function reservationFormPreview(){
+ if(st.scheduleMode!=='reservation')return {error:'Selecciona Programar reserva.'};
+ const selected=shops.find(x=>String(x.id)===String(st.store));
+ if(!selected||selected.reservation_enabled!==true)
+  return {error:'Selecciona una sede con reservas habilitadas por el Administrador Web.'};
+ const lead=reservationMinLead(selected);
+ let when;
+ try{when=window.B3ReservationForms.schedule(st.reservationAt)}
+ catch(error){return {error:error.message}}
+ if(when.from<=Date.now()||(lead!==null&&when.from<Date.now()+lead*60000))
+  return {error:lead===null?'El intervalo de reserva debe comenzar en el futuro.':'El inicio del intervalo no cumple la anticipación mínima publicada.'};
+ const offered=paymentOptions().map(x=>x[0]);
+ const available=reservationQuote?.storeId===st.store&&reservationQuote.dateTime===st.reservationAt?
+  offered.filter(x=>reservationQuote.paymentMethods.includes(x)):offered;
+ if(!available.includes(st.pay))return {error:'Selecciona un método de pago habilitado para esta sede y la cotización de reserva.'};
+ const priceReady=st.mode==='pickup'||(reservationQuote&&reservationQuote.storeId===st.store&&reservationQuote.dateTime===st.reservationAt&&reservationQuote.mode==='delivery');
+ if(!priceReady)return {error:'Primero se requiere una cotización de Delivery válida para calcular el total y el vuelto.'};
+ try{
+  const items=publishedOrderItems().map(i=>({name:product('api:'+i.productId).name,quantity:i.quantity}));
+  const fee=st.mode==='delivery'?Number(reservationQuote.deliveryFeePen):0;
+  const amount=st.reservationCashExact?undefined:st.reservationCashAmount;
+  const form=window.B3ReservationForms.request({
+   dateTime:st.reservationAt,mode:st.mode,items,subtotal:subtotal(),
+   deliveryFee:fee,total:subtotal()+fee,
+   destination:st.mode==='delivery'?[st.profile.address,st.profile.district,st.profile.reference].filter(Boolean).join(', '):'Recojo en sede',
+   method:st.pay,amount,exact:st.reservationCashExact,allowedMethods:available
+  });
+  return {form,when};
+ }catch(error){return {error:error.message||'No se pudo construir la reserva.'}}
 }
 function scheduleChoice(){
  const mode=st.mode==='delivery'?'Delivery':'Recojo en tienda';
@@ -2137,18 +2215,41 @@ function scheduleChoice(){
 function reservationPicker(){
  const mode=st.mode==='delivery'?'entrega a domicilio':'recojo en tienda';
  const selected=shops.find(x=>String(x.id)===String(st.store));
- const enabled=selected?.reservation_enabled===true;
  const lead=reservationMinLead(selected);
- const timestamp=reservationTimeValue(st.reservationAt);
- const minimum=Date.now()+(lead??0)*60000;
- const valid=Number.isFinite(timestamp)&&lead!==null&&timestamp>=minimum;
+ const allMethods=selected?paymentOptions().filter(x=>!reservationQuote||reservationQuote.storeId!==st.store||reservationQuote.dateTime!==st.reservationAt||reservationQuote.paymentMethods.includes(x[0])):[];
+ const stores=shops.filter(x=>x?.active===true&&x.reservation_enabled===true&&x[st.mode+'_enabled']===true);
+ const preview=reservationFormPreview();
  return '<div class="page">'+heading('Programar reserva','scheduleChoice')+
   '<p class="sub">Selecciona fecha y hora para '+esc(mode)+'. La sede debe aceptar la solicitud.</p>'+
   '<label>Fecha y hora de la reserva<input id="b3-reservation-at" type="datetime-local" value="'+esc(st.reservationAt)+'"></label>'+
-  (st.reservationAt&&!valid?'<div class="notice" role="alert">La fecha y hora deben superar la anticipación mínima publicada para la sede.</div>':'')+
   (reservationSummary()?'<div class="summary-card"><b>'+esc(reservationSummary())+'</b></div>':'')+
-  '<div class="notice" role="status">La solicitud no está disponible todavía: la API pública del Administrador Web no publica de forma verificable el contrato completo de reservas (habilitación, anticipación mínima y fecha/hora). No enviaremos un pedido inmediato haciéndolo pasar por una reserva.</div>'+
-  '<button class="primary full" data-reservation-verify="1">Verificar disponibilidad de reserva</button>'+
+  '<p class="smallprint">Intervalo: 15 minutos antes y 15 después de la hora seleccionada (Perú, UTC-5).</p>'+ 
+  '<h2>Selecciona una sede habilitada para reservas</h2>'+ 
+  '<div class="choice-list">'+stores.map(x=>'<button type="button" data-reservation-store="'+esc(x.id)+'" class="'+(st.store===x.id?'chosen':'')+'">'+ic('store',20)+'<span><b>'+esc(x.name)+'</b><small>'+(x.reservationAcceptingRequests?'Recepción API activa':'Recepción API no habilitada')+'</small></span></button>').join('')+'</div>'+
+  (!selected?'<div class="notice">La sede se determinará según la modalidad y la cobertura publicada. Sin una sede asignada no podemos confirmar su habilitación de reservas.</div>':
+   selected.reservation_enabled!==true?'<div class="notice">Esta sede no tiene reservas habilitadas en la configuración publicada.</div>':
+   lead===null?'<div class="notice">La API actual publica el tiempo de preparación, pero no la anticipación mínima; no utilizamos uno como si fuera el otro.</div>':
+   '<div class="notice">Anticipación mínima publicada: '+lead+' minutos, calculada desde el inicio del intervalo.</div>')+
+  (selected&&allMethods.length?'<h2>Forma de pago publicada</h2><div class="method-list">'+
+    allMethods.map(([id,title])=>'<button type="button" class="'+(st.pay===id?'chosen':'')+'" data-reservation-pay="'+id+'">'+
+      ic(id==='cash'?'store':'card')+'<span><b>'+esc(title)+'</b></span><span class="radio"></span></button>').join('')+'</div>':'')+
+  (st.pay==='cash'&&allMethods.some(x=>x[0]==='cash')?
+    '<div class="summary-card"><h2>Pago contraentrega</h2>'+
+    '<button type="button" class="outline full" data-reservation-cash-mode="exact">'+
+      (st.reservationCashExact?'✓ ':'')+'Pagaré el monto exacto</button>'+
+    '<button type="button" class="outline full" data-reservation-cash-mode="other">'+
+      (!st.reservationCashExact?'✓ ':'')+'Pagaré con otro monto</button>'+
+    (!st.reservationCashExact?'<label>¿Con cuánto pagarás? (S/)<input id="b3-reservation-cash-amount" inputmode="decimal" value="'+esc(st.reservationCashAmount)+'" placeholder="Ej. 100.00"></label>':'')+
+    '</div>':'')+
+  (selected&&selected.reservationAcceptingRequests?'<button class="outline full" data-reservation-quote="1" '+(reservationQuoteBusy?'disabled':'')+'>'+(reservationQuoteBusy?'Consultando disponibilidad...':'Consultar tarifa y disponibilidad del agente')+'</button>':'')+
+  (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div>':'')+
+  (reservationQuote?'<div class="summary-card"><b>Tarifa de reserva consultada</b><p>Delivery: '+esc(cash(reservationQuote.deliveryFeePen))+'</p></div>':'')+
+  (preview.form?'<div class="summary-card"><h2>Vista previa para el agente: '+esc(preview.form.title)+'</h2>'+
+    preview.form.fields.map(f=>'<p><b>'+esc(f.variable)+':</b> '+esc(f.value)+'</p>').join('')+
+    '<p class="smallprint">'+preview.form.fields.length+' de 10 variables.</p></div>':
+    '<div class="notice" role="status">'+esc(preview.error||'Reserva no disponible')+'</div>')+
+  '<div class="notice" role="status">La solicitud de reserva no se enviará hasta que el Administrador Web publique un contrato compatible de reserva, fecha y forma de pago. Se protege al cliente frente a una confirmación falsa.</div>'+
+  '<button class="primary full" data-reservation-verify="1">Revisar datos de reserva</button>'+
   '<button class="outline full" data-schedule-choice="now">Continuar con pedido inmediato</button>'+
   '</div>';
 }
@@ -3142,7 +3243,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-store],[data-reservation-quote],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -3323,16 +3424,31 @@ if(b.dataset.scheduleChoice){
    else {screen('locations');if(API_BASE)void fetchConfig()}
    return}
 }
+if(b.dataset.reservationStore){
+ const selected=shops.find(x=>String(x.id)===b.dataset.reservationStore);
+ if(!selected?.reservation_enabled||!selected[st.mode+'_enabled'])return toast('Sede no habilitada para esta reserva.');
+ st.store=selected.id;st.pay='';reservationQuote=null;reservationQuoteError='';reservationQuoteBusy=false;
+ ++reservationQuoteGeneration;save();render();return;
+}
+if(b.hasAttribute('data-reservation-quote')){void checkReservationQuote();return}
+if(b.dataset.reservationPay){
+ if(!paymentOptions().some(x=>x[0]===b.dataset.reservationPay))return toast('Método no habilitado para esta sede.');
+ st.pay=b.dataset.reservationPay;save();render();return;
+}
+if(b.dataset.reservationCashMode){
+ st.reservationCashExact=b.dataset.reservationCashMode==='exact';
+ if(st.reservationCashExact)st.reservationCashAmount='';
+ save();render();return;
+}
 if(b.hasAttribute('data-reservation-verify')){
- const chosen=document.getElementById('b3-reservation-at')?.value||'';
- st.reservationAt=chosen;save();
- const selected=shops.find(x=>String(x.id)===String(st.store));
- const minutes=reservationMinLead(selected);
- const when=reservationTimeValue(chosen);
- if(!Number.isFinite(when))return toast('Ingresa una fecha y hora válidas.');
- if(minutes!==null&&when<Date.now()+minutes*60000)
-   return toast('La fecha elegida no cumple la anticipación mínima de la sede.');
- render();toast('Reserva pendiente de habilitación por la API. No se ha enviado ninguna solicitud.');
+ st.reservationAt=document.getElementById('b3-reservation-at')?.value||st.reservationAt;
+ if(!st.reservationCashExact)
+  st.reservationCashAmount=document.getElementById('b3-reservation-cash-amount')?.value||st.reservationCashAmount;
+ save();
+ const preview=reservationFormPreview();
+ render();
+ if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');
+ toast('Formulario validado: '+preview.form.fields.length+' de 10 variables. El envío requiere la API pública de reservas.');
  return;
 }
 if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;scheduleReturnToModal=false;save();screen('scheduleChoice');return}
@@ -3484,7 +3600,10 @@ if(b.hasAttribute('data-clear')){
  return;
 }
 });
-root.addEventListener('change',e=>{if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
+root.addEventListener('change',e=>{
+ if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;reservationQuote=null;reservationQuoteBusy=false;++reservationQuoteGeneration;save();render();return}
+ if(e.target?.id==='b3-reservation-cash-amount'){st.reservationCashAmount=e.target.value;save();render();return}
+ if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
  if(e.key!=='Escape')return;
  if(b3ConfirmDismiss){e.preventDefault();b3ConfirmDismiss();return}
