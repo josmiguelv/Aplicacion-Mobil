@@ -2600,7 +2600,7 @@ function paymentProofPreview(){
  '<p class="smallprint">Enviar el formulario no significa que el pago haya sido aceptado.</p></div>';
 }
 function isPaymentFormReady(){
- return st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&
+ return st.scheduleMode!=='reservation'&&st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&
   deliveryQuoteValid()&&paymentOptions().some(x=>x[0]===st.pay)&&
   ['yape','plin','card'].includes(st.pay);
 }
@@ -2716,6 +2716,10 @@ function paymentOutcome(){
  '<button class="outline full" data-tab="inicio">'+(approved?'Realizar otro pedido':'Volver al inicio')+'</button></div>';
 }
 async function submitPaymentForm(){
+ if(st.scheduleMode==='reservation'){
+  paymentFormError='Esta es una reserva. Su comprobante debe validarse mediante el pago asociado a la reserva, no como pedido inmediato.';
+  toast(paymentFormError);return;
+ }
  if(paymentFormBusy)return;
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
  if(!entry||!isPaymentFormReady())return toast('La solicitud no permite confirmar el pago.');
@@ -3634,8 +3638,8 @@ if(b.hasAttribute('data-phone-next')){
   screen('confirmDetails');return
  }
  void revalidateCheckout('payment');return}
-if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
-if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
+if(b.hasAttribute('data-payment-start')){if(st.scheduleMode==='reservation')return toast('El pago de una reserva debe continuar desde la reserva aceptada.');if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
+if(b.hasAttribute('data-payment-done')){if(st.scheduleMode==='reservation')return toast('La reserva requiere un comprobante vinculado a su propia solicitud.');if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
 if(b.hasAttribute('data-payment-confirm')){void submitPaymentForm();return}
 if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);if(url&&window.AndroidBridge?.downloadPaymentImage)window.AndroidBridge.downloadPaymentImage(url);else toast('La descarga de imágenes requiere una actualización de Android');return}
 if(b.dataset.pay){
