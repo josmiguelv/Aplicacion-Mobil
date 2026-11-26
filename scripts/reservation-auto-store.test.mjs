@@ -27,14 +27,25 @@ test('pickup finds an eligible agent without asking customer to choose the store
  assert.match(quote,/mode==='pickup'&&\[404,409\]\.includes\(response\.status\)/);
 });
 test('address can be edited without invoking immediate-order resolveDelivery',()=>{
- const address=handlers.slice(0,handlers.indexOf("if(b.hasAttribute('data-reservation-quote'))"));
+ const address=handlers.slice(0,handlers.indexOf("if(b.dataset.reservationPay){"));
  assert.ok(!address.includes('resolveDelivery()'));
  assert.match(address,/deliveryLocation=null;reservationQuote=null/);
  assert.match(picker,/data-reservation-address-save/);
 });
 test('all reservation delegated buttons are functional',()=>{
  assert.ok(selector);
- for(const attr of ['data-reservation-address','data-reservation-address-save','data-reservation-quote',
+ for(const attr of ['data-reservation-address','data-reservation-address-save',
   'data-reservation-pay','data-reservation-cash-mode','data-reservation-verify'])
   assert.ok(selector.includes('['+attr+']'),attr);
+});
+
+test('manual reservation availability button was removed and queries run on user changes',()=>{
+ assert.doesNotMatch(picker,/data-reservation-quote|Consultar disponibilidad de reserva/);
+ assert.doesNotMatch(selector,/data-reservation-quote/);
+ assert.match(js,/function autoCheckReservationQuote\(\)/);
+ assert.match(js,/if\(n==='reservationPicker'\)autoCheckReservationQuote\(\)/);
+ assert.match(js,/if\(st\.stage==='reservationPicker'\)autoCheckReservationQuote\(\)/);
+ assert.match(handlers,/reservationAddressEditing=false;save\(\);render\(\);autoCheckReservationQuote\(\)/);
+ assert.match(js,/if\(e\.target\?\.id==='b3-reservation-at'\)[^\n]+autoCheckReservationQuote\(\)/);
+ assert.match(picker,/Buscando automáticamente una sede disponible/);
 });
