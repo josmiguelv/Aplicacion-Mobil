@@ -326,8 +326,8 @@ function paymentOptions(){
  const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];
  if(!st.configReady)return []; // No published store or payment methods: never assume enabled.
  const selected=shops.find(x=>String(x.id)===String(st.store));
- const selectedMethods=selected?.paymentMethods?.[st.mode];
- const quotedMethods=st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)?st.quote.paymentMethods:null;
+ const selectedMethods=selected?.paymentMethods?.[st.scheduleMode==='reservation'?'reservation':st.mode];
+ const quotedMethods=st.scheduleMode==='reservation'?null:st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)?st.quote.paymentMethods:null;
  const published=Array.isArray(selectedMethods)&&Array.isArray(quotedMethods)?selectedMethods.filter(m=>quotedMethods.includes(m)):selectedMethods||quotedMethods;
  return Array.isArray(published)?choices.filter(x=>published.includes(x[0])):[];
 }
@@ -369,7 +369,7 @@ async function fetchConfig({strict=false}={}){
   publishedPaymentImages=c.paymentImages&&typeof c.paymentImages==='object'?c.paymentImages:{};
   publishedPaymentWaitMinutes=Number.isInteger(c.paymentWaitMinutes)&&c.paymentWaitMinutes>0?c.paymentWaitMinutes:10;
   publishedReminderCount=Number.isInteger(c.reminderCount)&&c.reminderCount>=0?c.reminderCount:2;
-  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null})));
+  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null,reservation_enabled:x.reservationSettings?.enabled===true,reservationAcceptingRequests:x.reservationSettings?.acceptingRequests===true})));
   // Productos: conservar siempre la carta de muestra y anexar los publicados.
   // La lista se reconstruye, no se concatena incrementalmente, para evitar duplicados.
   products.splice(0,products.length,...productsFromApi(c.products));
@@ -2104,8 +2104,11 @@ function heading(title,back){return `<div class="screen-heading"><button aria-la
 // Reservation is a request, NOT an automatically accepted commercial order.
 // This UI is isolated until the Administrator publishes a reservation contract.
 function reservationMinLead(store){
+ // The inspected Admin contract currently publishes reservationSettings.preparationMinutes,
+ // which is preparation duration, NOT a minimum booking lead time.
+ // Never misuse preparation time as a booking restriction.
  const raw=store?.reservationMinimumMinutes;
- return Number.isInteger(raw)&&raw>0&&raw<=10080?raw:null;
+ return Number.isInteger(raw)&&raw>=0&&raw<=10080?raw:null;
 }
 function reservationTimeValue(input){
  if(typeof input!=='string'||!/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(input))return NaN;
@@ -2130,19 +2133,18 @@ function reservationFormPreview(){
  if(!selected||selected.reservation_enabled!==true)
   return {error:'Selecciona una sede con reservas habilitadas por el Administrador Web.'};
  const lead=reservationMinLead(selected);
- if(lead===null)return {error:'La sede no publicó una anticipación mínima verificable.'};
  let when;
  try{when=window.B3ReservationForms.schedule(st.reservationAt)}
  catch(error){return {error:error.message}}
- if(when.from<Date.now()+lead*60000)
-  return {error:'El inicio del intervalo no cumple la anticipación mínima publicada.'};
+ if(when.from<=Date.now()||(lead!==null&&when.from<Date.now()+lead*60000))
+  return {error:lead===null?'El intervalo de reserva debe comenzar en el futuro.':'El inicio del intervalo no cumple la anticipación mínima publicada.'};
  const available=paymentOptions().map(x=>x[0]);
  if(!available.includes(st.pay))return {error:'Selecciona un método de pago publicado para esta sede y modalidad.'};
- const priceReady=st.mode==='pickup'||(deliveryQuoteValid()&&String(st.quote?.storeId)===String(st.store));
+ const priceReady=st.mode==='pickup'||(reservationQuote&&reservationQuote.storeId===st.store&&reservationQuote.dateTime===st.reservationAt&&reservationQuote.mode==='delivery');
  if(!priceReady)return {error:'Primero se requiere una cotización de Delivery válida para calcular el total y el vuelto.'};
  try{
   const items=publishedOrderItems().map(i=>({name:product('api:'+i.productId).name,quantity:i.quantity}));
-  const fee=st.mode==='delivery'?Number(st.quote.deliveryFeePen):0;
+  const fee=st.mode==='delivery'?Number(reservationQuote.deliveryFeePen):0;
   const amount=st.reservationCashExact?undefined:st.reservationCashAmount;
   const form=window.B3ReservationForms.request({
    dateTime:st.reservationAt,mode:st.mode,items,subtotal:subtotal(),
@@ -2175,7 +2177,7 @@ function reservationPicker(){
   '<p class="smallprint">Intervalo: 15 minutos antes y 15 después de la hora seleccionada (Perú, UTC-5).</p>'+
   (!selected?'<div class="notice">La sede se determinará según la modalidad y la cobertura publicada. Sin una sede asignada no podemos confirmar su habilitación de reservas.</div>':
    selected.reservation_enabled!==true?'<div class="notice">Esta sede no tiene reservas habilitadas en la configuración publicada.</div>':
-   lead===null?'<div class="notice">La API pública no publicó la anticipación mínima de esta sede.</div>':
+   lead===null?'<div class="notice">La API actual publica el tiempo de preparación, pero no la anticipación mínima; no utilizamos uno como si fuera el otro.</div>':
    '<div class="notice">Anticipación mínima publicada: '+lead+' minutos, calculada desde el inicio del intervalo.</div>')+
   (selected&&allMethods.length?'<h2>Forma de pago publicada</h2><div class="method-list">'+
     allMethods.map(([id,title])=>'<button type="button" class="'+(st.pay===id?'chosen':'')+'" data-reservation-pay="'+id+'">'+
