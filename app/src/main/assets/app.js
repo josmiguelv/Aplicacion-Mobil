@@ -305,6 +305,7 @@ function paymentImageUrl(method){
  return API_BASE+raw;
 }
 function paymentConfirmationForm(imageUrl=''){
+ requireImmediateOrderFlow();
  const names={yape:'YAPE',plin:'PLIN',card:'TARJETA'};
  if(!names[st.pay])throw Error('Metodo no compatible con comprobante');
  const items=st.cart.map(item=>{const p=product(item.id);return (p?.name||'Producto')+' x'+item.qty}).join(', ');
