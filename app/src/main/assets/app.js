@@ -761,10 +761,17 @@ function stopAgentDecisionPoll(){
 }
 // GET de estado separado del reintento POST del FORM. Los cooldowns del
 // FORM se conservan en order-availability.js y nunca bloquean este GET.
-function agentStatusPollDelay(delay=6000){
- // The Administrator shares its GET and POST rate counter. Poll at a measured
- // cadence rather than every 1-2s so one order cannot starve its own receipt POST.
- return Math.max(6000,Number.isFinite(delay)?delay:6000);
+let firstStatusCheckInteractionId=null;
+function agentStatusPollDelay(delay=6000,entry=null){
+ // First check promptly after the ticket is delivered. Subsequent reads are
+ // spaced to avoid exhausting the shared 10-per-minute Admin request counter.
+ if(entry?.interactionId&&entry.messageDelivered===true&&
+    entry.agentDecision!=='ACCEPTED'&&entry.status==='PENDING'&&
+    firstStatusCheckInteractionId!==entry.interactionId){
+  firstStatusCheckInteractionId=entry.interactionId;
+  return 1200;
+ }
+ return Math.max(10500,Number.isFinite(delay)?delay:10500);
 }
 function b3OrderTiming(stage,started){
  // Solo etapa y duracion: nunca identificadores, telefonos ni direcciones.
@@ -808,7 +815,7 @@ function scheduleAgentDecisionPoll(delay=2000){
  if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
  if(entry.status!=='SUBMITTING'&&!entry.interactionId)return;
  agentDecisionTimer=setTimeout(()=>{agentDecisionTimer=null;void pollAgentDecision()},
-  agentStatusPollDelay(delay));
+  agentStatusPollDelay(delay,entry));
 }
 async function completeAcceptedQuote(entry){
  const api=window.B3OrderAvailability;
@@ -909,8 +916,8 @@ async function pollAgentDecision(){
   let result;
   try{result=await api.pollInteraction(entry)}
   finally{b3OrderTiming('agent_status',pollStarted)}
-  // Never apply a stale agent-poll UI result while the customer cancels the same request.
-  if(checkoutCancelInFlight)return;
+  // A previous order must never update the screen of a new checkout.
+  if(checkoutCancelInFlight||api.readInteraction?.()?.interactionId!==entry.interactionId)return;
   const store=shops.find(x=>x.id===entry.body.storeId);
   if(result.clientStatus==='EXPIRED'||result.clientStatus==='CANCELLED'){
    resetDeliveryOrderContact();
@@ -1551,6 +1558,9 @@ function queueNotice(t,options={}){
 function toast(t,options={}){queueNotice(t,options)}
 function activePersonalCheckout(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
+ // A payment-approved order recorded in local history no longer blocks a new purchase.
+ if(entry?.paymentConfirmation?.status==='ACCEPTED'&&
+    st.orders?.some(o=>o?.interactionId===entry.interactionId&&o.paymentStatus==='ACCEPTED'))return null;
  return ['SUBMITTING','PENDING','ACCEPTED'].includes(entry?.status)?entry:null;
 }
 function showOrderAcceptedOnce(entry){
@@ -1629,8 +1639,30 @@ function beginNewCheckoutAfterRejection(){
  clearDeliveryAvailability();save();
  return true;
 }
+function beginNewOrderAfterPayment(){
+ const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
+ if(entry?.paymentConfirmation?.status!=='ACCEPTED')return false;
+ // Never release an interaction unless the real approval is safely indexed.
+ if(!recordVerifiedPaymentOrder(entry)||
+    !st.orders?.some(o=>o.interactionId===entry.interactionId&&o.paymentStatus==='ACCEPTED'))return false;
+ try{if(!api.archiveConfirmedInteraction?.(entry.interactionId))return false}
+ catch(error){console.warn('[B3 order] Paid order could not be archived',error?.name||'STORAGE_ERROR');return false}
+ stopAgentDecisionPoll();
+ if(paymentDecisionTimer!==null)clearTimeout(paymentDecisionTimer);
+ paymentDecisionTimer=null;
+ ++deliveryValidationGeneration;
+ deliveryRequestPending=false;deliveryRequestError='';paymentFormError='';
+ checkoutRefreshPending=false;checkoutReviewNote='';checkoutPending=false;
+ st.mode='';st.scheduleMode='now';st.reservationAt='';st.store='';
+ st.quote=null;st.pay='';st.cash='';st.fulfillment='';st.pickupOrigin='';
+ st.coords=null;st.selected='';st.qty=1;
+ resetDeliveryOrderContact();clearDeliveryAvailability();
+ save();
+ return true;
+}
 function nav(tab){
  if(tab==='chat'){openChatOverlay();return}
+ if(tab==='inicio'||tab==='carta')beginNewOrderAfterPayment();
  if(tab==='inicio')beginNewCheckoutAfterRejection();
  checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;
  st.tab=tab;st.stage='app';window.scrollTo({top:0});render();
@@ -1841,9 +1873,9 @@ let trackingPollTimer=null,trackingPollBusy=false;
 function visibleLiveOrder(){
  if(st.stage==='orderDetail')return findLocalOrder(selectedOrderId);
  if(st.stage==='app'&&st.tab==='pedidos'){
-  const currentId=window.B3OrderAvailability?.readInteraction?.()?.interactionId;
-  return (st.orders||[]).find(o=>o?.interactionId===currentId&&o.demo!==true&&
-   o.paymentStatus==='ACCEPTED'&&o.status!=='DELIVERED');
+  return (st.orders||[]).find(o=>o?.interactionId&&o.demo!==true&&
+   o.paymentStatus==='ACCEPTED'&&o.status!=='DELIVERED'&&
+   window.B3OrderAvailability?.readOrderInteraction?.(o.interactionId));
  }
  return null;
 }
@@ -1859,7 +1891,7 @@ function scheduleLiveTracking(delay=10000){
 async function refreshLiveTracking(){
  if(trackingPollBusy)return;
  const order=visibleLiveOrder(),api=window.B3OrderAvailability;
- const entry=api?.readInteraction?.();
+ const entry=order?.interactionId?api?.readOrderInteraction?.(order.interactionId):null;
  if(!order||!entry||order.interactionId!==entry.interactionId||
     order.paymentStatus!=='ACCEPTED'||order.status==='DELIVERED'||
     typeof api.readTrackingMessages!=='function')return;
@@ -2519,7 +2551,7 @@ function paymentOutcome(){
  '</div><p class="smallprint">Puedes consultar el avance real desde Mis pedidos. La preparación comienza cuando la sede lo indique.</p>':'')+
  '</div>'+
  (approved?'<button class="primary full" data-tab="pedidos">Ver seguimiento del pedido</button>':'')+
- '<button class="outline full" data-tab="inicio">Volver al inicio</button></div>';
+ '<button class="outline full" data-tab="inicio">'+(approved?'Realizar otro pedido':'Volver al inicio')+'</button></div>';
 }
 async function submitPaymentForm(){
  if(paymentFormBusy)return;
@@ -2550,7 +2582,7 @@ async function submitPaymentForm(){
   if(['paymentProofPreview','paymentWaiting'].includes(st.stage))render();
  }
 }
-function schedulePaymentDecisionPoll(delay=2500){
+function schedulePaymentDecisionPoll(delay=8500){
  if(paymentDecisionTimer!==null)clearTimeout(paymentDecisionTimer);
  paymentDecisionTimer=null;
  if(paymentDecisionBusy||window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation?.status!=='SENT')return;
@@ -2560,11 +2592,15 @@ async function pollPaymentDecision(){
  if(paymentDecisionBusy)return;
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
  if(entry?.paymentConfirmation?.status!=='SENT')return;
- paymentDecisionBusy=true;let delay=2500;
+ paymentDecisionBusy=true;let delay=8500;
  try{
+  const started=performance.now();
   const result=await api.pollPaymentConfirmation(entry);
+  b3OrderTiming('payment_status',started);
   if(['ACCEPTED','REJECTED'].includes(result.decision)){
-   if(result.decision==='ACCEPTED')recordVerifiedPaymentOrder(api.readInteraction());
+   const current=api.readInteraction?.();
+   if(current?.interactionId!==entry.interactionId)return;
+   if(result.decision==='ACCEPTED')recordVerifiedPaymentOrder(current);
    if(st.stage==='paymentWaiting')screen('paymentOutcome');
    else toast(result.decision==='ACCEPTED'?'La sede aceptó el pago':'La sede rechazó el pago');
    return;
