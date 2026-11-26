@@ -1057,3 +1057,16 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-payment-prep-minutes{font-size:clamp(28px,7vw,37px);line-height:1.1;color:#146638;letter-spacing:-.04em;font-weight:900}
 .b3-payment-prep-context{display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;color:#205e3b;font-weight:800}
 .b3-payment-status-approved .b3-payment-status-note small{color:#668271;font-size:11px;line-height:1.45;font-weight:500}
+
+
+/* Pollos B3 — prominent, accessible fulfillment mode beside the destination label. */
+.home-v10 .b3-header-location-group{display:flex;flex:1;flex-direction:column;justify-content:center;min-width:0;gap:2px}
+.home-v10 .b3-header-topline{display:flex;align-items:center;gap:7px;min-width:0;flex-wrap:wrap}
+.home-v10 .b3-header-topline .b3-destination-label{flex:0 1 auto;max-width:100%}
+.home-v10 .b3-fulfillment-pill{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:31px;padding:5px 9px;border:1px solid #168044;border-radius:999px;background:#e6f6ec;color:#126b37;font-size:11px;font-weight:800;line-height:1.1;white-space:nowrap;max-width:100%;cursor:pointer;box-shadow:0 1px 3px #1665341c;transition:background-color .18s ease,box-shadow .18s ease}
+.home-v10 .b3-fulfillment-pill:hover{background:#d4f1df;box-shadow:0 2px 7px #16653422}
+.home-v10 .b3-fulfillment-pill:active{background:#bcedcf}
+.home-v10 .b3-fulfillment-pill:focus-visible{outline:2px solid #126b37;outline-offset:2px}
+.home-v10 .b3-header-location-group .b3-header-target{flex:0 1 auto;width:100%;min-height:0;padding:2px 0;gap:2px}
+@media(max-width:360px){.home-v10 .b3-compact-header{gap:6px;padding-left:10px;padding-right:10px}.home-v10 .b3-fulfillment-pill{padding:5px 7px;font-size:10px;min-height:30px}.home-v10 .b3-header-topline{gap:5px}}
+@media(prefers-reduced-motion:reduce){.home-v10 .b3-fulfillment-pill{transition:none}}
