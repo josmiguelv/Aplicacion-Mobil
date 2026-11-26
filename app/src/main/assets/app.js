@@ -2118,6 +2118,7 @@ function reservationTimeValue(input){
  const check=new Date(Date.UTC(y,m-1,day));
  return check.getUTCFullYear()===y&&check.getUTCMonth()===m-1&&check.getUTCDate()===day?parsed.getTime():NaN;
 }
+let reservationAddressEditing=false;
 let reservationQuote=null;
 let reservationQuoteBusy=false;
 let reservationQuoteError='';
@@ -2260,7 +2261,14 @@ function reservationPicker(){
   (st.mode==='delivery'?
    '<div class="summary-card"><b>Dirección de entrega</b><p>'+
      esc([st.profile.address,st.profile.district].filter(Boolean).join(', ')||'Todavía no indicada')+
-   '</p><button type="button" class="outline full" data-reservation-address="1">Revisar dirección</button></div>':'')+
+   '</p><button type="button" class="outline full" data-reservation-address="1">'+
+   (reservationAddressEditing?'Ocultar edición':'Editar dirección')+'</button>'+
+   (reservationAddressEditing?
+    '<label>Dirección<input id="b3-reservation-address" value="'+esc(st.profile.address)+'"></label>'+
+    '<label>Distrito<input id="b3-reservation-district" value="'+esc(st.profile.district)+'"></label>'+
+    '<label>Referencia<input id="b3-reservation-reference" value="'+esc(st.profile.reference||'')+'"></label>'+
+    '<button type="button" class="primary full" data-reservation-address-save="1">Guardar dirección</button>':'')+
+   '</div>':'')+
   (!reservationQuote?
    '<button class="primary full" data-reservation-quote="1" '+(reservationQuoteBusy?'disabled':'')+'>'+
     (reservationQuoteBusy?'Buscando disponibilidad...':'Consultar disponibilidad de reserva')+'</button>':
@@ -3275,7 +3283,7 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||p.disabled)return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
-root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-address],[data-reservation-quote],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',e=>{if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-address],[data-reservation-address-save],[data-reservation-quote],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -3457,8 +3465,15 @@ if(b.dataset.scheduleChoice){
    return}
 }
 if(b.hasAttribute('data-reservation-address')){
- // Keep reservation intent while the user checks an existing address.
- screen('deliveryAddress');return;
+ reservationAddressEditing=!reservationAddressEditing;
+ render();return;
+}
+if(b.hasAttribute('data-reservation-address-save')){
+ const address=v('b3-reservation-address'),district=v('b3-reservation-district'),reference=v('b3-reservation-reference');
+ if(address.trim().length<6||district.trim().length<2)return toast('Ingresa una dirección completa y el distrito.');
+ st.profile.address=address.trim();st.profile.district=district.trim();st.profile.reference=reference.trim();
+ deliveryLocation=null;reservationQuote=null;st.store='';st.pay='';
+ reservationQuoteError='';++reservationQuoteGeneration;reservationAddressEditing=false;save();render();return;
 }
 if(b.hasAttribute('data-reservation-quote')){void checkReservationQuote();return}
 if(b.dataset.reservationPay){
