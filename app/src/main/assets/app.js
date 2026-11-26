@@ -763,6 +763,8 @@ function stopAgentDecisionPoll(){
 // FORM se conservan en order-availability.js y nunca bloquean este GET.
 let firstStatusCheckInteractionId=null;
 function agentStatusPollDelay(delay=6000,entry=null){
+ // Accepted products need only local quote completion, not another status GET.
+ if(entry?.agentDecision==='ACCEPTED'&&entry.messageDelivered===true)return 100;
  // First check promptly after the ticket is delivered. Subsequent reads are
  // spaced to avoid exhausting the shared 10-per-minute Admin request counter.
  if(entry?.interactionId&&entry.messageDelivered===true&&
