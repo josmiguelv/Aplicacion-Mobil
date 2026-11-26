@@ -158,11 +158,22 @@
   async function nativeRequest(action) {
     if (!root.AndroidBridge || typeof root.AndroidBridge.orderAvailabilityRequest !== 'function')
       throw Error('La conexión segura de pedidos requiere la aplicación Android actualizada.');
+    const queuedAt=Date.now();
     await waitForTrafficBudget(action);
-    const response=await nativeRequestRaw(action);
-    if(TRAFFIC_OPS.has(action.operation)&&Number(response?.status)===429)
-      blockedUntil=Math.max(blockedUntil,Date.now()+61000);
-    return response;
+    const budgetWaitMs=Date.now()-queuedAt;
+    if(budgetWaitMs>=200)
+      console.info('[B3 order timing] traffic_budget_wait',action.operation,budgetWaitMs+'ms');
+    const sentAt=Date.now();
+    try{
+      const response=await nativeRequestRaw(action);
+      if(TRAFFIC_OPS.has(action.operation)&&Number(response?.status)===429)
+        blockedUntil=Math.max(blockedUntil,Date.now()+61000);
+      console.info('[B3 order timing] http',action.operation,Number(response?.status)||0,(Date.now()-sentAt)+'ms');
+      return response;
+    }catch(error){
+      console.info('[B3 order timing] http_failed',action.operation,(Date.now()-sentAt)+'ms');
+      throw error;
+    }
   }
   function nativeRequestRaw(action) {
     const requestId = 'oa_' + (++sequence);
