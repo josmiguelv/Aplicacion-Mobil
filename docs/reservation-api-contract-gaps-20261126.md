@@ -41,3 +41,11 @@ Fecha de revisión: 2026-11-26. Rama Admin inspeccionada: `consolidate/admin-res
 - Implementación: `app/src/main/assets/reservation-forms.js`, funciones `request` y `paymentProof`.
 - Pruebas: `scripts/reservation-forms-10-fields.test.mjs`, fecha normal y cruces de medianoche en ambos formularios, sin variables duplicadas y con límite de diez.
 - Esta modificación afecta al constructor local, no habilita el POST de creación ni cambia el FORM generado por el Administrador. Los bloqueos de integración anteriores permanecen pendientes; no se modificaron Administrador ni TuVerso.
+
+## Protección de modalidad — revisión posterior
+
+- Android conserva la selección de reserva al regresar de un pedido anterior o cambiar entre Delivery y Recojo. Solo la elección explícita de pedido inmediato cambia una reserva a `now`.
+- Seleccionar reserva invalida consultas inmediatas pendientes y no permite abandonar una interacción inmediata activa. Las cotizaciones de reserva se invalidan al cambiar de modalidad y sus respuestas tardías no se aplican a pedidos inmediatos.
+- El mensaje de validación distingue explícitamente un FORM preparado de una reserva enviada. No se reutiliza la API de pedido inmediato para reservas.
+- Verificación de solo lectura del contrato Admin, rama `consolidate/admin-reservations-payment-api-20261124`: `normalizeReserveRequest` rechaza propiedades no enumeradas, entre ellas `orderForm` y el método de pago; `normalizedForm` construye en servidor cuatro variables (Fecha solicitada, Hora solicitada, Productos, Subtotal) y título RESERVA DE PEDIDO. `mobile-reservations.mjs` transmite ese FORM. El cliente no puede imponer el FORM de Fecha única ni el segundo FORM con ese contrato. No se comprobó el despliegue real ni se modificó el servidor.
+- El alcance de esta corrección es preventivo: no habilita creación ni confirmación de reservas. Pendiente contrato compatible y prueba integral real. No se autoriza alterar Administrador Web o TuVerso desde esta tarea.
