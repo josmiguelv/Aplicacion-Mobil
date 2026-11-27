@@ -792,7 +792,7 @@ function b3OrderTiming(stage,started){
 }
 let formDeliveryPending=null;
 function ensureFormDelivery(entry){
- if(!entry?.interactionId||!entry.body?.customer||entry.messageDelivered===true||
+ if(!entry?.interactionId||!(entry.body?.customer||entry.orderForm?.title==='VALIDACIÓN DE RECOJO')||entry.messageDelivered===true||
     entry.messageDeliveryUncertain===true||entry.messageDeliveryBlocked===true||
     (Number.isFinite(entry.messageRetryAt)&&entry.messageRetryAt>Date.now())||
     !['PENDING','ACCEPTED'].includes(entry.status)||formDeliveryPending)return;
@@ -905,7 +905,7 @@ async function pollAgentDecision(){
    clearDeliveryAvailability();resetDeliveryOrderContact();save();nav('inicio');toast('Solicitud cancelada.');return;
   }
   // Un POST FORM lento no puede bloquear la lectura del GET de respuesta.
-  if(entry.body?.customer&&entry.messageDelivered!==true){
+  if((entry.body?.customer||entry.orderForm?.title==='VALIDACIÓN DE RECOJO')&&entry.messageDelivered!==true){
    if(st.stage==='availability'){
     deliveryAvailability={status:'CREATE_UNCERTAIN',
      storeName:shops.find(s=>s.id===entry.body.storeId)?.name||'',candidateNames:[],
@@ -914,6 +914,11 @@ async function pollAgentDecision(){
    ensureFormDelivery(entry);
   }
   if(entry.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'){
+   if(entry.orderForm?.title==='VALIDACIÓN DE RECOJO'){
+    if(entry.messageDelivered===true)completeAcceptedPickup(entry);
+    else ensureFormDelivery(entry);
+    return;
+   }
    if(st.stage==='availability'){
     if(entry.body?.customer&&entry.messageDelivered!==true){
      deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
@@ -944,6 +949,11 @@ async function pollAgentDecision(){
   }
   if(result.decision==='ACCEPTED'){
    const updated=api.readInteraction?.()||entry;
+   if(updated.orderForm?.title==='VALIDACIÓN DE RECOJO'){
+    if(updated.messageDelivered===true)completeAcceptedPickup(updated);
+    else ensureFormDelivery(updated);
+    return;
+   }
    if(updated.body?.customer&&updated.messageDelivered!==true){
     if(st.stage==='availability'){
      deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:store?.name||'',candidateNames:[],
@@ -956,6 +966,10 @@ async function pollAgentDecision(){
    return;
   }
   if(result.decision==='REJECTED'){
+   if(entry.orderForm?.title==='VALIDACIÓN DE RECOJO'){
+    pickupRequestError='La tienda seleccionada no tiene disponible el producto solicitado. Puedes elegir otra tienda para realizar tu pedido.';
+    if(st.stage==='availability')render();return;
+   }
    // A verified rejection ends this interaction. No automatic retry or
    // re-routing to another store without explicit customer action.
    api.markRejectedStore(requestSeriesKey(st.profile.address,st.profile.district),entry.body.storeId);
@@ -2919,13 +2933,20 @@ async function submitPickupRequest(){
   render();
  }finally{pickupRequestBusy=false;if(st.stage==='pickupRequestPending')render();}
 }
+function completeAcceptedPickup(entry){
+ if(entry?.status!=='ACCEPTED'||entry.agentDecision!=='ACCEPTED'||entry.messageDelivered!==true)return;
+ if(st.mode!=='pickup'||entry.body?.storeId!==st.store)return;
+ const api=window.B3OrderAvailability;
+ try{api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);pickupRequestError='';screen('payment');}
+ catch(error){pickupRequestError=String(error.message||'No se pudo habilitar el pago');render();}
+}
 function pickupRequestPending(){
  const store=shops.find(x=>String(x.id)===String(st.store));
  return '<div class="page">'+heading('Validación de recojo','phone')+
- '<div class="summary-card"><h2>Solicitud pendiente de integración</h2>'+
- '<p>El pago todavía no está habilitado. La aplicación no ha enviado un formulario de recojo a la tienda.</p>'+
+ '<div class="summary-card"><h2>Consultando disponibilidad</h2>'+
+ '<p>Estamos enviando o verificando tu solicitud con la tienda. El pago se habilitará solo cuando el agente acepte.</p>'+
  '<p>Local seleccionado: <b>'+esc(store?.name||'Por seleccionar')+'</b></p></div>'+
- '<button type="button" class="outline full" data-screen="cart">Volver al carrito</button></div>';
+ (pickupRequestError?'<p role="alert">'+esc(pickupRequestError)+'</p>':'')+'</div>';
 }
 function payment(){
  const available=paymentOptions();
