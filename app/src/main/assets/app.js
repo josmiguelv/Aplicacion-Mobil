@@ -1,4 +1,4 @@
-/* POLLOS B3 — V12 checkout piloto: interfaz y seguimiento local de pedidos, sin cobros reales. */
+/* POLLOS B3 — Aplicación Android: catálogo publicado, solicitudes y seguimiento de pedidos. */
 (()=>{'use strict';
 const K='b3-v6-demo-20261110', root=document.getElementById('app');
 const products=[]; // Solo productos publicados por la API.
@@ -124,7 +124,7 @@ const API_BASE=(()=>{
  const raw=window.AndroidBridge?.getApiBase?.()||'';
  return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):'';
 })();
-// Fase locales: conservar catálogo, imágenes, promociones y vacantes de demostración.
+// El catálogo y las vacantes se obtienen de la API del Administrador.
 let catalogPublished=false;
 const NOTIFICATIONS_API_BASE=(()=>{const raw=window.AndroidBridge?.getNotificationsApiBase?.()||'';return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):''})();
 let commercialNotifications=[],notificationsLoading=false,notificationsError='',notificationsRequestId=0;
@@ -1665,7 +1665,6 @@ function nav(tab){
  if(tab==='carta')void syncPromotionCatalog();
 }
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
-const demo='';
 const img=(p,c='',priority=false)=>{const src=photo(p);const eager=priority||c==='hero-img';return src?`<img class="${c}" src="${src}" loading="${eager?'eager':'lazy'}" decoding="async" ${eager?'fetchpriority="high"':''} alt="Imagen ${p.isPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
 function savedAddresses(){return Array.isArray(st.addresses)?st.addresses.filter(x=>x&&typeof x.id==='string'&&typeof x.street==='string'&&typeof x.district==='string'):[]}
 function pickSavedAddress(id,quote=false){
@@ -1783,7 +1782,7 @@ function fulfillmentOverlay(){
     ${choice?modeButtons:delivery?deliveryPanel:pickupPanel}
    </section></div>`;
 }
-function main(){return `<div class="shell">${demo}<main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${cartCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(subtotal())}</b><span>${cartCount()}</span></button>`:''}${bar()}</div>${selectedHomeStore?homeStoreSheet():fulfillmentOverlay()}`}
+function main(){return `<div class="shell"><main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${cartCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(subtotal())}</b><span>${cartCount()}</span></button>`:''}${bar()}</div>${selectedHomeStore?homeStoreSheet():fulfillmentOverlay()}`}
 
 /* Published B3 stores, one independently configurable schedule for each weekday. */
 const storeDayNames=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
@@ -1994,7 +1993,7 @@ function trackCard(o){
   const display=orderStageDisplay(o,id,title,info);
   return '<div class="b3-track-stage '+(completed?'done':i===index+1?'current':'upcoming')+'"><span class="b3-track-dot">'+(completed?'✓':i+1)+'</span><div><b>'+esc(display.title)+'</b><small>'+(completed?'Completado':i===index+1?esc(display.info):'Pendiente')+'</small></div></div>';
  }).join('')+
- (isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-demo-next="'+esc(o.id)+'">Simular siguiente etapa</button>':'')+
+ 
  (!isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-tracking-refresh="1">Actualizar seguimiento</button>':'')+'</div>';
 }
 function orderDetail(){
@@ -3297,7 +3296,7 @@ function chat(){
 }
 function about(){return `<div class="page about b3-about-new">${heading('Sobre la app','app')}
  <div class="about-copy"><h2>Pollos B3</h2><p>La aplicación móvil para conocer la carta, consultar locales y preparar pedidos de Delivery o recojo.</p>
- <div class="b3-about-facts"><div><strong>Aplicación</strong><span>Pollos B3 · Android</span></div><div><strong>Versión</strong><span>1.9.0 (piloto · modalidades y confirmaciones B3)</span></div><div><strong>API del administrador</strong><span>${esc(API_BASE?new URL(API_BASE).hostname:'No configurada')}</span></div><div><strong>Estado</strong><span>Pedidos y pagos reales aún no habilitados</span></div></div>
+ <div class="b3-about-facts"><div><strong>Aplicación</strong><span>Pollos B3 · Android</span></div><div><strong>Versión</strong><span>Versión Android instalada</span></div><div><strong>API del administrador</strong><span>${esc(API_BASE?new URL(API_BASE).hostname:'No configurada')}</span></div><div><strong>Estado</strong><span>Disponibilidad sujeta a la configuración publicada y confirmación de la sede</span></div></div>
  <p class="b3-about-owner">Pollos B3 · Todos los derechos reservados.</p></div>
  <div class="b3-about-credit"><p>Desarrollo tecnológico</p><img src="images/integra-b2g-new.webp" alt="INTEGRA B2G" loading="lazy"><strong>INTEGRA B2G</strong><span>Soluciones tecnológicas para Pollos B3</span></div>
  </div>`}
@@ -3717,16 +3716,6 @@ if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
 if(b.dataset.orderOpen){
  const o=findLocalOrder(b.dataset.orderOpen);if(!o)return;
  selectedOrderId=o.id;screen('orderDetail');return;
-}
-if(b.dataset.demoNext){
- const o=findLocalOrder(b.dataset.demoNext);if(!o||!isDemoOrder(o)||o.status==='DELIVERED')return;
- const i=ORDER_STAGES.findIndex(x=>x[0]===o.status);
- if(i<0||i>=4)return;
- o.status=ORDER_STAGES[i+1][0];
- if(o.status==='DELIVERED'){o.deliveredAt=Date.now();o.reviewDismissed=false}
- save();render();
- if(o.status==='DELIVERED')afterOrderDelivered(o);
- return;
 }
 if(b.hasAttribute('data-tracking-refresh')){void refreshLiveTracking();return}
 if(b.dataset.repeatOrder||b.hasAttribute('data-fav-reorder')){
