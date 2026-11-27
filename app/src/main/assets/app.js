@@ -2884,6 +2884,14 @@ async function pollPaymentDecision(){
   if(api.readInteraction()?.paymentConfirmation?.status==='SENT')schedulePaymentDecisionPoll(delay);
  }
 }
+function pickupRequestPending(){
+ const store=shops.find(x=>String(x.id)===String(st.store));
+ return '<div class="page">'+heading('Validación de recojo','phone')+
+ '<div class="summary-card"><h2>Solicitud pendiente de integración</h2>'+
+ '<p>El pago todavía no está habilitado. La aplicación no ha enviado un formulario de recojo a la tienda.</p>'+
+ '<p>Local seleccionado: <b>'+esc(store?.name||'Por seleccionar')+'</b></p></div>'+
+ '<button type="button" class="outline full" data-screen="cart">Volver al carrito</button></div>';
+}
 function payment(){
  const available=paymentOptions();
  const selected=shops.find(x=>String(x.id)===String(st.store));
@@ -3747,7 +3755,11 @@ if(b.hasAttribute('data-phone-next')){
   confirmedDeliveryReviewKey=null;
   screen('confirmDetails');return
  }
- void revalidateCheckout('payment');return}
+ // Pickup cannot enter payments before a real interaction FORM and verified agent acceptance.
+ // Fail closed until the dedicated pickup request contract is available.
+ checkoutPending=false;
+ checkoutReviewNote='La solicitud de recojo requiere confirmación de la tienda antes del pago.';
+ screen('pickupRequestPending');return}
 if(b.hasAttribute('data-payment-start')){if(st.mode==='pickup')return toast('El pago de recojo requiere una solicitud aceptada por la tienda. No se ha enviado ningún pago.');if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash'){st.cash='';paymentFormError='';screen('paymentProofPreview');return}if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
 if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
 if(b.hasAttribute('data-cash-exact')){st.cash=orderTotal().toFixed(2);save();render();return}
