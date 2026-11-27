@@ -2884,6 +2884,41 @@ async function pollPaymentDecision(){
   if(api.readInteraction()?.paymentConfirmation?.status==='SENT')schedulePaymentDecisionPoll(delay);
  }
 }
+let pickupRequestBusy=false,pickupRequestError='';
+async function submitPickupRequest(){
+ if(pickupRequestBusy)return;
+ const api=window.B3OrderAvailability;
+ pickupRequestBusy=true;pickupRequestError='';screen('pickupRequestPending');
+ try{
+  if(!api?.prepareInteraction||!api?.createInteraction||!api?.sendInteractionMessage||!api?.pollInteraction)
+   throw Error('Actualiza la aplicación para solicitar el recojo.');
+  await fetchConfig({strict:true});
+  const selected=shops.find(x=>String(x.id)===String(st.store));
+  if(!selected||!eligibleForPickup(selected))throw Error('El local ya no está habilitado para recojo.');
+  const items=publishedOrderItems();
+  if(!/^9\\d{8}$/.test(st.profile.phone||'')||!String(st.profile.first||'').trim()||
+     !String(st.profile.last||'').trim())throw Error('Confirma tus nombres y celular.');
+  const input={storeName:selected.name,when:st.scheduleMode==='reservation'?'scheduled':'now',
+   dateTime:st.reservationAt,items:st.cart.map(x=>{const p=product(x.id);return {
+    name:p?.name,quantity:x.qty,unitPrice:p?.price};})};
+  const form=window.B3PickupOrderContract.approval(input).form;
+  const prior=api.readInteraction?.();
+  if(prior&&['SUBMITTING','PENDING','ACCEPTED'].includes(prior.status)){
+   if(prior.body?.storeId!==selected.id||prior.orderForm?.title!=='VALIDACIÓN DE RECOJO')
+    throw Error('Existe otra solicitud activa. Resuélvela antes de crear un pedido.');
+   screen('availability');scheduleAgentDecisionPoll(1000);return;
+  }
+  const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,
+   catalogRevision:publishedRevision,items,orderForm:form});
+  await api.createInteraction(entry);
+  const current=api.readInteraction?.()||entry;
+  if(current.interactionId&&current.messageDelivered!==true)ensureFormDelivery(current);
+  screen('availability');scheduleAgentDecisionPoll(1200);
+ }catch(error){
+  pickupRequestError=String(error?.message||'No se pudo solicitar el recojo.');
+  render();
+ }finally{pickupRequestBusy=false;if(st.stage==='pickupRequestPending')render();}
+}
 function pickupRequestPending(){
  const store=shops.find(x=>String(x.id)===String(st.store));
  return '<div class="page">'+heading('Validación de recojo','phone')+
@@ -3758,8 +3793,7 @@ if(b.hasAttribute('data-phone-next')){
  // Pickup cannot enter payments before a real interaction FORM and verified agent acceptance.
  // Fail closed until the dedicated pickup request contract is available.
  checkoutPending=false;
- checkoutReviewNote='La solicitud de recojo requiere confirmación de la tienda antes del pago.';
- screen('pickupRequestPending');return}
+ void submitPickupRequest();return}
 if(b.hasAttribute('data-payment-start')){if(st.mode==='pickup')return toast('El pago de recojo requiere una solicitud aceptada por la tienda. No se ha enviado ningún pago.');if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash'){st.cash='';paymentFormError='';screen('paymentProofPreview');return}if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
 if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
 if(b.hasAttribute('data-cash-exact')){st.cash=orderTotal().toFixed(2);save();render();return}
