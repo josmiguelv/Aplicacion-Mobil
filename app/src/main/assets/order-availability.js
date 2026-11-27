@@ -59,7 +59,7 @@
     if (!Array.isArray(items) || items.length < 1 || items.length > 50 ||
       !items.every(x => x && UUID.test(x.productId) && Number.isInteger(x.quantity) &&
         x.quantity >= 1 && x.quantity <= 99))
-      throw Error('La validación requiere productos publicados en la carta. Retira los productos de demostración.');
+      throw Error('La solicitud requiere productos publicados en la carta y cantidades válidas. Actualiza tu carrito.');
     const orderedItems = items.map(x => ({productId:x.productId.toLowerCase(),quantity:x.quantity}))
       .sort((a,b) => a.productId.localeCompare(b.productId));
     if (new Set(orderedItems.map(x => x.productId)).size !== orderedItems.length)
