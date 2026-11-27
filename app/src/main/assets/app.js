@@ -2275,6 +2275,14 @@ function reservationFormPreview(){
  }catch(error){return {error:error.message||'No se pudo construir la reserva.'}}
 }
 function scheduleChoice(){
+ if(st.mode==='delivery'){
+  const graphic=(choice,file,fallback,label)=>'<button type="button" aria-label="'+label+'" data-schedule-choice="'+choice+'" style="display:block;width:100%;padding:0;border:0;border-radius:18px;overflow:hidden;background:#171512;cursor:pointer"><img src="images/'+file+'" alt="'+label+'" onerror="this.onerror=null;this.src=\'images/'+fallback+'\'" style="display:block;width:100%;height:auto;aspect-ratio:1;object-fit:contain"></button>';
+  return '<div class="page b3-schedule-page">'+heading('¿Cuándo deseas recibirlo?','choice')+
+   '<p class="sub">Modalidad seleccionada: Delivery</p><div role="group" aria-label="Elegir cuándo recibir el pedido" style="display:grid;gap:14px">'+
+   graphic('now','b3-entrega-ahora.webp','b3-receive-now.svg','Entrega ahora')+
+   graphic('reservation','b3-programar-delivery.webp','b3-receive-reservation.svg','Programa tu Delivery')+'</div></div>';
+ }
+
  const mode=st.mode==='delivery'?'Delivery':'Recojo en tienda';
  return '<div class="page b3-schedule-page">'+heading('¿Cuándo deseas recibirlo?','choice')+
   '<p class="sub">Modalidad seleccionada: '+esc(mode)+'</p>'+
