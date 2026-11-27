@@ -1070,3 +1070,20 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .home-v10 .b3-header-location-group .b3-header-target{flex:0 1 auto;width:100%;min-height:0;padding:2px 0;gap:2px}
 @media(max-width:360px){.home-v10 .b3-compact-header{gap:6px;padding-left:10px;padding-right:10px}.home-v10 .b3-fulfillment-pill{padding:5px 7px;font-size:10px;min-height:30px}.home-v10 .b3-header-topline{gap:5px}}
 @media(prefers-reduced-motion:reduce){.home-v10 .b3-fulfillment-pill{transition:none}}
+
+
+/* Pollos B3 — choice between immediate order and scheduled reservation. */
+.b3-schedule-page .b3-schedule-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:17px;margin:23px 0 28px}
+.b3-schedule-page .b3-schedule-card{display:grid;grid-template-columns:minmax(0,1fr) 36px;grid-template-rows:auto auto;align-items:center;gap:0 9px;width:100%;border:1px solid #e8e4e3;border-radius:21px;background:#fff;overflow:hidden;padding:0 15px 16px;text-align:left;color:#1b2330;box-shadow:0 7px 24px rgba(36,23,27,.075);cursor:pointer;transition:transform .17s ease,box-shadow .17s ease,border-color .17s ease}
+.b3-schedule-page .b3-schedule-card>img{display:block;grid-column:1/-1;width:calc(100% + 30px);max-width:none;height:155px;margin:0 -15px 16px;object-fit:cover;object-position:center;background:#fff0e9}
+.b3-schedule-page .b3-schedule-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+.b3-schedule-page .b3-schedule-kicker{font-size:10px;letter-spacing:.075em;color:#b8222d;font-weight:850}
+.b3-schedule-page .b3-schedule-copy strong{display:block;font-size:20px;line-height:1.2;font-weight:850;color:#1d2028}
+.b3-schedule-page .b3-schedule-copy>span:last-child{font-size:12px;color:#69707b;line-height:1.4}
+.b3-schedule-page .b3-schedule-arrow{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#fff1f0;color:#ca1422}
+.b3-schedule-page .b3-schedule-card:active{transform:scale(.987)}
+.b3-schedule-page .b3-schedule-card:hover{border-color:#e9b7b6;box-shadow:0 11px 28px rgba(36,23,27,.12)}
+.b3-schedule-page .b3-schedule-card:focus-visible{outline:3px solid #b81526;outline-offset:3px}
+@media(max-width:370px){.b3-schedule-page .b3-schedule-card>img{height:128px}.b3-schedule-page .b3-schedule-copy strong{font-size:18px}.b3-schedule-page .b3-schedule-cards{gap:13px;margin-top:16px}}
+@media(min-width:580px){.b3-schedule-page .b3-schedule-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.b3-schedule-page .b3-schedule-card>img{height:170px}}
+@media(prefers-reduced-motion:reduce){.b3-schedule-page .b3-schedule-card{transition:none}}

@@ -19,6 +19,14 @@ test('entry points return to reservation instead of creating immediate order',()
  assert.match(between("if(b.hasAttribute('data-review-confirm'))","if(b.hasAttribute('data-phone-next'))"),/if\(st\.scheduleMode==='reservation'\)/);
 });
 test('only explicit now choice changes reservation intent into immediate',()=>{
- assert.match(source,/if\(choice==='now'\)\{st\.scheduleMode='now';st\.reservationAt='';/);
- assert.match(source,/if\(choice==='reservation'\)\{st\.scheduleMode='reservation';/);
+ assert.match(source,/if\(choice==='now'\)\{resetReservationQuote\(\);st\.scheduleMode='now';st\.reservationAt='';/);
+ assert.match(between("if(choice==='reservation')", "if(choice==='now')"),/st\.scheduleMode='reservation';/);
+ assert.equal((source.match(/st\.scheduleMode='now'/g)||[]).length,2);
+});
+
+test('reservation choice cancels stale immediate work without abandoning an active interaction',()=>{
+ const block=between("if(choice==='reservation')","if(choice==='now')");
+ assert.match(block,/activePersonalCheckout\(\)/);
+ assert.match(block,/\+\+deliveryValidationGeneration/);
+ assert.match(source,/const active=\(\)=>run===deliveryValidationGeneration&&st\.scheduleMode!=='reservation'/);
 });

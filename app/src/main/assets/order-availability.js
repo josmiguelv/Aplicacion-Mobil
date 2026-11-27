@@ -377,10 +377,27 @@
   // Store the exact display ticket once, separate from the CREATE payload.
   // No Cliente or Teléfono fields: identity already travels with customer.
   function normalizeOrderForm(form) {
+    if(form?.title==='VALIDACIÓN DE RECOJO'){
+      if(form.subtitle!=='Confirmar disponibilidad de productos para retiro en tienda'||
+         !Array.isArray(form.fields)||form.fields.length<6||form.fields.length>7)
+        throw Error('El FORM de recojo no cumple el contrato.');
+      const labels=form.fields.map(x=>x?.variable).join('|');
+      if(labels!=='Cliente|Celular|Productos|Subtotal|Tienda de recojo|Modalidad'&&
+         labels!=='Cliente|Celular|Productos|Subtotal|Tienda de recojo|Modalidad|Fecha y hora')
+        throw Error('Las variables del FORM de recojo no coinciden.');
+      if(form.fields.some(x=>!x||typeof x.value!=='string'||!x.value.trim()||
+         x.value.length>500||typeof x.variable!=='string'||x.variable.length>80))
+        throw Error('Campos inválidos del FORM de recojo.');
+      if(!['Retirar ahora','Recojo programado'].includes(form.fields[5].value)||
+         (form.fields.length===7)!==(form.fields[5].value==='Recojo programado'))
+        throw Error('Modalidad de recojo inconsistente.');
+      return {title:form.title,subtitle:form.subtitle,
+        fields:form.fields.map(x=>({variable:x.variable,value:x.value}))};
+    }
     if(!form||typeof form!=='object'||Array.isArray(form)||
       Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
-      form.title!=='VALIDACIÓN DE PEDIDO'||
-      form.subtitle!=='Confirmar disponibilidad para delivery'||
+      !((form.title==='VALIDACIÓN DE PEDIDO'&&form.subtitle==='Confirmar disponibilidad para delivery')||
+        (form.title==='VALIDACIÓN DE RESERVA'&&form.subtitle==='Confirmar disponibilidad para delivery programado'))||
       !Array.isArray(form.fields)||form.fields.length<3||form.fields.length>10)
       throw Error('La validación requiere productos, subtotal y dirección (máximo diez variables).');
     const fields=form.fields.map(item=>{
@@ -392,8 +409,11 @@
         throw Error('Los campos del FORM no corresponden al contrato de aprobación.');
       return {variable:item.variable,value:item.value};
     });
-    const labels=fields.map(f=>f.variable);
-    const productFields=fields.length-2;
+    const scheduled=form.title==='VALIDACIÓN DE RESERVA';
+    if(scheduled&&(fields[0]?.variable!=='Fecha'||!fields[0].value.trim()))throw Error('Confirma la fecha de reserva.');
+    const ticketFields=scheduled?fields.slice(1):fields;
+    const labels=ticketFields.map(f=>f.variable);
+    const productFields=ticketFields.length-2;
     const legacy=labels.join('|')==='Productos|Subtotal|Dirección y referencia';
     const indexed=productFields>=1&&productFields<=8&&
       labels.slice(0,productFields).every((name,i)=>
@@ -410,7 +430,7 @@
        (name!=='Productos restantes'||i===7))&&
       labels[productFields]==='Subtotal'&&
       labels[productFields+1]==='Dirección y referencia'&&
-      fields.slice(0,productFields).every((field,i)=>
+      ticketFields.slice(0,productFields).every((field,i)=>
        field.variable==='Productos restantes'&&i===7?
         field.value.includes(' × S/ '):
         /^\d+ × S\/ \d+(?:\.\d{2})?$/.test(field.value));
@@ -507,7 +527,7 @@
       throw Error('La respuesta de TU VERSO no confirmó una interacción pendiente válida.');
     // Persist the server-confirmed interaction before the separate message POST.
     entry.status='PENDING';entry.interactionId=data.interactionId;
-    entry.messageDelivered=!entry.body.customer;
+    entry.messageDelivered=!entry.body.customer&&!entry.orderForm;
     persistInteraction(entry);
     recordActivity(entry,'created'); // Confirmed by the Administrator's 200/201 response.
     return {...data,status:'PENDING'};
@@ -526,9 +546,9 @@
   async function sendInteractionMessageOnce(entry) {
     syncFormDeliveryState(entry);
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
-       !entry.body?.customer||entry.body.customer.mode!=='delivery'||
+       !(entry.body?.customer?.mode==='delivery'||entry.orderForm?.title==='VALIDACIÓN DE RECOJO')||
        !['PENDING','ACCEPTED'].includes(entry.status))
-      throw Error('No existe una solicitud de aprobación de Delivery pendiente.');
+      throw Error('No existe una solicitud de aprobación pendiente.');
     if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
     if(entry.messageDeliveryUncertain===true){
       const error=Error('La entrega del FORM no se pudo comprobar. No se reenviará automáticamente: se requiere confirmación del servidor.');
@@ -853,16 +873,39 @@
       throw Error('La sede debe aprobar el pedido y habilitar el plazo de pago.');
     if(Date.parse(entry.paymentExpiresAt)<=Date.now())
       throw Error('El plazo de pago termino.');
-    if(!form||form.type!=='FORM'||!form.form||
-       !entry.receiptUpload||entry.receiptUpload.status!=='UPLOADED'||
-       form.form.imageUrl!==entry.receiptUpload.imageUrl||
-       !/^https:\/\/[^\s<>"']+$/i.test(form.form.imageUrl)||
-       !/^PAGO REALIZADO - (YAPE|PLIN|TARJETA)$/.test(form.form.title)||
-       !Array.isArray(form.form.fields)||form.form.fields.length!==6||
-       form.form.fields.map(x=>x?.variable).join('|')!=='N.º de pedido|Pedido|Subtotal|Delivery|Dirección|Total'||
-       form.form.fields[0]?.value!=='B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase()||
-       form.form.fields.some(x=>typeof x.value!=='string'||!x.value.trim()||x.value.length>500))
-      throw Error('El formulario de pago no cumple el contrato de seis campos.');
+    const pickup=entry.orderForm?.title==='VALIDACIÓN DE RECOJO';
+    if(pickup){
+      const ticket=form?.form;
+      const title=ticket?.title||'';
+      const isCash=title==='PAGO RECOJO - EFECTIVO';
+      const labels='N.º de pedido|Pedido|Subtotal|Tienda de recojo|Modalidad|Total';
+      const scheduled=entry.orderForm.fields.some(x=>x.variable==='Fecha y hora');
+      const expected=labels+(scheduled?'|Fecha y hora':'')+(isCash?'|Paga con|Vuelto':'');
+      if(form?.type!=='FORM'||!ticket||!Array.isArray(ticket.fields)||
+         ticket.fields.map(x=>x?.variable).join('|')!==expected||
+         ticket.fields[0]?.value!=='B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase()||
+         ticket.fields.some(x=>typeof x.value!=='string'||!x.value.trim()||x.value.length>500)||
+         ticket.fields[3].value!==entry.orderForm.fields.find(x=>x.variable==='Tienda de recojo')?.value||
+         ticket.fields[4].value!==entry.orderForm.fields.find(x=>x.variable==='Modalidad')?.value||
+         (scheduled&&ticket.fields[6].value!==entry.orderForm.fields.find(x=>x.variable==='Fecha y hora')?.value)||
+         (isCash?(ticket.imageUrl!==undefined||ticket.subtitle!=='Confirmar pago en efectivo al retirar'):
+         (!/^PAGO RECOJO - (YAPE|PLIN|TARJETA)$/.test(title)||
+          ticket.subtitle!=='Comprobante adjunto'||
+          entry.receiptUpload?.status!=='UPLOADED'||ticket.imageUrl!==entry.receiptUpload.imageUrl)))
+        throw Error('El FORM de pago de recojo no coincide con la solicitud aceptada.');
+    }else{
+    const ticket=form?.form, title=ticket?.title||'', cash=/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(title);
+    const scheduled=title.startsWith('PAGO DE RESERVA');
+    const labels=(scheduled?'Fecha|':'')+'N.º de pedido|Pedido|Subtotal|Delivery|Dirección|Total'+(cash?'|Paga con|Vuelto':'');
+    if(form?.type!=='FORM'||!ticket||!Array.isArray(ticket.fields)||
+       ticket.fields.map(x=>x?.variable).join('|')!==labels||
+       ticket.fields[scheduled?1:0]?.value!=='B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase()||
+       ticket.fields.some(x=>typeof x.value!=='string'||!x.value.trim()||x.value.length>500)||
+       (cash?(ticket.imageUrl!==undefined||ticket.subtitle!=='Confirmar pedido con pago en efectivo'):
+       (!entry.receiptUpload||entry.receiptUpload.status!=='UPLOADED'||ticket.imageUrl!==entry.receiptUpload.imageUrl||
+       !/^PAGO (REALIZADO|DE RESERVA) - (YAPE|PLIN|TARJETA)$/.test(title))))
+      throw Error('El formulario de confirmación no cumple el contrato.');
+    }
     if(entry.paymentConfirmation){
       if(entry.paymentConfirmation.form?.form?.title!==form.form.title)
         throw Error('Este pedido ya tiene otra confirmacion de pago iniciada.');
@@ -902,10 +945,12 @@
     confirmation.status='SENDING';persistInteraction(entry);
     let response;
     try {
-      response=await nativeRequest({operation:'INTERACTION_PAYMENT_FORM',
+      const pickup=entry.orderForm?.title==='VALIDACIÓN DE RECOJO';
+      const cash=/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(confirmation.form.form.title);
+      response=await nativeRequest({operation:pickup||cash?'INTERACTION_MESSAGE':'INTERACTION_PAYMENT_FORM',
         interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
         idempotencyKey:confirmation.messageKey,
-        body:{appId:entry.body.appId,storeId:entry.body.storeId,form:confirmation.form.form}});
+        body:{appId:entry.body.appId,storeId:entry.body.storeId,...((pickup||cash)?{type:'FORM'}:{}),form:confirmation.form.form}});
     }catch(error){
       // Native contract rejection happens BEFORE the HTTP request. It is safe
       // to correct the APK and retry the same FORM with its original message key.
