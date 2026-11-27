@@ -3,7 +3,7 @@
 const K='b3-v6-demo-20261110', root=document.getElementById('app');
 const products=[]; // Solo productos publicados por la API.
 // Los locales se reciben exclusivamente desde el catálogo publicado en la web administrativa.
-const shops=[]; // Solo locales publicados por API; sin sucursales de demostración.
+const shops=[]; // Solo locales publicados por la API.
 
 
 let scheduleReturnToModal=false;
@@ -19,7 +19,7 @@ if(!['now','reservation'].includes(st.scheduleMode))st.scheduleMode='now';
 if(typeof st.reservationAt!=='string')st.reservationAt='';
 // Explicit pickup choice; legacy default 'now' is not proof the customer selected it.
 if(typeof st.pickupScheduleSelected!=='boolean')st.pickupScheduleSelected=false; // Retirado de la navegación de Pollos B3 V11.
-// Demo-only flag: stores whether the visitor already chose guest access or test sign-in.
+// Preserve the existing first-entry preference across application updates.
 let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
 let googleSignInPending=false;
@@ -225,7 +225,7 @@ let splashRequestPending=false;
 let publishedPromotions=[];
 let publishedVacancies=[];
 let complaintsBookUrl=null;
-// Demo-only artwork supplied by the user; never represented as a published vacancy.
+// Vacancies are displayed only when supplied by the published API.
 function visibleVacancies(){return publishedVacancies}
 let selectedVacancyId=null;
 
@@ -316,7 +316,7 @@ function productsFromApi(rows){
  const seen=new Set();
  return rows.flatMap(x=>{
   if(!x||typeof x.id!=='string'||!/^[a-zA-Z0-9_-]{1,128}$/.test(x.id.trim())||typeof x.name!=='string'||!x.name.trim()||x.active===false||x.isActive===false||x.enabled===false)return [];
-  // Namespaced to keep demo identifiers and API identifiers independent.
+  // Preserve the API identifier namespace used by persisted carts and orders.
   const id='api:'+x.id.trim();
   if(seen.has(id))return [];
   seen.add(id);
@@ -1985,7 +1985,7 @@ function orderStageDisplay(order,id,title,info){
 }
 function trackCard(o){
  const index=Math.max(0,ORDER_STAGES.findIndex(row=>row[0]===o.status));
- return '<div class="b3-track">'+(isDemoOrder(o)?'<p class="b3-demo-alert">SIMULACIÓN LOCAL — No son estados reportados por Pollos B3.</p>':'')+
+ return '<div class="b3-track">'+(isDemoOrder(o)?'<p class="b3-demo-alert">REGISTRO LOCAL ANTERIOR — Los estados no están confirmados por Pollos B3.</p>':'')+
  '<div class="b3-track-heading"><strong>Seguimiento visual</strong><span>'+Math.round((index+1)/ORDER_STAGES.length*100)+'% de etapas</span></div>'+
  '<div class="b3-track-bar"><div style="width:'+((index+1)/ORDER_STAGES.length*100)+'%"></div></div>'+
  ORDER_STAGES.map(([id,title,info],i)=>{
@@ -2828,7 +2828,7 @@ function clearApprovedOrderBasket(entry){
  return true;
 }
 // Registramos una sola entrada local por interacción con la segunda validación real.
-// Nunca usamos finalizeDemoOrder, ni inventamos un identificador comercial.
+// Solo se registran pedidos confirmados por la interacción comercial.
 function recordVerifiedPickupOrder(entry){
  const confirmation=entry?.paymentConfirmation;
  if(confirmation?.status!=='ACCEPTED'||!confirmation.agentMessageId||!entry?.interactionId)return false;
