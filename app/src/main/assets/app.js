@@ -2720,7 +2720,7 @@ function paymentInstructions(){
 }
 function paymentProofPreview(){
  if(!isPaymentFormReady())return '<div class="page"><div class="notice">Solicitud no disponible.</div></div>';
- if(st.pay==='cash'){return '<div class="page">'+heading('Pago al recibir','payment')+personalCheckoutTimeHtml()+'<div class="summary-card"><p>Productos <b>'+cash(subtotal())+'</b></p><p>Delivery <b>'+cash(st.quote.deliveryFeePen)+'</b></p><p class="grand">Total <strong>'+cash(orderTotal())+'</strong></p></div><label>¿Con cuánto vas a pagar?<input id="b3-cash-amount" type="number" min="'+orderTotal()+'" step="0.01" value="'+esc(st.cash||'')+'"></label><button class="outline full" data-cash-exact="1">Tengo el monto exacto</button><p>Vuelto: <b id="b3-cash-change">'+cash(Math.max(0,Number(st.cash||0)-orderTotal()))+'</b></p>'+(paymentFormError?'<div class="notice">'+esc(paymentFormError)+'</div>':'')+'<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy?'disabled':'')+'>Confirmar pedido</button></div>';}
+ if(st.pay==='cash'){return '<div class="page">'+heading('Pago al recibir','payment')+personalCheckoutTimeHtml()+'<div class="summary-card"><p>Productos <b>'+cash(subtotal())+'</b></p>'+(st.mode==='pickup'?'<p>Recojo en tienda · Sin delivery</p>':'<p>Delivery <b>'+cash(st.quote.deliveryFeePen)+'</b></p>')+'<p class="grand">Total <strong>'+cash(orderTotal())+'</strong></p></div><label>¿Con cuánto vas a pagar?<input id="b3-cash-amount" type="number" min="'+orderTotal()+'" step="0.01" value="'+esc(st.cash||'')+'"></label><button class="outline full" data-cash-exact="1">Tengo el monto exacto</button><p>Vuelto: <b id="b3-cash-change">'+cash(Math.max(0,Number(st.cash||0)-orderTotal()))+'</b></p>'+(paymentFormError?'<div class="notice">'+esc(paymentFormError)+'</div>':'')+'<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy?'disabled':'')+'>Confirmar pedido</button></div>';}
  const form=st.mode==='pickup'?pickupPaymentForm():paymentConfirmationForm(),confirmation=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
  return '<div class="page">'+heading('Confirmar pago','paymentInstructions')+personalCheckoutTimeHtml()+
  '<p class="sub">Adjunta el comprobante. Se enviará como imagen dentro del mismo FORM de pago.</p>'+ 
@@ -2776,6 +2776,21 @@ function clearApprovedOrderBasket(entry){
 }
 // Registramos una sola entrada local por interacción con la segunda validación real.
 // Nunca usamos finalizeDemoOrder, ni inventamos un identificador comercial.
+function recordVerifiedPickupOrder(entry){
+ const confirmation=entry?.paymentConfirmation;
+ if(confirmation?.status!=='ACCEPTED'||!confirmation.agentMessageId||!entry?.interactionId)return false;
+ if(!Array.isArray(st.orders))st.orders=[];
+ if(st.orders.some(x=>x.interactionId===entry.interactionId))return true;
+ const fields=confirmation.form?.form?.fields||[];
+ const amount=fields.find(x=>x.variable==='Total')?.value;
+ const total=Number(String(amount||'').replace('S/','').trim());
+ if(!Number.isFinite(total)||total<=0)return false;
+ st.orders.unshift({id:entry.interactionId,interactionId:entry.interactionId,
+  code:orderPublicCode(entry),status:'ACCEPTED',paymentStatus:'ACCEPTED',
+  mode:'pickup',storeId:entry.body.storeId,total,paymentApprovedAt:Date.now(),
+  items:entry.body.items.map(x=>({id:'api:'+x.productId,qty:x.quantity}))});
+ save();clearApprovedOrderBasket(entry);return true;
+}
 function recordVerifiedPaymentOrder(entry){
  const approval=entry?.paymentConfirmation;
  if(!entry?.interactionId||approval?.status!=='ACCEPTED'||!approval.agentMessageId)return false;
@@ -2831,6 +2846,16 @@ function publishedPreparationTime(storeId){
  return Number.isInteger(minutes)&&minutes>0&&minutes<=240?minutes:null;
 }
 function paymentOutcome(){
+ const pickupEntry=window.B3OrderAvailability?.readInteraction?.();
+ if(pickupEntry?.orderForm?.title==='VALIDACIÓN DE RECOJO'){
+  const status=pickupEntry.paymentConfirmation?.status;
+  if(!['ACCEPTED','REJECTED'].includes(status))return paymentWaiting();
+  if(status==='ACCEPTED')recordVerifiedPickupOrder(pickupEntry);
+  return '<div class="page">'+heading('Confirmación de recojo','app')+
+   '<div class="summary-card"><h2>'+(status==='ACCEPTED'?'¡Pedido confirmado!':'Pedido no confirmado')+'</h2>'+
+   '<p>'+(status==='ACCEPTED'?'La tienda confirmó el pedido para recojo. Consulta Mis pedidos para el seguimiento.':'La tienda no confirmó el pago. Comunícate con la sede antes de intentar nuevamente.')+'</p></div>'+
+   '<button class="primary full" data-tab="pedidos">Ver mis pedidos</button></div>';
+ }
  const currentEntry=window.B3OrderAvailability?.readInteraction?.();
  const c=currentEntry?.paymentConfirmation;
  if(!['ACCEPTED','REJECTED'].includes(c?.status))return paymentWaiting();
@@ -2988,7 +3013,7 @@ function payment(){
  const acceptedDelivery=(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&deliveryQuoteValid()&&window.B3OrderAvailability?.readInteraction?.()?.status==='ACCEPTED')||pickupPaymentReady();
  const awaitingDigitalAcceptance=['yape','plin'].includes(st.pay)&&!acceptedDelivery;
  return `<div class="page">${heading(acceptedDelivery?'Pagar pedido':'Método de pago',acceptedDelivery?'inicio':'prepaymentReview')}
- ${acceptedDelivery?`<div class="summary-card"><h2>Pedido aceptado · ${esc(selected?.name||'Sede asignada')}</h2><p>Productos <b>${cash(subtotal())}</b></p><p>Delivery <b>${cash(st.quote.deliveryFeePen)}</b></p><p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
+ ${acceptedDelivery?`<div class="summary-card"><h2>Pedido aceptado · ${esc(selected?.name||'Sede asignada')}</h2><p>Productos <b>${cash(subtotal())}</b></p>${st.mode==='pickup'?'<p>Recojo en tienda · Sin delivery</p>':`<p>Delivery <b>${cash(st.quote.deliveryFeePen)}</b></p>`}<p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
  <p class="sub">${acceptedDelivery?'Toca cómo deseas pagar. Se mostrará la imagen configurada por la sede.':'Solo aparecen los métodos habilitados para la sede.'}</p>
  <div class="method-list">${available.map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>
  ${missing?`<div class="notice" role="alert">${esc(selected?.name||'La sede asignada')} no tiene métodos de pago publicados para ${st.mode==='delivery'?'delivery':'recojo'}. Deben habilitarse desde el administrador web antes de continuar.</div>${!acceptedDelivery?`<button type="button" class="outline full" data-screen="${st.mode==='delivery'?'deliveryAddress':'locations'}">Cambiar sede o modalidad</button>`:''}`:''}
