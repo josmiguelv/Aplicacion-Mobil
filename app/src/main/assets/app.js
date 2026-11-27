@@ -3752,7 +3752,7 @@ if(b.hasAttribute('data-reservation-verify')){
   if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt||reservationQuote.mode!=='delivery')return toast('Consulta primero la disponibilidad de tu reserva.');
   const when=window.B3ReservationForms.schedule(st.reservationAt);
   if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
- }else{const preview=reservationFormPreview();if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');}
+ }else if(st.mode!=='pickup'){const preview=reservationFormPreview();if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');}
  if(st.mode==='pickup'){
   const when=window.B3ReservationForms.schedule(st.reservationAt);
   if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
