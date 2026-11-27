@@ -1781,10 +1781,7 @@ function fulfillmentOverlay(){
    <button type="button" class="primary full" data-modal-save-delivery="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Buscando sedes...":"Consultar disponibilidad"}</button>
  </div>`;
  const pickupPanel=`<div class="b3-modal-fields"><p class="smallprint">Elige dónde recogerás tu pedido. Consulta cómo llegar antes de seleccionar la tienda.</p>
-   <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual</button>
-   <label>O ingresa una dirección de referencia<input id="pickup-origin" placeholder="Calle, número y distrito" value="${esc(st.pickupOrigin||'')}"></label>
-   <button type="button" class="outline full" data-pickup-origin-save="1">Guardar dirección de referencia</button>
-   ${!st.coords?'<p class="smallprint">Los kilómetros se mostrarán cuando se conozcan las coordenadas de origen y destino.</p>':''}
+   <p class="smallprint">La ubicación es opcional: selecciona directamente la tienda para recoger tu pedido.</p>
    <div class="b3-modal-store-list">${rows.length?rows.map(s=>`<div class="b3-modal-store">
      <div class="b3-store-top"><strong>${esc(s.name)}</strong>${storeStatusHtml(s)}</div>
      ${s.address?`<span class="b3-store-line">${ic('pin',15)}${esc(s.address)}</span>`:''}
@@ -2903,7 +2900,7 @@ function payment(){
  <p class="sub">${acceptedDelivery?'Toca cómo deseas pagar. Se mostrará la imagen configurada por la sede.':'Solo aparecen los métodos habilitados para la sede.'}</p>
  <div class="method-list">${available.map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>
  ${missing?`<div class="notice" role="alert">${esc(selected?.name||'La sede asignada')} no tiene métodos de pago publicados para ${st.mode==='delivery'?'delivery':'recojo'}. Deben habilitarse desde el administrador web antes de continuar.</div>${!acceptedDelivery?`<button type="button" class="outline full" data-screen="${st.mode==='delivery'?'deliveryAddress':'locations'}">Cambiar sede o modalidad</button>`:''}`:''}
- ${!missing&&st.pay==='cash'?`<div class="notice" role="status">Pago al recibir: indica el monto y confirma tu pedido.</div><button class="primary full" data-payment-start="1">Continuar</button>`:''}
+ ${!missing&&st.pay==='cash'?`<div class="notice" role="status">Pago al recibir: indica el monto y confirma tu pedido.</div>${acceptedDelivery?'<button class="primary full" data-payment-start="1">Continuar</button>':''}`:''}
  ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
  ${acceptedDelivery?
    '<div class="b3-payment-secondary-actions" style="display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin:18px 0 8px"><button type="button" data-prepay-add="1" style="border:0;background:none;color:#8e2432;font-size:14px;text-decoration:underline;padding:8px">Cambiar productos</button><button type="button" data-prepay-cancel="1" style="border:0;background:none;color:#8e2432;font-size:14px;text-decoration:underline;padding:8px">Cancelar solicitud</button></div>':
@@ -3754,7 +3751,7 @@ if(b.hasAttribute('data-phone-next')){
   screen('confirmDetails');return
  }
  void revalidateCheckout('payment');return}
-if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash'){st.cash='';paymentFormError='';screen('paymentProofPreview');return}if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
+if(b.hasAttribute('data-payment-start')){if(st.mode==='pickup')return toast('El pago de recojo requiere una solicitud aceptada por la tienda. No se ha enviado ningún pago.');if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash'){st.cash='';paymentFormError='';screen('paymentProofPreview');return}if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
 if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
 if(b.hasAttribute('data-cash-exact')){st.cash=orderTotal().toFixed(2);save();render();return}
 if(b.hasAttribute('data-payment-confirm')){if(st.pay==='cash'){const raw=v('b3-cash-amount');if(!/^\d+(?:\.\d{1,2})?$/.test(raw)||Number(raw)<orderTotal())return toast('Ingresa un monto válido igual o mayor al total');st.cash=raw;save();}void submitPaymentForm();return}
@@ -3773,7 +3770,7 @@ if(b.dataset.pay){
  }
  render();return;
 }
-if(b.hasAttribute('data-pay-next')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
+if(b.hasAttribute('data-pay-next')){if(st.mode==='pickup')return toast('El pedido de recojo aún requiere confirmación del agente antes del pago. No se ha enviado ninguna solicitud.');if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
 if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
 if(b.hasAttribute('data-google-login')){if(googleSignInPending)return;if(!window.AndroidBridge?.signInWithGoogle){toast('El acceso con Google requiere actualizar Android.');return}googleSignInPending=true;render();window.AndroidBridge.signInWithGoogle();return}
 if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin!=='phone'||!/^9\d{8}$/.test(x))return toast('Completa un celular peruano de 9 dígitos');if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=true;st.authProvider='demo-phone';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';st.profile.phone=x;save();enterApp();return}
