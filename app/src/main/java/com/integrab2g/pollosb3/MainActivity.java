@@ -71,6 +71,9 @@ public class MainActivity extends Activity {
     private boolean pendingOpenHome = false;
     private boolean googleSignInRunning = false;
     private static final String LOCAL_APP_URL = "https://appassets.androidplatform.net/assets/index.html";
+    // Remains OFF until TU VERSO and Admin have certified the stream transport.
+    private static final boolean MOBILE_COMM_STREAM_ENABLED = false;
+    private final MobileCommunicationStreamManager mobileCommunicationStreams = new MobileCommunicationStreamManager();
 
     /** Accept only the exact Pollos B3 HTTPS entry point; never redirect arbitrary URLs. */
     private static boolean isPollosB3OpenLink(Intent intent) {
@@ -1006,6 +1009,29 @@ public class MainActivity extends Activity {
                             }
                             JSONObject remote = new JSONObject(bytes.toString("UTF-8"));
                             reply.put("data", remote);
+                            if (MOBILE_COMM_STREAM_ENABLED && status>=200 && status<300) {
+                                if ("INTERACTION_CREATE".equals(operation)) {
+                                    JSONObject created=request.optJSONObject("body");
+                                    if(created!=null)mobileCommunicationStreams.start(origin,
+                                        remote.optString("interactionId",""),
+                                        created.optString("appId",""),created.optString("storeId",""),
+                                        key,this::notifyMobileCommunicationClosed);
+                                } else if ("INTERACTION_STATUS".equals(operation)) {
+                                    String activeId=request.optString("interactionId","");
+                                    String remoteState=remote.optString("status","");
+                                    String operational=remote.optString("operationalConversationStatus","");
+                                    if("CANCELLED".equals(remoteState)||"EXPIRED".equals(remoteState)||
+                                       "FINISHED".equals(remoteState)||"CLOSED".equals(operational)||
+                                       "RESOLVED".equals(operational))
+                                        mobileCommunicationStreams.stop(activeId);
+                                    else mobileCommunicationStreams.start(origin,activeId,
+                                        request.optString("appId",""),request.optString("storeId",""),
+                                        accessKey,this::notifyMobileCommunicationClosed);
+                                } else if ("INTERACTION_CANCEL".equals(operation) &&
+                                           "CANCELLED".equals(remote.optString("status",""))) {
+                                    mobileCommunicationStreams.stop(request.optString("interactionId",""));
+                                }
+                            }
                             if("INTERACTION_MESSAGE".equals(operation)||"INTERACTION_PAYMENT_FORM".equals(operation)){
                                 String responseType=remote.optString("type","");
                                 String safeType="FORM".equals(responseType)?"FORM":
@@ -1236,7 +1262,24 @@ public class MainActivity extends Activity {
             if (!"true".equals(result)) { if (web.canGoBack()) web.goBack(); else finish(); }
         });
     }
+    private void notifyMobileCommunicationClosed(String interactionId) {
+        runOnUiThread(() -> {
+            if(web==null)return;
+            try {
+                JSONObject event=new JSONObject();
+                event.put("type","CLOSED");
+                event.put("interactionId",interactionId);
+                web.evaluateJavascript("window.b3MobileCommunicationEvent && window.b3MobileCommunicationEvent("+
+                    JSONObject.quote(event.toString())+")",null);
+            }catch(Exception ignored){}
+        });
+    }
+    @Override protected void onPause() {
+        mobileCommunicationStreams.closeAll();
+        super.onPause();
+    }
     @Override protected void onDestroy() {
+        mobileCommunicationStreams.closeAll();
         appLinkPageReady = false;
         pendingOpenHome = false;
         pendingNotificationsScreen = false;
