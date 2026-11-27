@@ -2339,18 +2339,6 @@ function reservationPicker(){
      (st.mode==='delivery'?'<p>Tarifa de entrega: '+esc(cash(reservationQuote.deliveryFeePen))+'</p>':'')+
    '</div>':'')+
   (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div>':'')+
-  (methods.length?'<h2>¿Cómo deseas pagar?</h2><div class="method-list">'+
-    methods.map(([id,title])=>'<button type="button" class="'+(st.pay===id?'chosen':'')+'" data-reservation-pay="'+id+'">'+
-     ic(id==='cash'?'store':'card')+'<span><b>'+esc(title)+'</b></span><span class="radio"></span></button>').join('')+'</div>':'')+
-  (st.pay==='cash'&&methods.some(x=>x[0]==='cash')?
-   '<div class="summary-card"><h2>Pago en efectivo</h2>'+
-   '<button type="button" class="outline full" data-reservation-cash-mode="exact">'+(st.reservationCashExact?'✓ ':'')+'Monto exacto</button>'+
-   '<button type="button" class="outline full" data-reservation-cash-mode="other">'+(!st.reservationCashExact?'✓ ':'')+'Otro monto</button>'+
-   (!st.reservationCashExact?'<label>¿Con cuánto pagarás? (S/)<input id="b3-reservation-cash-amount" inputmode="decimal" value="'+esc(st.reservationCashAmount)+'" placeholder="Ej. 100.00"></label>':'')+
-   '</div>':'')+
-  (preview?.form?'<div class="summary-card"><h2>Resumen de la reserva</h2>'+
-    preview.form.fields.map(f=>'<p><b>'+esc(f.variable)+':</b> '+esc(f.value)+'</p>').join('')+
-    '</div>':preview?.error?'<div class="notice">'+esc(preview.error)+'</div>':'')+
   (reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Cambiar a pedido inmediato (sin reserva)</button>'+
   '</div>';
@@ -3556,9 +3544,11 @@ if(b.hasAttribute('data-reservation-verify')){
  if(!st.reservationCashExact)
   st.reservationCashAmount=document.getElementById('b3-reservation-cash-amount')?.value||st.reservationCashAmount;
  save();
- const preview=reservationFormPreview();
- render();
- if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');
+ if(st.mode==='delivery'){
+  if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt||reservationQuote.mode!=='delivery')return toast('Consulta primero la disponibilidad de tu reserva.');
+  const when=window.B3ReservationForms.schedule(st.reservationAt);
+  if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
+ }else{const preview=reservationFormPreview();if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');}
  if(st.mode!=='delivery')return toast('El recojo programado aún requiere integración.');
  resetDeliveryOrderContact();checkoutPending=true;confirmedDeliveryReviewKey=null;screen('identity');
  return;
