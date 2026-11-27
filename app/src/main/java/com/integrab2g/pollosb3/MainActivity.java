@@ -743,16 +743,17 @@ public class MainActivity extends Activity {
                         JSONObject form = payload.optJSONObject("form");
                         JSONArray fields = form == null ? null : form.optJSONArray("fields");
                         boolean scheduledOrder = form!=null&&"VALIDACIÓN DE RESERVA".equals(form.optString("title",""));
+                        boolean pickupApproval=form!=null&&"VALIDACIÓN DE RECOJO".equals(form.optString("title",""));
                         boolean orderApproval = scheduledOrder||"VALIDACIÓN DE PEDIDO".equals(form == null ? "" : form.optString("title",""));
                         boolean cashApproval=form!=null&&form.optString("title","").matches("PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)");
                         boolean cashScheduled=cashApproval&&form.optString("title","").startsWith("PAGO DE RESERVA");
                         boolean paymentApproval = form != null &&
                             form.optString("title","").matches("PAGO REALIZADO - (YAPE|PLIN|TARJETA)");
                         if (!"FORM".equals(payload.optString("type", "")) ||
-                            payload.length() != 4 || form == null || form.length() != ((orderApproval||cashApproval)?3:4) ||
+                            payload.length() != 4 || form == null || form.length() != ((orderApproval||pickupApproval||cashApproval)?3:4) ||
                             form.optString("title", "").length() > 180 ||
                             form.optString("subtitle", "").length() > 350 ||
-                            !(orderApproval || paymentApproval || cashApproval) ||
+                            !(orderApproval || pickupApproval || paymentApproval || cashApproval) ||
                             (cashApproval&&(!"Confirmar pedido con pago en efectivo".equals(form.optString("subtitle",""))||fields==null||fields.length()!=(cashScheduled?9:8))) ||
                             (orderApproval && (!(scheduledOrder?"Confirmar disponibilidad para delivery programado":"Confirmar disponibilidad para delivery").equals(form.optString("subtitle", "")) ||
                                 fields == null || fields.length() < (scheduledOrder?4:3) || fields.length() > 10)) ||
@@ -760,6 +761,22 @@ public class MainActivity extends Activity {
                                 !form.optString("imageUrl","").matches("https://[^\\s<>\\\"]+/api/v1/mobile/payment-receipts/[0-9a-fA-F-]{36}") ||
                                 fields == null || fields.length() != 5)))
                             throw new IllegalArgumentException("Invalid Pollos B3 approval FORM");
+                        if(pickupApproval){
+                            if(!"Confirmar disponibilidad de productos para retiro en tienda".equals(form.optString("subtitle",""))||
+                               fields==null||(fields.length()!=4&&fields.length()!=5))
+                                throw new IllegalArgumentException("Invalid pickup approval FORM");
+                            String[] requiredPickup=fields.length()==5?
+                                new String[]{"Productos","Subtotal","Tienda de recojo","Modalidad","Fecha y hora"}:
+                                new String[]{"Productos","Subtotal","Tienda de recojo","Modalidad"};
+                            for(int j=0;j<requiredPickup.length;j++){
+                                JSONObject f=fields.optJSONObject(j);
+                                if(f==null||f.length()!=2||!requiredPickup[j].equals(f.optString("variable",""))||
+                                   f.optString("value","").trim().isEmpty()||f.optString("value","").length()>500)
+                                    throw new IllegalArgumentException("Invalid pickup FORM field");
+                            }
+                            if(!(fields.length()==5?"Recojo programado":"Retirar ahora").equals(fields.optJSONObject(3).optString("value","")))
+                                throw new IllegalArgumentException("Invalid pickup modality");
+                        }
                         int offset=scheduledOrder?1:0;
                         int productsCount=orderApproval?fields.length()-2-offset:0;
                         java.util.HashSet<String> productLabels=new java.util.HashSet<>();
@@ -771,7 +788,10 @@ public class MainActivity extends Activity {
                                label.length()>80||value.trim().isEmpty()||value.length()>500||
                                !label.trim().equals(label))
                                 throw new IllegalArgumentException("Invalid order FORM fields");
-                            if(orderApproval){
+                            if(pickupApproval){
+                                String[] labels=fields.length()==5?new String[]{"Productos","Subtotal","Tienda de recojo","Modalidad","Fecha y hora"}:new String[]{"Productos","Subtotal","Tienda de recojo","Modalidad"};
+                                if(!labels[i].equals(label))throw new IllegalArgumentException("Invalid pickup field order");
+                            }else if(orderApproval){
                                 if(scheduledOrder&&i==0){
                                     if(!"Fecha".equals(label))throw new IllegalArgumentException("Missing reservation date");
                                     continue;
