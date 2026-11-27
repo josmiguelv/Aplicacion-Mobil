@@ -2073,11 +2073,14 @@ function afterOrderDelivered(o){
  if(!o.review&&!o.reviewDismissed){reviewSheetOrderId=o.id;reviewScore=0;reviewTags=[];render()}
 }
 
+const menuCategories=['Todos','Pollos','Promociones','Combos','Bebidas'];
+const categoryMatches=(p,c)=>String(p.cat||'').trim().toLocaleLowerCase('es-PE')===c.toLocaleLowerCase('es-PE');
+const comboProducts=()=>products.filter(p=>categoryMatches(p,'Combos'));
 function home(){
   const featured=products.slice(0,4);
   const f=featured.length?featured[st.carousel%featured.length]:null;
   const heroVisual=f&&!catalogPublished&&f.id==='p4'?{...f,previewPhoto:9}:f;
-  const promos=catalogPublished?publishedPromotions:products.filter(p=>p.cat==='Promociones');
+  const promos=comboProducts();
   const pp=promos.length?promos[st.promo%promos.length]:null;
   const shop=shops.length?shops[st.local%shops.length]:null;
   return `<div class="home home-v10">
@@ -2098,9 +2101,9 @@ function home(){
       <div class="section-head"><h2>Te recomendamos</h2><button data-tab="carta">Ver carta ${ic('chev',16)}</button></div>
       <div class="reco-scroll">${products.slice(0,3).map(p=>`<article class="reco"><button class="reco-view" data-product="${p.id}" aria-label="Ver ${esc(p.name)}">${img(p)}<span class="reco-name">${esc(p.name)}</span></button><div class="reco-bottom"><b>${cash(p.price)}</b><button data-quick="${p.id}" aria-label="Seleccionar ${esc(p.name)}">${ic('plus',18)}</button></div></article>`).join('')}</div>
     </section>
-    <section class="block promos" aria-label="Combos referenciales">
-      <div class="section-head"><h2>Combos para compartir</h2><span class="minor">Precios por validar</span></div>
-      ${pp?(catalogPublished?`<div class="promo-card published-promotion" role="status"><div class="promo-info"><span>PROMOCIÓN PUBLICADA</span><strong>${esc(pp.title)}</strong><small>Consulta los productos participantes en la carta.</small></div></div>`:`<div class="promo-card" data-product="${pp.id}" role="button" tabindex="0" aria-label="Ver ${esc(pp.name)}">${img(pp)}<div class="promo-info"><span>COMBO DE DEMOSTRACIÓN</span><strong>${esc(pp.name)}</strong><b>${cash(pp.price)}</b></div></div>`):'<div class="notice">No hay promociones publicadas.</div>'}
+    <section class="block promos" aria-label="Combos para compartir">
+      <div class="section-head"><h2>Combos para compartir</h2></div>
+      ${pp?`<div class="promo-card" data-product="${esc(pp.id)}" role="button" tabindex="0" aria-label="Ver ${esc(pp.name)}">${img(pp)}<div class="promo-info"><span>COMBO</span><strong>${esc(pp.name)}</strong><b>${pp.disabled?'Consultar':cash(pp.price)}</b></div></div>`:'<div class="notice">No hay combos publicados.</div>'}
       <div class="dots" role="group" aria-label="Cambiar combo">${promos.map((_,i)=>`<button aria-label="Combo ${i+1}" aria-pressed="${st.promo%promos.length===i}" data-promo="${i}" class="${st.promo%promos.length===i?'on':''}"></button>`).join('')}</div>
     </section>
     ${homeStores()}
@@ -2108,7 +2111,7 @@ function home(){
   </div>`;
 }
 function card(p){return `<article class="item" data-product="${esc(p.id)}"><div class="item-picture">${img(p)}<span>${p.isPublished?'Publicado':'Referencial'}</span></div><div class="item-text"><strong>${esc(p.name)}</strong><div class="item-bottom"><b>${p.disabled?'Consultar':cash(p.price)}</b><button data-quick="${p.id}" ${p.disabled?'disabled':''} aria-label="Agregar ${esc(p.name)}">${ic('plus',20)}</button></div></div></article>`}
-function carta(){const term=(st.search||'').toLocaleLowerCase('es-PE');const list=products.filter(p=>(st.category==='Todos'||p.cat===st.category)&&(!term||(p.name+' '+p.desc+' '+p.cat).toLocaleLowerCase('es-PE').includes(term)));return `<div class="carta"><h1>La carta</h1><p>Elige lo que más te gusta.</p><div class="filters">${[...new Set(['Todos','Pollos','Promociones','Bebidas',...products.map(p=>p.cat)])].map(c=>`<button data-filter="${esc(c)}" class="${c===st.category?'selected':''}">${esc(c)}</button>`).join('')}</div><div class="search-feedback">${st.search?`Resultados para «${esc(st.search)}» · <button data-clearsearch="1">Limpiar búsqueda</button>`:''}</div><div class="cards">${list.map(card).join('')||'<p class="search-empty">No encontramos productos en esta demostración.</p>'}</div><p class="smallprint">Los productos de muestra son referenciales; los productos publicados se identifican en cada tarjeta. No hay pedidos ni cobros reales habilitados.</p></div>`}
+function carta(){const term=(st.search||'').toLocaleLowerCase('es-PE');const list=products.filter(p=>(st.category==='Todos'||categoryMatches(p,st.category))&&(!term||(p.name+' '+p.desc+' '+p.cat).toLocaleLowerCase('es-PE').includes(term)));return `<div class="carta"><h1>La carta</h1><p>Elige lo que más te gusta.</p><div class="filters">${menuCategories.map(c=>`<button data-filter="${esc(c)}" class="${c===st.category?'selected':''}">${esc(c)}</button>`).join('')}</div><div class="search-feedback">${st.search?`Resultados para «${esc(st.search)}» · <button data-clearsearch="1">Limpiar búsqueda</button>`:''}</div><div class="cards">${list.map(card).join('')||'<p class="search-empty">No encontramos productos en esta demostración.</p>'}</div><p class="smallprint">Los productos de muestra son referenciales; los productos publicados se identifican en cada tarjeta. No hay pedidos ni cobros reales habilitados.</p></div>`}
 function orders(){
  const confirmed=window.B3OrderAvailability?.readInteraction?.();
  if(confirmed?.paymentConfirmation?.status==='ACCEPTED')recordVerifiedPaymentOrder(confirmed);
@@ -3753,7 +3756,7 @@ const carouselMotion={active:null,touch:null,pauseUntil:0,suppressClickUntil:0};
 const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches===true;
 function carouselCount(kind){
  return kind==='hero'?Math.min(products.length,4):kind==='local'?shops.filter(s=>s.active!==false).length:
-  (catalogPublished?publishedPromotions.length:products.filter(p=>p.cat==='Promociones').length);
+  comboProducts().length;
 }
 function updateCarouselDots(kind){
  const section=root.querySelector(kind==='hero'?'.hero-carousel':kind==='local'?'.b3-home-stores':'.promos');
