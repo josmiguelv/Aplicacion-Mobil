@@ -2170,15 +2170,16 @@ function linkedPromoProduct(p){
  const raw=p?.productId??p?.product_id??p?.product?.id??p?.linkedProductId??null;
  if(typeof raw!=='string'||!raw.trim())return null;
  const id=raw.startsWith('api:')?raw:'api:'+raw;
- return products.find(item=>item.id===id&&item.isPublished===true&&categoryMatches(item,'Promociones'))||null;
+ return products.find(item=>item.id===id&&item.isPublished===true)||null;
 }
 function scheduledPromotionForProduct(item){
- if(!item?.isPublished||!categoryMatches(item,'Promociones'))return null;
+ if(!item?.isPublished)return null;
  return publishedPromotions.find(p=>linkedPromoProduct(p)?.id===item.id)||null;
 }
 function promotionOutsideSchedule(item){
  const promotion=scheduledPromotionForProduct(item);
- return !!item?.isPublished&&categoryMatches(item,'Promociones')&&(!promotion||!promoVisibleNow(promotion));
+ return !!item?.isPublished&&((promotion&&!promoVisibleNow(promotion))||
+  (categoryMatches(item,'Promociones')&&!promotion));
 }
 function promotionNotPurchasable(item){return !!item&&(item.disabled||promotionOutsideSchedule(item));}
 function openLinkedPromoProduct(){
@@ -2225,7 +2226,7 @@ async function syncPromotionCatalog({force=false}={}){
    const response=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});
    if(!response.ok)return false;
    const c=await response.json();
-   if(!c.ready||!Array.isArray(c.promotions)||!Array.isArray(c.products))return false;
+   if(!c.ready||!Array.isArray(c.promotions))return false;
    // Refresh promotion schedules only. Keep the catalog, prices and images untouched.
    publishedPromotions=c.promotions.filter(p=>p&&typeof p.title==='string'&&p.title.trim());
    if(st.stage==='app'&&(st.tab==='inicio'||st.tab==='carta'))render();
@@ -3730,17 +3731,15 @@ function animateAddedProduct(fromRect,imageSrc,quantity=1){
 }
 let promotionValidationBusy=false;
 async function validatePromotionFromApi(item){
- if(!item?.isPublished||!categoryMatches(item,'Promociones'))return true;
+ if(!item?.isPublished||(!scheduledPromotionForProduct(item)&&!categoryMatches(item,'Promociones')))return true;
  if(!API_BASE)return false;
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
  try{
   const response=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store',signal:controller.signal});
   if(!response.ok)return false;
   const config=await response.json();
-  if(!config.ready||!Array.isArray(config.products)||!Array.isArray(config.promotions))return false;
+  if(!config.ready||!Array.isArray(config.promotions))return false;
   const rawId=item.id.replace(/^api:/,'');
-  const current=config.products.find(p=>p?.id===rawId);
-  if(!current||current.active===false||current.isActive===false||current.enabled===false)return false;
   const linked=config.promotions.find(p=>{
    const id=p?.productId??p?.product_id??p?.product?.id??p?.linkedProductId;
    return typeof id==='string'&&id.replace(/^api:/,'')===rawId;
@@ -3751,7 +3750,7 @@ async function validatePromotionFromApi(item){
  }catch{return false}finally{clearTimeout(timeout)}
 }
 async function validateCartPromotionsBeforeRequest(){
- const promoItems=st.cart.map(x=>product(x.id)).filter(p=>p?.isPublished&&categoryMatches(p,'Promociones'));
+ const promoItems=st.cart.map(x=>product(x.id)).filter(p=>p?.isPublished&&(scheduledPromotionForProduct(p)||categoryMatches(p,'Promociones')));
  if(!promoItems.length)return;
  const expired=[];
  for(const p of promoItems){
