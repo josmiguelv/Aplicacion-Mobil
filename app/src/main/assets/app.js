@@ -328,8 +328,8 @@ function paymentOptions(){
  const choices=[['yape','Yape','Pago digital sujeto a integración'],['plin','Plin','Pago digital sujeto a integración'],['card','Tarjeta','Pasarela de pago pendiente'],['cash','Pago al recibir','En efectivo, con cálculo de vuelto']];
  if(!st.configReady)return []; // No published store or payment methods: never assume enabled.
  const selected=shops.find(x=>String(x.id)===String(st.store));
- const selectedMethods=selected?.paymentMethods?.[st.scheduleMode==='reservation'?'reservation':st.mode];
- const quotedMethods=st.scheduleMode==='reservation'?null:st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)?st.quote.paymentMethods:null;
+ const selectedMethods=selected?.paymentMethods?.[st.scheduleMode==='reservation'&&st.mode!=='delivery'?'reservation':st.mode];
+ const quotedMethods=st.mode==='delivery'&&Array.isArray(st.quote?.paymentMethods)?st.quote.paymentMethods:null;
  const published=Array.isArray(selectedMethods)&&Array.isArray(quotedMethods)?selectedMethods.filter(m=>quotedMethods.includes(m)):selectedMethods||quotedMethods;
  return Array.isArray(published)?choices.filter(x=>published.includes(x[0])):[];
 }
@@ -2162,7 +2162,7 @@ async function checkReservationQuote(){
  }
  const permitted=shops.filter(x=>x?.active===true&&x.reservation_enabled===true&&
    x.reservationAcceptingRequests===true&&x[st.mode+'_enabled']===true);
- if(!permitted.length){
+ if(st.mode!=='delivery'&&!permitted.length){
   reservationQuoteError='En este momento no hay sedes disponibles para recibir reservas.';render();return;
  }
  const generation=++reservationQuoteGeneration;
@@ -2191,9 +2191,20 @@ async function checkReservationQuote(){
  }
  reservationQuoteBusy=true;reservationQuote=null;reservationQuoteError='';st.store='';st.pay='';render();
  try{
-  const candidates=mode==='delivery'?[null]:permitted;
   let selected=null;
-  for(const candidate of candidates){
+  if(mode==='delivery'){
+   const api=window.B3OrderAvailability;
+   if(!api?.checkAgentAvailability)throw Error('No se pudo consultar la atención de Delivery.');
+   const candidates=eligibleDeliveryCandidates(deliveryLocation).filter(c=>storeAvailabilitySetting(c.store)===true);
+   for(const candidate of candidates){
+    if(generation!==reservationQuoteGeneration)return;
+    const quote=quoteForDeliveryCandidate(candidate);
+    if(!quote.paymentMethods.length)continue;
+    const check=await api.checkAgentAvailability({appId:APP_ID,storeId:candidate.store.id});
+    if(generation!==reservationQuoteGeneration)return;
+    if(check.available){selected={...quote,date:params.date,time:params.time,revision:publishedRevision,agentAvailable:true,acceptingRequests:true};break;}
+   }
+  }else for(const candidate of permitted){
    if(generation!==reservationQuoteGeneration)return;
    const query=candidate?{...params,storeId:candidate.id}:params;
    const response=await fetch(API_BASE+'/api/v1/mobile/reservations/quote',{
