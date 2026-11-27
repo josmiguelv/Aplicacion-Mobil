@@ -2102,7 +2102,7 @@ function showPromoNotice(items){
  if(!promoHomeEligible()||document.getElementById('b3-promo-notice'))return;
  promoNoticeItems=items;promoNoticeIndex=0;items.forEach(p=>promoNoticeShown.add(promoKey(p)));
  const el=document.createElement('div');el.id='b3-promo-notice';el.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .18s ease';
- el.innerHTML='<section role="dialog" aria-modal="true" aria-label="Promociones" style="box-sizing:border-box;width:75vw;max-width:380px;max-height:50dvh;overflow:auto;background:#fff;color:#222;border-radius:22px;padding:20px;box-shadow:0 16px 50px #0004;text-align:center;position:relative"><button data-close-promo aria-label="Cerrar" style="position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:24px;color:#555">×</button><div style="font-size:11px;letter-spacing:2px;color:#b91c1c;font-weight:800;margin:12px 0">PROMOCIÓN ESPECIAL</div><h2 data-promo-title style="font-size:23px;line-height:1.2;overflow-wrap:anywhere;margin:18px 0"></h2><button data-open-promo style="width:100%;border:0;background:#b91c1c;color:white;border-radius:12px;padding:13px;font-weight:700">Ver promoción</button><div data-promo-dots style="display:flex;justify-content:center;gap:8px;margin-top:14px"></div></section>';
+ el.innerHTML='<section role="dialog" aria-modal="true" aria-label="Promociones" style="box-sizing:border-box;width:75vw;height:75vh;height:75dvh;max-height:75vh;max-height:75dvh;display:flex;flex-direction:column;justify-content:center;overflow:auto;background:#fff;color:#222;border-radius:22px;padding:20px;box-shadow:0 16px 50px #0004;text-align:center;position:relative"><button data-close-promo aria-label="Cerrar" style="position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:24px;color:#555">×</button><div style="font-size:11px;letter-spacing:2px;color:#b91c1c;font-weight:800;margin:12px 0">PROMOCIÓN ESPECIAL</div><h2 data-promo-title style="font-size:clamp(24px,6vw,34px);line-height:1.2;overflow-wrap:anywhere;margin:24px 0"></h2><button data-open-promo style="width:100%;border:0;background:#b91c1c;color:white;border-radius:12px;padding:13px;font-weight:700">Ver promoción</button><div data-promo-dots style="display:flex;justify-content:center;gap:8px;margin-top:14px"></div></section>';
  document.body.append(el);requestAnimationFrame(()=>{el.style.opacity='1'});paintPromoNotice();
  el.querySelector('[data-close-promo]').onclick=closePromoNotice;
  el.querySelector('[data-open-promo]').onclick=()=>{closePromoNotice();st.category='Promociones';st.search='';nav('carta')};
@@ -2145,10 +2145,9 @@ function home(){
       <div class="section-head"><h2>Te recomendamos</h2><button data-tab="carta">Ver carta ${ic('chev',16)}</button></div>
       <div class="reco-scroll">${products.slice(0,3).map(p=>`<article class="reco"><button class="reco-view" data-product="${p.id}" aria-label="Ver ${esc(p.name)}">${img(p)}<span class="reco-name">${esc(p.name)}</span></button><div class="reco-bottom"><b>${cash(p.price)}</b><button data-quick="${p.id}" aria-label="Seleccionar ${esc(p.name)}">${ic('plus',18)}</button></div></article>`).join('')}</div>
     </section>
-    <section class="block promos" aria-label="Combos para compartir">
+    <section class="block recommendations" aria-label="Combos para compartir">
       <div class="section-head"><h2>Combos para compartir</h2></div>
-      ${pp?`<div class="promo-card" data-product="${esc(pp.id)}" role="button" tabindex="0" aria-label="Ver ${esc(pp.name)}">${img(pp)}<div class="promo-info"><span>COMBO</span><strong>${esc(pp.name)}</strong><b>${pp.disabled?'Consultar':cash(pp.price)}</b></div></div>`:'<div class="notice">No hay combos publicados.</div>'}
-      <div class="dots" role="group" aria-label="Cambiar combo">${promos.map((_,i)=>`<button aria-label="Combo ${i+1}" aria-pressed="${st.promo%promos.length===i}" data-promo="${i}" class="${st.promo%promos.length===i?'on':''}"></button>`).join('')}</div>
+      <div class="reco-scroll" style="display:flex;gap:12px;overflow-x:auto">${promos.map(p=>`<article class="reco" style="flex:0 0 calc((100% - 12px)/2);min-width:0"><button class="reco-view" data-product="${p.id}" aria-label="Ver ${esc(p.name)}">${img(p)}<span class="reco-name">${esc(p.name)}</span></button><div class="reco-bottom"><b>${p.disabled?'Consultar':cash(p.price)}</b><button data-quick="${p.id}" ${p.disabled?'disabled':''} aria-label="Seleccionar ${esc(p.name)}">${ic('plus',18)}</button></div></article>`).join('')||'<div class="notice">No hay combos publicados.</div>'}</div>
     </section>
     ${homeStores()}
     <p class="home-disclaimer">Prototipo de Pollos B3. Imágenes, nombres comerciales, precios, combos y ubicaciones sujetos a confirmación antes de la publicación.</p>
@@ -3800,7 +3799,7 @@ const carouselMotion={active:null,touch:null,pauseUntil:0,suppressClickUntil:0};
 const reducedMotion=()=>window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches===true;
 function carouselCount(kind){
  return kind==='hero'?Math.min(products.length,4):kind==='local'?shops.filter(s=>s.active!==false).length:
-  comboProducts().length;
+  0;
 }
 function updateCarouselDots(kind){
  const section=root.querySelector(kind==='hero'?'.hero-carousel':kind==='local'?'.b3-home-stores':'.promos');
