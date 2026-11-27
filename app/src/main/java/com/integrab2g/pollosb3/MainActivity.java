@@ -763,18 +763,18 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid Pollos B3 approval FORM");
                         if(pickupApproval){
                             if(!"Confirmar disponibilidad de productos para retiro en tienda".equals(form.optString("subtitle",""))||
-                               fields==null||(fields.length()!=4&&fields.length()!=5))
+                               fields==null||(fields.length()!=6&&fields.length()!=7))
                                 throw new IllegalArgumentException("Invalid pickup approval FORM");
-                            String[] requiredPickup=fields.length()==5?
-                                new String[]{"Productos","Subtotal","Tienda de recojo","Modalidad","Fecha y hora"}:
-                                new String[]{"Productos","Subtotal","Tienda de recojo","Modalidad"};
+                            String[] requiredPickup=fields.length()==7?
+                                new String[]{"Cliente","Celular","Productos","Subtotal","Tienda de recojo","Modalidad","Fecha y hora"}:
+                                new String[]{"Cliente","Celular","Productos","Subtotal","Tienda de recojo","Modalidad"};
                             for(int j=0;j<requiredPickup.length;j++){
                                 JSONObject f=fields.optJSONObject(j);
                                 if(f==null||f.length()!=2||!requiredPickup[j].equals(f.optString("variable",""))||
                                    f.optString("value","").trim().isEmpty()||f.optString("value","").length()>500)
                                     throw new IllegalArgumentException("Invalid pickup FORM field");
                             }
-                            if(!(fields.length()==5?"Recojo programado":"Retirar ahora").equals(fields.optJSONObject(3).optString("value","")))
+                            if(!(fields.length()==7?"Recojo programado":"Retirar ahora").equals(fields.optJSONObject(5).optString("value","")))
                                 throw new IllegalArgumentException("Invalid pickup modality");
                         }
                         int offset=scheduledOrder?1:0;
@@ -789,7 +789,7 @@ public class MainActivity extends Activity {
                                !label.trim().equals(label))
                                 throw new IllegalArgumentException("Invalid order FORM fields");
                             if(pickupApproval){
-                                String[] labels=fields.length()==5?new String[]{"Productos","Subtotal","Tienda de recojo","Modalidad","Fecha y hora"}:new String[]{"Productos","Subtotal","Tienda de recojo","Modalidad"};
+                                String[] labels=fields.length()==7?new String[]{"Cliente","Celular","Productos","Subtotal","Tienda de recojo","Modalidad","Fecha y hora"}:new String[]{"Cliente","Celular","Productos","Subtotal","Tienda de recojo","Modalidad"};
                                 if(!labels[i].equals(label))throw new IllegalArgumentException("Invalid pickup field order");
                             }else if(orderApproval){
                                 if(scheduledOrder&&i==0){
