@@ -1690,7 +1690,7 @@ function addressesScreen(){
  <p class="sub">Guarda tus lugares de entrega y elige uno como predeterminado.</p>
  ${savedAddresses().length?savedAddressesHtml():'<div class="empty-state"><h2>Aún no tienes direcciones guardadas</h2><p>Agrega tu primera dirección para tus próximos pedidos.</p></div>'}
  <button class="primary full" data-address-create="1">${ic('pin',18)} Agregar nueva dirección</button>
- <p class="smallprint">Tus direcciones se almacenan únicamente en este dispositivo durante el piloto. Guardarlas no consulta Google Routes ni calcula el reparto.</p></div>`;
+ <p class="smallprint">Tus direcciones guardadas permanecen en este dispositivo. Guardar una dirección no solicita por sí mismo una cotización de reparto.</p></div>`;
 }
 function addressEditScreen(){
  const a=savedAddresses().find(x=>x.id===addressEditId)||{};
@@ -3394,7 +3394,7 @@ function profileScreen(){
    <label>Correo electrónico (opcional)<input id="profile-email" type="email" autocomplete="email" maxlength="150" value="${esc(p.email||'')}" placeholder="correo@ejemplo.com"></label>
    <label>Fecha de nacimiento (opcional)<input id="profile-birthday" type="date" max="${new Date().toISOString().slice(0,10)}" value="${esc(p.birthday||'')}"></label>
    <label class="b3-profile-optin"><input type="checkbox" id="profile-marketing" ${p.marketingConsent===true?'checked':''}><span><strong>Ofertas y novedades</strong><small>Quiero recibir promociones de Pollos B3. Puedes retirar tu autorización cuando quieras.</small></span></label>
-   <p class="smallprint">La información de este piloto se guarda solo en este teléfono, no en un perfil remoto. No se enviarán promociones sin una integración y consentimiento aplicables.</p>
+   <p class="smallprint">Los datos del perfil se guardan en este dispositivo. Los datos de contacto confirmados para un pedido pueden enviarse al servicio que lo gestiona. Marcar esta casilla no activa por sí solo mensajes promocionales.</p>
    <button class="primary full" data-profile-save="1">Guardar cambios</button>
  </div>`;
 }
@@ -3413,13 +3413,13 @@ const b3FrequentlyAsked=[
  ['¿Puedo recoger mi pedido en un local?','Sí. Selecciona Pide y Retira y elige una sede disponible. Verifica el local antes de continuar.'],
  ['¿Cómo se calcula el costo de Delivery?','Cada local puede tener un costo fijo o una tarifa por kilómetro, de acuerdo con lo configurado por Pollos B3. La cotización depende de la cobertura y de la información publicada.'],
  ['¿Cuáles son los horarios de atención?','Consulta Nuestros locales para ver los horarios publicados por cada sede. La disponibilidad puede cambiar.'],
- ['¿Cómo puedo consultar la carta y los precios?','En Carta encontrarás los productos y precios disponibles en el catálogo publicado. Durante el piloto puede haber contenido referencial claramente identificado.'],
- ['¿Qué métodos de pago hay?','Los métodos disponibles dependen de la sede y del tipo de pedido. Los pagos reales todavía requieren la integración y activación del servicio.'],
- ['¿Puedo guardar varias direcciones?','Sí. En Mi Cuenta → Mis direcciones puedes agregar, editar, eliminar y elegir una dirección predeterminada. Durante el piloto se guardan solo en este teléfono.'],
+ ['¿Cómo puedo consultar la carta y los precios?','En Carta encontrarás los productos y precios del catálogo publicado por Pollos B3. Si no hay catálogo disponible, no se mostrarán productos ficticios.'],
+ ['¿Qué métodos de pago hay?','Los métodos disponibles dependen de la sede y del tipo de pedido. Sigue las instrucciones de pago publicadas y espera la confirmación correspondiente.'],
+ ['¿Puedo guardar varias direcciones?','Sí. En Mi Cuenta → Mis direcciones puedes agregar, editar, eliminar y elegir una dirección predeterminada. Las direcciones guardadas permanecen en este dispositivo.'],
  ['¿Puedo hacer un pedido para otra persona?','Sí. Cada nuevo pedido solicita confirmar los nombres y el celular de quien lo recibirá. Estos datos pueden ser diferentes de tu perfil.'],
- ['¿Cómo sé dónde está mi pedido?','La consulta de estados de pedidos reales estará disponible cuando Pollos B3 habilite el sistema de pedidos. Esta versión piloto no confirma compras ni pagos.'],
+ ['¿Cómo sé dónde está mi pedido?','Consulta Mis pedidos para ver los estados disponibles. La aceptación y el pago requieren confirmación de la sede; una solicitud enviada no equivale a un pedido aceptado.'],
  ['¿Cómo consulto promociones?','Las promociones aparecerán en la app cuando Pollos B3 las publique oficialmente. Su disponibilidad y condiciones dependen del negocio.'],
- ['¿Cómo me comunico con Pollos B3?','Usa los canales de contacto que el negocio publique. El chat de atención de esta versión piloto todavía no constituye una conversación con un asesor.'],
+ ['¿Cómo me comunico con Pollos B3?','Utiliza los canales de contacto publicados por Pollos B3. Cuando exista una interacción con la sede, podrás consultar los mensajes y eventos disponibles en su seguimiento.'],
  ['¿Dónde puedo presentar un reclamo o queja?','En Mi Cuenta → Libro de Reclamaciones. Cuando Pollos B3 configure su enlace oficial podrás acceder desde ahí. No confundas la sección con un registro de reclamos dentro de la app.']
 ];
 function faqScreen(){return `<div class="page b3-faq">${heading('Preguntas frecuentes','app')}
@@ -3444,15 +3444,15 @@ function openComplaintsUrl(guidance=false){
 function privacyScreen(){
  const saved=savedAddresses().length;
  return `<div class="page b3-privacy-page">${heading('Privacidad y protección de datos','app')}
- <div class="b3-privacy-intro">${ic('shield',28)}<div><h2>Tú controlas tu información</h2><p>Conoce qué guarda este piloto de Pollos B3 y cómo administrarlo.</p></div></div>
- <section class="b3-privacy-section"><h3>¿Qué datos utiliza la app?</h3><p>Los datos que ingreses voluntariamente en Mi perfil y durante la preparación de pedidos: nombre, apellidos, celular, correo, fecha de nacimiento opcional, direcciones y referencias de entrega. También se conserva el carrito y la actividad de demostración en este dispositivo.</p><p>No es necesario registrarse para explorar la carta.</p></section>
- <section class="b3-privacy-section"><h3>¿Para qué se usan?</h3><p>Para completar formularios con mayor facilidad, elegir direcciones y preparar pedidos. Esta versión piloto no procesa pedidos ni cobros reales, y no sincroniza tu perfil o tus direcciones con una cuenta en línea.</p></section>
+ <div class="b3-privacy-intro">${ic('shield',28)}<div><h2>Tú controlas tu información</h2><p>Conoce qué datos guarda esta aplicación en el dispositivo y cuándo puede comunicarse con los servicios del negocio.</p></div></div>
+ <section class="b3-privacy-section"><h3>¿Qué datos utiliza la app?</h3><p>Los datos que ingreses voluntariamente en Mi perfil y durante la preparación de pedidos: nombre, apellidos, celular, correo, fecha de nacimiento opcional, direcciones y referencias de entrega. También se conservan el carrito y los registros locales de pedidos en este dispositivo.</p><p>No es necesario registrarse para explorar la carta.</p></section>
+ <section class="b3-privacy-section"><h3>¿Para qué se usan?</h3><p>Para completar formularios con mayor facilidad, elegir direcciones y preparar pedidos. Al solicitar un pedido, los datos que confirmes pueden enviarse al servidor para gestionar la disponibilidad, la atención y el pago. Guardar el perfil o una dirección no equivale a enviar un pedido.</p></section>
  <section class="b3-privacy-section"><h3>Almacenamiento y servicios externos</h3><p>Los datos del perfil, las direcciones guardadas y tus preferencias se almacenan localmente en la aplicación mediante el almacenamiento del dispositivo. No se cifran de forma independiente dentro de ese almacenamiento ni existe todavía una cuenta remota para sincronizarlos.</p><p>Al consultar el catálogo o solicitar una cotización de Delivery, la aplicación puede comunicarse con el servidor de Pollos B3. La dirección de entrega introducida para cotizar puede enviarse al servidor y utilizarse para consultar rutas. Las consultas no se realizan simplemente por guardar una dirección.</p></section>
  <section class="b3-privacy-section"><h3>Ubicación y permisos</h3><p>La ubicación GPS es opcional. Se solicita permiso cuando eliges utilizar tu ubicación; puedes rechazarlo y escribir la dirección manualmente. Podrás administrar los permisos desde los ajustes de Android.</p></section>
  <section class="b3-privacy-section"><h3>Publicidad y comunicaciones</h3><p>El consentimiento para ofertas y novedades es opcional y está desactivado por defecto. Puedes cambiarlo desde Mi perfil. Guardarlo aquí no activa envíos de WhatsApp, SMS o notificaciones promocionales.</p><button class="b3-privacy-secondary" data-screen="profile">Administrar consentimiento ${ic('chev',15)}</button></section>
- <section class="b3-privacy-section"><h3>Tus derechos</h3><p>En Perú, la Ley N.° 29733 reconoce derechos relacionados con el tratamiento de datos personales, incluidos acceso, rectificación, cancelación y oposición, conforme a la normativa aplicable.</p><p>Antes de lanzar cuentas y pedidos reales, Pollos B3 deberá publicar su política de privacidad definitiva, identificar al responsable y facilitar un canal verificable para ejercer estos derechos. Esta explicación del piloto no sustituye esa política legal.</p><button class="b3-privacy-secondary" data-privacy-law="1">Consultar normativa peruana ${ic('chev',15)}</button></section>
- <section class="b3-privacy-delete"><h3>Mis datos en este teléfono</h3><p>${saved===1?'1 dirección guardada':saved+' direcciones guardadas'} · Perfil y preferencias de esta instalación.</p><p>Si borras los datos locales, desaparecerán del dispositivo el perfil, las direcciones, el carrito, la actividad de prueba y las preferencias guardadas. No solicita eliminar información que pudiera existir en sistemas externos.</p><button class="outline full" data-privacy-clear="1">Borrar mis datos locales</button></section>
- <p class="smallprint">Información funcional del piloto, no una política corporativa final ni una garantía de tratamiento para servicios que todavía no están desplegados.</p></div>`;
+ <section class="b3-privacy-section"><h3>Tus derechos</h3><p>En Perú, la Ley N.° 29733 reconoce derechos relacionados con el tratamiento de datos personales, incluidos acceso, rectificación, cancelación y oposición, conforme a la normativa aplicable.</p><p>Pollos B3 debe disponer de una política de privacidad oficial, identificar al responsable del tratamiento y ofrecer un canal para ejercer estos derechos. Esta pantalla informativa no sustituye esa política.</p><button class="b3-privacy-secondary" data-privacy-law="1">Consultar normativa peruana ${ic('chev',15)}</button></section>
+ <section class="b3-privacy-delete"><h3>Mis datos en este teléfono</h3><p>${saved===1?'1 dirección guardada':saved+' direcciones guardadas'} · Perfil y preferencias de esta instalación.</p><p>Si borras los datos locales, desaparecerán del dispositivo el perfil, las direcciones, el carrito, los registros locales de pedidos y las preferencias guardadas. No solicita eliminar información que pudiera existir en sistemas externos.</p><button class="outline full" data-privacy-clear="1">Borrar mis datos locales</button></section>
+ <p class="smallprint">Información sobre el funcionamiento de la aplicación. Consulta la política de privacidad oficial de Pollos B3 cuando esté publicada.</p></div>`;
 }
 function notificationImageUrl(raw){
  if(typeof raw!=='string'||!NOTIFICATIONS_API_BASE)return '';
@@ -4102,9 +4102,9 @@ if(b.hasAttribute('data-phone-continue')){const phone=v('signin-value');if(!/^9\
 if(b.hasAttribute('data-logout')){if(st.authProvider==='google'){window.AndroidBridge?.signOutGoogle?.();return}st.registered=false;st.authProvider='';st.authUid='';save();render();return}
 if(b.dataset.openmaps){if(window.AndroidBridge?.openMaps)window.AndroidBridge.openMaps(b.dataset.openmaps);else window.open(b.dataset.openmaps,'_blank');return}
 if(b.hasAttribute('data-clear')){
- void confirmB3({title:'¿Eliminar datos de prueba?',
-  description:'Se eliminarán los datos locales de demostración guardados en este teléfono.',
-  confirmLabel:'Eliminar datos de prueba',danger:true}).then(yes=>{
+ void confirmB3({title:'¿Eliminar datos locales?',
+  description:'Se eliminarán los datos de esta aplicación guardados en este teléfono, incluidos perfil, direcciones y registros locales.',
+  confirmLabel:'Eliminar datos locales',danger:true}).then(yes=>{
    if(yes){localStorage.removeItem(K);location.reload()}
   });
  return;
