@@ -392,7 +392,7 @@ async function fetchConfig({strict=false}={}){
   publishedPaymentWaitMinutes=Number.isInteger(c.paymentWaitMinutes)&&c.paymentWaitMinutes>0?c.paymentWaitMinutes:10;
   publishedReminderCount=Number.isInteger(c.reminderCount)&&c.reminderCount>=0?c.reminderCount:2;
   shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null,reservation_enabled:x.reservationSettings?.enabled===true,reservationAcceptingRequests:x.reservationSettings?.acceptingRequests===true})));
-  // Productos: conservar siempre la carta de muestra y anexar los publicados.
+  // Productos: mostrar exclusivamente el catálogo publicado por la API.
   // La lista se reconstruye, no se concatena incrementalmente, para evitar duplicados.
   products.splice(0,products.length,...productsFromApi(c.products));
   catalogPublished=true;
@@ -1724,7 +1724,7 @@ function nav(tab){
  if(tab==='carta')void syncPromotionCatalog();
 }
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
-const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
+const demo='';
 const img=(p,c='',priority=false)=>{const src=photo(p);const eager=priority||c==='hero-img';return src?`<img class="${c}" src="${src}" loading="${eager?'eager':'lazy'}" decoding="async" ${eager?'fetchpriority="high"':''} alt="Imagen ${p.isPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
 function savedAddresses(){return Array.isArray(st.addresses)?st.addresses.filter(x=>x&&typeof x.id==='string'&&typeof x.street==='string'&&typeof x.district==='string'):[]}
 function pickSavedAddress(id,quote=false){
@@ -2254,15 +2254,15 @@ setInterval(()=>{
 function home(){
   const featured=products.slice(0,4);
   const f=featured.length?featured[st.carousel%featured.length]:null;
-  const heroVisual=f&&!catalogPublished&&f.id==='p4'?{...f,previewPhoto:9}:f;
+  const heroVisual=f;
   const promos=comboProducts();
   const pp=promos.length?promos[st.promo%promos.length]:null;
   const shop=shops.length?shops[st.local%shops.length]:null;
   return `<div class="home home-v10">
     ${fulfillmentHeader()}
     ${favoriteCard()}
-    <section class="hero-carousel" aria-label="Destacados referenciales">
-      <div class="section-head section-head-featured"><h2>Para disfrutar hoy</h2><span class="minor">Productos de demostración</span></div>
+    <section class="hero-carousel" aria-label="Productos destacados">
+      <div class="section-head section-head-featured"><h2>Para disfrutar hoy</h2></div>
       ${f?`<div class="hero-card" data-product="${f.id}" tabindex="0" role="button" aria-label="Ver ${esc(f.name)}">
         ${img(heroVisual,'hero-img')}
         <div class="hero-scrim"></div>
