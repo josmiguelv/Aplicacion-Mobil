@@ -14,7 +14,7 @@ const sandbox={st:state,Date:fakeDate,setInterval:()=>0,clearInterval:()=>{},set
 const helpers=runInNewContext(app.slice(start,end)+'\n({ORDER_STAGES,isDemoOrder,orderDelivered,activeTracking,normalizedBasket,trackCard,orderDetail,favoriteCard,favoritePrompt,reviewSheet,afterOrderDelivered})',sandbox);
 assert.deepEqual(Array.from(helpers.ORDER_STAGES,x=>x[0]),['RECEIVED','ACCEPTED','PREPARING','DISPATCH','DELIVERED']);
 assert.equal(helpers.isDemoOrder(order),true);
-assert.match(helpers.trackCard(order),/SIMULACIÓN LOCAL/);
+assert.match(helpers.trackCard(order),/REGISTRO LOCAL ANTERIOR/);
 assert.match(helpers.orderDetail(),/Seguimiento visual/);
 assert.equal(helpers.orderDelivered(order),false);
 order.status='DELIVERED';order.deliveredAt=1000;
@@ -35,4 +35,4 @@ sandbox.reviewSheetOrderId=order.id;
 assert.match(helpers.reviewSheet(),/Cerrar/);
 order.review={score:4,localOnly:true};
 assert.equal(helpers.reviewSheet(),'');
-console.log('PASS: five stages, simulation label, sixty-minute cutoff, favorite and dismissible survey');
+console.log('PASS: five stages, legacy local-record label, sixty-minute cutoff, favorite and dismissible survey');
