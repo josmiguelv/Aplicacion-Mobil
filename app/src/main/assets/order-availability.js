@@ -856,16 +856,17 @@
       throw Error('La sede debe aprobar el pedido y habilitar el plazo de pago.');
     if(Date.parse(entry.paymentExpiresAt)<=Date.now())
       throw Error('El plazo de pago termino.');
-    if(!form||form.type!=='FORM'||!form.form||
-       !entry.receiptUpload||entry.receiptUpload.status!=='UPLOADED'||
-       form.form.imageUrl!==entry.receiptUpload.imageUrl||
-       !/^https:\/\/[^\s<>"']+$/i.test(form.form.imageUrl)||
-       !/^PAGO (REALIZADO|DE RESERVA) - (YAPE|PLIN|TARJETA)$/.test(form.form.title)||
-       !Array.isArray(form.form.fields)||
-       form.form.fields.map(x=>x?.variable).join('|')!==(form.form.title.startsWith('PAGO DE RESERVA')?'Fecha|':'')+'N.º de pedido|Pedido|Subtotal|Delivery|Dirección|Total'||
-       form.form.fields[form.form.title.startsWith('PAGO DE RESERVA')?1:0]?.value!=='B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase()||
-       form.form.fields.some(x=>typeof x.value!=='string'||!x.value.trim()||x.value.length>500))
-      throw Error('El formulario de pago no cumple el contrato de seis campos.');
+    const ticket=form?.form, title=ticket?.title||'', cash=/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(title);
+    const scheduled=title.startsWith('PAGO DE RESERVA');
+    const labels=(scheduled?'Fecha|':'')+'N.º de pedido|Pedido|Subtotal|Delivery|Dirección|Total'+(cash?'|Paga con|Vuelto':'');
+    if(form?.type!=='FORM'||!ticket||!Array.isArray(ticket.fields)||
+       ticket.fields.map(x=>x?.variable).join('|')!==labels||
+       ticket.fields[scheduled?1:0]?.value!=='B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase()||
+       ticket.fields.some(x=>typeof x.value!=='string'||!x.value.trim()||x.value.length>500)||
+       (cash?(ticket.imageUrl!==undefined||ticket.subtitle!=='Confirmar pedido con pago en efectivo'):
+       (!entry.receiptUpload||entry.receiptUpload.status!=='UPLOADED'||ticket.imageUrl!==entry.receiptUpload.imageUrl||
+       !/^PAGO (REALIZADO|DE RESERVA) - (YAPE|PLIN|TARJETA)$/.test(title))))
+      throw Error('El formulario de confirmación no cumple el contrato.');
     if(entry.paymentConfirmation){
       if(entry.paymentConfirmation.form?.form?.title!==form.form.title)
         throw Error('Este pedido ya tiene otra confirmacion de pago iniciada.');
@@ -905,10 +906,11 @@
     confirmation.status='SENDING';persistInteraction(entry);
     let response;
     try {
-      response=await nativeRequest({operation:'INTERACTION_PAYMENT_FORM',
+      const cash=/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(confirmation.form.form.title);
+      response=await nativeRequest({operation:cash?'INTERACTION_MESSAGE':'INTERACTION_PAYMENT_FORM',
         interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
         idempotencyKey:confirmation.messageKey,
-        body:{appId:entry.body.appId,storeId:entry.body.storeId,form:confirmation.form.form}});
+        body:{appId:entry.body.appId,storeId:entry.body.storeId,...(cash?{type:'FORM'}:{}),form:confirmation.form.form}});
     }catch(error){
       // Native contract rejection happens BEFORE the HTTP request. It is safe
       // to correct the APK and retry the same FORM with its original message key.
