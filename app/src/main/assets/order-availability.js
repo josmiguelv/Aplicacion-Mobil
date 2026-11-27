@@ -379,8 +379,8 @@
   function normalizeOrderForm(form) {
     if(!form||typeof form!=='object'||Array.isArray(form)||
       Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
-      form.title!=='VALIDACIÓN DE PEDIDO'||
-      form.subtitle!=='Confirmar disponibilidad para delivery'||
+      !((form.title==='VALIDACIÓN DE PEDIDO'&&form.subtitle==='Confirmar disponibilidad para delivery')||
+        (form.title==='VALIDACIÓN DE RESERVA'&&form.subtitle==='Confirmar disponibilidad para delivery programado'))||
       !Array.isArray(form.fields)||form.fields.length<3||form.fields.length>10)
       throw Error('La validación requiere productos, subtotal y dirección (máximo diez variables).');
     const fields=form.fields.map(item=>{
@@ -392,8 +392,11 @@
         throw Error('Los campos del FORM no corresponden al contrato de aprobación.');
       return {variable:item.variable,value:item.value};
     });
-    const labels=fields.map(f=>f.variable);
-    const productFields=fields.length-2;
+    const scheduled=form.title==='VALIDACIÓN DE RESERVA';
+    if(scheduled&&(fields[0]?.variable!=='Fecha'||!fields[0].value.trim()))throw Error('Confirma la fecha de reserva.');
+    const ticketFields=scheduled?fields.slice(1):fields;
+    const labels=ticketFields.map(f=>f.variable);
+    const productFields=ticketFields.length-2;
     const legacy=labels.join('|')==='Productos|Subtotal|Dirección y referencia';
     const indexed=productFields>=1&&productFields<=8&&
       labels.slice(0,productFields).every((name,i)=>
@@ -410,7 +413,7 @@
        (name!=='Productos restantes'||i===7))&&
       labels[productFields]==='Subtotal'&&
       labels[productFields+1]==='Dirección y referencia'&&
-      fields.slice(0,productFields).every((field,i)=>
+      ticketFields.slice(0,productFields).every((field,i)=>
        field.variable==='Productos restantes'&&i===7?
         field.value.includes(' × S/ '):
         /^\d+ × S\/ \d+(?:\.\d{2})?$/.test(field.value));
@@ -857,10 +860,10 @@
        !entry.receiptUpload||entry.receiptUpload.status!=='UPLOADED'||
        form.form.imageUrl!==entry.receiptUpload.imageUrl||
        !/^https:\/\/[^\s<>"']+$/i.test(form.form.imageUrl)||
-       !/^PAGO REALIZADO - (YAPE|PLIN|TARJETA)$/.test(form.form.title)||
-       !Array.isArray(form.form.fields)||form.form.fields.length!==6||
-       form.form.fields.map(x=>x?.variable).join('|')!=='N.º de pedido|Pedido|Subtotal|Delivery|Dirección|Total'||
-       form.form.fields[0]?.value!=='B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase()||
+       !/^PAGO (REALIZADO|DE RESERVA) - (YAPE|PLIN|TARJETA)$/.test(form.form.title)||
+       !Array.isArray(form.form.fields)||
+       form.form.fields.map(x=>x?.variable).join('|')!==(form.form.title.startsWith('PAGO DE RESERVA')?'Fecha|':'')+'N.º de pedido|Pedido|Subtotal|Delivery|Dirección|Total'||
+       form.form.fields[form.form.title.startsWith('PAGO DE RESERVA')?1:0]?.value!=='B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase()||
        form.form.fields.some(x=>typeof x.value!=='string'||!x.value.trim()||x.value.length>500))
       throw Error('El formulario de pago no cumple el contrato de seis campos.');
     if(entry.paymentConfirmation){
