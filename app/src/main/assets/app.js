@@ -2481,6 +2481,21 @@ function cart(){
  </div>`;
 }
 function availability(){
+ const pickupEntry=window.B3OrderAvailability?.readInteraction?.();
+ if(st.mode==='pickup'&&pickupEntry?.orderForm?.title==='VALIDACIÓN DE RECOJO'){
+  const status=pickupEntry.status;
+  const accepted=status==='ACCEPTED'&&pickupEntry.agentDecision==='ACCEPTED'&&pickupEntry.messageDelivered===true;
+  const rejected=status==='REJECTED'||status==='CANCELLED'||status==='EXPIRED';
+  const store=shops.find(x=>x.id===pickupEntry.body?.storeId);
+  return '<div class="page">'+heading('Disponibilidad de recojo','cart')+
+   '<div class="summary-card"><h2>'+(rejected?'Productos no confirmados':accepted?'Pedido aceptado':'Consultando disponibilidad')+'</h2>'+
+   '<p>'+(rejected?'La tienda seleccionada no tiene disponible el producto solicitado. ¿Deseas elegir otra tienda para realizar tu pedido?':accepted?'La tienda aceptó tu solicitud. Puedes continuar al siguiente paso.':formWaitingMessage(pickupEntry))+'</p>'+
+   '<p><b>Tienda:</b> '+esc(store?.name||'Sede seleccionada')+'</p></div>'+
+   (rejected?'<button class="primary full" data-screen="locations">Elegir otra tienda</button>':
+    accepted?'<button class="primary full" data-screen="payment">Continuar</button>':
+    '<p class="smallprint">Esperando confirmación del agente. No se enviará un pedido duplicado.</p>')+
+   '</div>';
+ }
  const activeEntry=activePersonalCheckout();
  const rejectedEntry=window.B3OrderAvailability?.readInteraction?.();
  const status=['IDLE','REJECTED','CANCELLED'].includes(deliveryAvailability.status)&&
