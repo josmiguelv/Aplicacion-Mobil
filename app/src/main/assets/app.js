@@ -2277,11 +2277,11 @@ function reservationFormPreview(){
 }
 function scheduleChoice(){
  if(st.mode==='delivery'){
-  const graphic=(choice,file,fallback,label)=>'<button type="button" aria-label="'+label+'" data-schedule-choice="'+choice+'" style="display:block;width:100%;padding:0;border:0;border-radius:18px;overflow:hidden;background:#171512;cursor:pointer"><img src="images/'+file+'" alt="'+label+'" onerror="this.onerror=null;this.src=\'images/'+fallback+'\'" style="display:block;width:100%;height:auto;aspect-ratio:1;object-fit:contain"></button>';
+  const graphic=(choice,file,fallback,label,kicker,description)=>'<button type="button" aria-label="'+label+'" data-schedule-choice="'+choice+'" style="display:grid;grid-template-columns:minmax(0,42%) minmax(0,1fr) 16px;align-items:center;gap:12px;width:100%;padding:10px;text-align:left;border:1px solid #e8e4df;border-radius:20px;background:#fff;color:#211c19;box-shadow:0 5px 18px rgba(40,20,10,.07);cursor:pointer;box-sizing:border-box"><img src="images/'+file+'" alt="'+label+'" onerror="this.onerror=null;this.src=\'images/'+fallback+'\'" style="display:block;width:100%;aspect-ratio:1;object-fit:contain;border-radius:13px;background:#171512"><span style="display:flex;flex-direction:column;gap:7px;min-width:0"><span style="font-size:10px;font-weight:800;letter-spacing:.07em;color:#a51d35">'+kicker+'</span><strong style="font-size:clamp(16px,4.6vw,21px);line-height:1.12;font-weight:800">'+label+'</strong><span style="font-size:12px;line-height:1.4;color:#69635f">'+description+'</span></span><span style="color:#c80020" aria-hidden="true">'+ic('chev',18)+'</span></button>';
   return '<div class="page b3-schedule-page">'+heading('¿Cuándo deseas recibirlo?','choice')+
    '<p class="sub">Modalidad seleccionada: Delivery</p><div role="group" aria-label="Elegir cuándo recibir el pedido" style="display:grid;gap:14px">'+
-   graphic('now','b3-entrega-ahora.webp','b3-receive-now.svg','Entrega ahora')+
-   graphic('reservation','b3-programar-delivery.webp','b3-receive-reservation.svg','Programa tu Delivery')+'</div></div>';
+   graphic('now','b3-entrega-ahora.webp','b3-receive-now.svg','Entrega ahora','ATENCIÓN INMEDIATA','Recibe tu pedido lo antes posible.')+
+   graphic('reservation','b3-programar-delivery.webp','b3-receive-reservation.svg','Programa tu Delivery','ELIGE TU HORARIO','Selecciona la fecha y hora que prefieras.')+'</div></div>';
  }
 
  const mode=st.mode==='delivery'?'Delivery':'Recojo en tienda';
