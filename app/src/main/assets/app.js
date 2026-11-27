@@ -1344,6 +1344,10 @@ async function resolveDelivery({silent=false,skipConfig=false}={}){
   return ready;
  }catch(error){
   if(run!==deliveryValidationGeneration)return false;
+  if(error?.code==='PROMOTIONS_REMOVED'){
+   deliveryRequestError='';clearDeliveryAvailability();screen('cart');
+   toast(error.message,{durationMs:5500});return false;
+  }
   st.quote=null;st.store='';
   // Do not display backend HTTP status codes or internal processing stages.
   deliveryRequestError=error?.httpStatus||
@@ -3115,8 +3119,12 @@ async function submitPickupRequest(){
   if(current.interactionId&&current.messageDelivered!==true)ensureFormDelivery(current);
   screen('availability');scheduleAgentDecisionPoll(1200);
  }catch(error){
-  pickupRequestError=String(error?.message||'No se pudo solicitar el recojo.');
-  render();
+  if(error?.code==='PROMOTIONS_REMOVED'){
+   pickupRequestError='';screen('cart');toast(error.message,{durationMs:5500});
+  }else{
+   pickupRequestError=String(error?.message||'No se pudo solicitar el recojo.');
+   render();
+  }
  }finally{pickupRequestBusy=false;if(st.stage==='pickupRequestPending')render();}
 }
 function completeAcceptedPickup(entry){
@@ -3715,12 +3723,21 @@ async function validatePromotionFromApi(item){
 async function validateCartPromotionsBeforeRequest(){
  const promoItems=st.cart.map(x=>product(x.id)).filter(p=>p?.isPublished&&categoryMatches(p,'Promociones'));
  if(!promoItems.length)return;
+ const expired=[];
  for(const p of promoItems){
-  if(!await validatePromotionFromApi(p)){
-   render();
-   throw Error('La promoción «'+p.name+'» ya no está activa o está fuera de fecha u horario. Retírala del carrito para continuar.');
-  }
+  if(!await validatePromotionFromApi(p))expired.push(p);
  }
+ if(!expired.length)return;
+ const removed=new Set(expired.map(p=>p.id));
+ st.cart=st.cart.filter(x=>!removed.has(x.id));
+ // Do not alter submitted interactions. This check runs before preparing a new request.
+ st.quote=null;confirmedDeliveryReviewKey=null;
+ save();
+ const names=expired.map(p=>'«'+p.name+'»').join(', ');
+ const message=(expired.length===1?'La promoción '+names+' ya no está vigente y fue retirada de tu carrito.':'Las promociones '+names+' ya no están vigentes y fueron retiradas de tu carrito.')+
+  (st.cart.length?' Revisa el total actualizado antes de confirmar nuevamente.':' Tu carrito está vacío; puedes elegir otros productos.');
+ const error=new Error(message);error.code='PROMOTIONS_REMOVED';
+ throw error;
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||promotionNotPurchasable(p))return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();vibrateCartAddition();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
