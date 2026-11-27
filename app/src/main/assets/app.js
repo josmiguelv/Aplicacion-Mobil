@@ -2510,7 +2510,7 @@ function availability(){
    '<p><b>Tienda:</b> '+esc(store?.name||'Sede seleccionada')+'</p></div>'+
    (rejected?'<button class="primary full" data-screen="locations">Elegir otra tienda</button>':
     accepted?'<button class="primary full" data-screen="payment">Continuar al pago</button>':
-    '<p class="smallprint">Esperando confirmación del agente. No se enviará un pedido duplicado.</p>')+
+    '<p class="smallprint">Esperando confirmación del agente. No se enviará un pedido duplicado.</p><button class="outline full" data-checkout-cancel="1">Cancelar solicitud</button>')+
    '</div>';
  }
  const activeEntry=activePersonalCheckout();
