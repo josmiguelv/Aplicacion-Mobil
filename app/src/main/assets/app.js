@@ -4339,32 +4339,34 @@ window.handleB3Back=()=>{
   const previous={confirmDetails:'phone',availability:'deliveryAddress',notificationDetail:'notifications',orderDetail:'app',addressEdit:'address',deliveryAddress:'choice',address:'app',jobs:'app',vacancyDetail:'jobs',choice:'app',locations:'choice',localDetail:'locations',address:'choice',detail:'app',cart:'app',identity:'cart',phone:'identity',payment:'phone',summary:'payment',chat:'app',about:'app',success:'app'};
   screen(previous[st.stage]||'app');return true
 };
+// Keep image warmup bounded: WebView's HTTP cache handles subsequent requests.
+// Prefetching every store's payment artwork can waste mobile data and memory.
 function preloadPublishedPaymentImages(){
  const urls=new Set();
  function addPath(path){
   if(typeof path==='string'&&path.startsWith('/api/v1/mobile/images/')&&
      !path.includes('..')&&!/[?#]/.test(path))urls.add(API_BASE+path);
  }
- for(const method of ['yape','plin','card']){
-  addPath(publishedPaymentImages[method]);
-  for(const store of shops)for(const mode of ['delivery','pickup','reservation']){
-   addPath(store.paymentOptions?.[mode]?.find(x=>x?.method===method)?.imageUrl);
-  }
+ for(const method of ['yape','plin','card'])addPath(publishedPaymentImages[method]);
+ const selected=shops.find(store=>String(store.id)===String(st.store));
+ if(selected)for(const method of ['yape','plin','card']){
+  addPath(selected.paymentOptions?.[st.mode]?.find(x=>x?.method===method)?.imageUrl);
  }
- return Promise.all([...urls].map(url=>new Promise(resolve=>{
+ return Promise.all([...urls].slice(0,6).map(url=>new Promise(resolve=>{
   if(prefetchedPaymentImages.has(url)){resolve();return}
   const image=new Image();
-  image.onload=()=>{prefetchedPaymentImages.set(url,image);resolve()};
+  image.onload=()=>{prefetchedPaymentImages.set(url,true);resolve()};
   image.onerror=()=>resolve();
   image.src=url;
  })));
 }
 async function preloadInitialCatalogImages(){
- const sources=[...new Set(products.slice(0,4).map(p=>photo(p)).filter(Boolean))].slice(0,4);
+ // Prioritize visible catalog artwork; leave the rest to native lazy loading.
+ const sources=[...new Set(products.slice(0,2).map(p=>photo(p)).filter(Boolean))];
  if(!sources.length||typeof Image==='undefined')return;
  await Promise.race([Promise.all(sources.map(src=>new Promise(resolve=>{
   const image=new Image();image.onload=resolve;image.onerror=resolve;image.src=src;if(image.complete)resolve();
- }))),new Promise(resolve=>setTimeout(resolve,1400))]);
+ }))),new Promise(resolve=>setTimeout(resolve,900))]);
 }
 async function initializeCatalogAtSplash(){
  if(splashRequestPending||st.stage!=='splash')return;
