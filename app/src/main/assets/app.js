@@ -2226,10 +2226,8 @@ async function syncPromotionCatalog({force=false}={}){
    if(!response.ok)return false;
    const c=await response.json();
    if(!c.ready||!Array.isArray(c.promotions)||!Array.isArray(c.products))return false;
-   const refreshed=productsFromApi(c.products);
-   products.splice(0,products.length,...refreshed);
+   // Refresh promotion schedules only. Keep the catalog, prices and images untouched.
    publishedPromotions=c.promotions.filter(p=>p&&typeof p.title==='string'&&p.title.trim());
-   catalogPublished=true;
    if(st.stage==='app'&&(st.tab==='inicio'||st.tab==='carta'))render();
    return true;
   }catch{return false}
