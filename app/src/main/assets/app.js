@@ -1945,6 +1945,13 @@ function scheduleLiveTracking(delay=10000){
   trackingPollTimer=null;void refreshLiveTracking();
  },Math.max(1500,delay));
 }
+function vibrateConfirmedOrderStage(stage){
+ // Only notify for a verified, newly persisted state while the app is visible.
+ // The browser/Android decides whether vibration is permitted by device settings.
+ if(typeof document==='undefined'||document.visibilityState!=='visible')return;
+ if(typeof navigator==='undefined'||typeof navigator.vibrate!=='function')return;
+ try{navigator.vibrate(stage==='DELIVERED'?[110,90,110]:150)}catch{}
+}
 async function refreshLiveTracking(){
  if(trackingPollBusy)return;
  const order=visibleLiveOrder(),api=window.B3OrderAvailability;
@@ -1964,7 +1971,7 @@ async function refreshLiveTracking(){
   // When the canonical approval message has fallen out of a bounded history,
   // require a timestamp strictly later than the local acceptance record.
   const minimumTime=Number(order.paymentApprovedAt||order.ts)||0;
-  let changed=false,delivered=false;
+  let changed=false,delivered=false,notifiedStage=null;
   for(let i=0;i<messages.length;i++){
    if(approvalIndex>=0&&i<=approvalIndex)continue;
    const message=messages[i];
@@ -1982,9 +1989,12 @@ async function refreshLiveTracking(){
     order.deliveredAt=at;order.reviewDismissed=false;delivered=true;
    }
    changed=true;
+   notifiedStage=stage;
   }
   if(changed){
-   save();render();
+   save();
+   vibrateConfirmedOrderStage(notifiedStage);
+   render();
    if(delivered)afterOrderDelivered(order);
   }
  }catch(error){
