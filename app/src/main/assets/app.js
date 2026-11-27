@@ -2942,7 +2942,10 @@ async function pollPaymentDecision(){
   if(['ACCEPTED','REJECTED'].includes(result.decision)){
    const current=api.readInteraction?.();
    if(current?.interactionId!==entry.interactionId)return;
-   if(result.decision==='ACCEPTED')recordVerifiedPaymentOrder(current);
+   if(result.decision==='ACCEPTED'){
+    if(current.orderForm?.title==='VALIDACIÓN DE RECOJO')recordVerifiedPickupOrder(current);
+    else recordVerifiedPaymentOrder(current);
+   }
    if(st.stage==='paymentWaiting')screen('paymentOutcome');
    else toast(result.decision==='ACCEPTED'?'La sede aceptó el pago':'La sede rechazó el pago');
    return;
