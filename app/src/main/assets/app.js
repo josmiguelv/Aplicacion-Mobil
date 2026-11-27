@@ -1153,6 +1153,8 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  }
  st.store=selected.id;st.quote=null;save();
  deliveryValidationStep='PREPARANDO_INTERACCION';
+ await validateCartPromotionsBeforeRequest();
+ if(!active())return false;
  const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,catalogRevision:publishedRevision,
   items:publishedOrderItems(),address,district,customer:deliveryRequestCustomer(address,district),
   orderForm:deliveryOrderTicketForm(address,district)});
@@ -2170,7 +2172,7 @@ function scheduledPromotionForProduct(item){
 }
 function promotionOutsideSchedule(item){
  const promotion=scheduledPromotionForProduct(item);
- return !!promotion&&!promoVisibleNow(promotion);
+ return !!item?.isPublished&&categoryMatches(item,'Promociones')&&(!promotion||!promoVisibleNow(promotion));
 }
 function promotionNotPurchasable(item){return !!item&&(item.disabled||promotionOutsideSchedule(item));}
 function openLinkedPromoProduct(){
@@ -3092,6 +3094,7 @@ async function submitPickupRequest(){
        reservationQuote?.dateTime===st.reservationAt&&reservationQuote?.agentAvailable===true&&
        reservationQuote?.acceptingRequests===true):!eligibleForPickup(selected)))
    throw Error('El local ya no está habilitado para este recojo.');
+  await validateCartPromotionsBeforeRequest();
   const items=publishedOrderItems();
   if(!/^9[0-9]{8}$/.test(String(st.profile.phone||'').trim())||!String(st.profile.first||'').trim()||
      !String(st.profile.last||'').trim())throw Error('Confirma tus nombres y celular.');
@@ -3708,6 +3711,16 @@ async function validatePromotionFromApi(item){
   publishedPromotions=config.promotions;
   return true;
  }catch{return false}finally{clearTimeout(timeout)}
+}
+async function validateCartPromotionsBeforeRequest(){
+ const promoItems=st.cart.map(x=>product(x.id)).filter(p=>p?.isPublished&&categoryMatches(p,'Promociones'));
+ if(!promoItems.length)return;
+ for(const p of promoItems){
+  if(!await validatePromotionFromApi(p)){
+   render();
+   throw Error('La promoción «'+p.name+'» ya no está activa o está fuera de fecha u horario. Retírala del carrito para continuar.');
+  }
+ }
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||promotionNotPurchasable(p))return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();vibrateCartAddition();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
