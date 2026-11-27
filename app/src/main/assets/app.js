@@ -2492,7 +2492,7 @@ function availability(){
    '<p>'+(rejected?'La tienda seleccionada no tiene disponible el producto solicitado. ¿Deseas elegir otra tienda para realizar tu pedido?':accepted?'La tienda aceptó tu solicitud. Puedes continuar al siguiente paso.':formWaitingMessage(pickupEntry))+'</p>'+
    '<p><b>Tienda:</b> '+esc(store?.name||'Sede seleccionada')+'</p></div>'+
    (rejected?'<button class="primary full" data-screen="locations">Elegir otra tienda</button>':
-    accepted?'<button class="primary full" data-screen="payment">Continuar</button>':
+    accepted?'<p class="notice">La tienda aceptó los productos. La confirmación de pago para Recojo todavía no está habilitada en esta versión; no realices ningún pago desde esta pantalla.</p>':
     '<p class="smallprint">Esperando confirmación del agente. No se enviará un pedido duplicado.</p>')+
    '</div>';
  }
@@ -2952,7 +2952,7 @@ function completeAcceptedPickup(entry){
  if(entry?.status!=='ACCEPTED'||entry.agentDecision!=='ACCEPTED'||entry.messageDelivered!==true)return;
  if(st.mode!=='pickup'||entry.body?.storeId!==st.store)return;
  const api=window.B3OrderAvailability;
- try{api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);pickupRequestError='';screen('payment');}
+ try{api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);pickupRequestError='';screen('availability');}
  catch(error){pickupRequestError=String(error.message||'No se pudo habilitar el pago');render();}
 }
 function pickupRequestPending(){
