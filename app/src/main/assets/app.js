@@ -872,7 +872,7 @@ async function pollAgentDecision(){
    await api.cancelInteraction(entry,{reason:'CANCEL'});
    // Additional independent close event: preserve the original cancellation
    // notification and its confirmed CANCELLED state even if close fails.
-   try{await api.closeCommunication(entry,{reason:'CLIENT_CANCELLED'})}
+   try{api.queueCommunicationClose(entry,'CLIENT_CANCELLED');await api.flushCommunicationCloses()}
    catch(closeError){console.warn('[B3 order] Cancellation communication close pending',closeError?.message||'CLOSE_FAILED')}
    stopAgentDecisionPoll();
    ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
@@ -1217,7 +1217,7 @@ async function cancelPersonalCheckout(reason='CANCEL',skipConfirm=false){
   await api.cancelInteraction(entry,{reason});
    // Additional independent close event: preserve the original cancellation
    // notification and its confirmed CANCELLED state even if close fails.
-   try{await api.closeCommunication(entry,{reason:'CLIENT_CANCELLED'})}
+   try{api.queueCommunicationClose(entry,'CLIENT_CANCELLED');await api.flushCommunicationCloses()}
    catch(closeError){console.warn('[B3 order] Cancellation communication close pending',closeError?.message||'CLOSE_FAILED')}
   stopAgentDecisionPoll();
   ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
@@ -2017,10 +2017,9 @@ async function closeDeliveredOrderCommunication(order){
  try{
   // The agent's verified DELIVERED message is the delivery notice.
   // The public close API has no free-text message field; do not fabricate one.
-  const response=await api.closeCommunication(entry,{reason:'ORDER_DELIVERED'});
-  if(response.communicationStatus==='CLOSED'){
-   order.communicationClosedAt=Date.now();save();render();
-  }
+  api.queueCommunicationClose(entry,'ORDER_DELIVERED');
+  await api.flushCommunicationCloses();
+  // The outbox retains unsuccessful closures for later retry; do not claim a server ACK here.
  }catch(error){
   console.warn('[B3 order] Delivery communication close not confirmed',error?.message||'CLOSE_FAILED');
  }finally{deliveryCloseInFlight.delete(order.interactionId)}
