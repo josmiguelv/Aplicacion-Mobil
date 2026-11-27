@@ -2636,17 +2636,17 @@ function isPaymentFormReady(){
 }
 function paymentWaiting(){
  const c=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
- if(/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(c?.form?.form?.title||''))return '<div class="page">'+heading('Confirmación del pedido','app')+'<div class="notice">Esperando confirmación de la sede. El pago será al recibir.</div>'+(paymentFormError?'<div class="notice">'+esc(paymentFormError)+'</div>':'')+'<button class="outline full" data-checkout-leave="1">Seguir explorando</button></div>';
- return '<div class="page b3-payment-status-page">'+heading('Confirmación de pago','app')+
+ const cashOrder=/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(c?.form?.form?.title||'');
+ return '<div class="page b3-payment-status-page">'+heading(cashOrder?'Confirmación del pedido':'Confirmación de pago','app')+
   '<div class="b3-payment-status-main" role="status" aria-live="polite">'+
-  '<div class="b3-payment-status-anim" aria-hidden="true"><div class="b3-payment-status-ring"></div><div class="b3-payment-status-center">'+ic('card',34)+'</div><span class="b3-payment-status-orbit"></span></div>'+
+  '<div class="b3-payment-status-anim" aria-hidden="true"><div class="b3-payment-status-ring"></div><div class="b3-payment-status-center">'+ic(cashOrder?'store':'card',34)+'</div><span class="b3-payment-status-orbit"></span></div>'+
   '<div class="b3-payment-status-eyebrow">POLLOS B3 · VALIDACIÓN</div>'+
-  '<h2>Estamos verificando tu pago</h2>'+
-  '<p>'+(c?.status==='SENT'?'La sede está revisando el comprobante. Te avisaremos en cuanto confirme.':'Estamos verificando la entrega del comprobante a la sede. No se enviará de nuevo automáticamente.')+'</p>'+
+  '<h2>'+(cashOrder?'Estamos confirmando tu pedido':'Estamos verificando tu pago')+'</h2>'+
+  '<p>'+(cashOrder?(c?.status==='SENT'?'La sede está revisando tu solicitud. Te avisaremos en cuanto confirme.':'Estamos verificando el envío de tu solicitud a la sede. No se enviará de nuevo automáticamente.'):(c?.status==='SENT'?'La sede está revisando el comprobante. Te avisaremos en cuanto confirme.':'Estamos verificando la entrega del comprobante a la sede. No se enviará de nuevo automáticamente.'))+'</p>'+
   '<div class="b3-payment-status-note"><span class="b3-payment-status-dot"></span>Esperando confirmación del asesor</div>'+
   '</div>'+
   (paymentFormError?'<div class="notice" role="alert">'+esc(paymentFormError)+'</div>':'')+
-  '<p class="smallprint" style="text-align:center">El comprobante enviado no representa una aprobación. Conservamos tu solicitud mientras esperamos la respuesta real.</p>'+
+  '<p class="smallprint" style="text-align:center">'+(cashOrder?'Pagarás en efectivo al recibir tu pedido. Tu solicitud está pendiente de aprobación.':'El comprobante enviado no representa una aprobación. Conservamos tu solicitud mientras esperamos la respuesta real.')+'</p>'+
   '<button class="outline full" data-checkout-leave="1">Seguir explorando</button></div>';
 }
 // Clear only the exact products belonging to a payment-approved interaction.
