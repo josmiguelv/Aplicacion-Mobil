@@ -2505,6 +2505,7 @@ function availability(){
   const accepted=status==='ACCEPTED'&&pickupEntry.agentDecision==='ACCEPTED'&&pickupEntry.messageDelivered===true;
   const rejected=status==='REJECTED'||status==='CANCELLED'||status==='EXPIRED';
   const store=shops.find(x=>x.id===pickupEntry.body?.storeId);
+  if(!accepted&&!rejected)return pickupAgentWaitView(pickupEntry);
   return '<div class="page">'+heading('Disponibilidad de recojo','cart')+
    '<div class="summary-card"><h2>'+(rejected?'Productos no confirmados':accepted?'Pedido aceptado':'Consultando disponibilidad')+'</h2>'+
    '<p>'+(rejected?'La tienda seleccionada no tiene disponible el producto solicitado. ¿Deseas elegir otra tienda para realizar tu pedido?':accepted?'La tienda aceptó tu solicitud. Puedes continuar al siguiente paso.':formWaitingMessage(pickupEntry))+'</p>'+
@@ -3007,13 +3008,41 @@ function completeAcceptedPickup(entry){
  try{api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);pickupRequestError='';if(st.stage==='availability')screen('payment');}
  catch(error){pickupRequestError=String(error.message||'No se pudo habilitar el pago');render();}
 }
+function pickupAgentWaitView(entry,{preparing=false}={}){
+ const confirmed=!!entry?.interactionId;
+ const delivered=entry?.messageDelivered===true;
+ const responded=entry?.agentDecision==='ACCEPTED';
+ const store=shops.find(x=>String(x.id)===String(entry?.body?.storeId||st.store));
+ const title=preparing?'Registrando tu solicitud':!confirmed?'Confirmando el registro':
+  !delivered?'Enviando el detalle de tu pedido':'Esperando confirmación de la sede';
+ const detail=preparing?'Estamos verificando tus datos antes de enviar la solicitud.':
+  entry?formWaitingMessage(entry):'Tu solicitud se está preparando. El pago se habilitará después de la aceptación.';
+ return `<div class="page b3-single-wait">${heading('Validación de recojo','app')}
+ <section class="b3-single-wait-main" aria-live="polite" role="status">
+  <span class="b3-single-wait-label">POLLOS B3 · PIDE Y RETIRA</span>
+  <div class="b3-checkout-orbit" aria-hidden="true">
+   <div class="b3-checkout-orbit-core">${ic('store',31)}</div>
+   <i class="b3-orbit-particle first"></i><i class="b3-orbit-particle second"></i>
+  </div>
+  <h2>${esc(title)}</h2><p class="b3-single-wait-detail">${esc(detail)}</p>
+  <div class="b3-single-wait-progress" aria-label="Progreso de la solicitud">
+   <span class="${confirmed?'complete':'current'}">${ic(confirmed?'check':'clock',16)} Solicitud</span>
+   <span class="${confirmed&&delivered?'complete':confirmed?'current':''}">${ic(confirmed&&delivered?'check':'clock',16)} Detalle</span>
+   <span class="${responded&&delivered?'complete':delivered?'current':''}">${ic(responded?'check':'clock',16)} Respuesta</span>
+  </div>
+  <div class="b3-single-wait-store">${ic('store',17)} <strong>${esc(store?.name||'Sede asignada')}</strong></div>
+ </section>
+ <div class="b3-single-wait-footer">
+  <p class="b3-single-wait-summary">${cartCount()} producto(s) · Subtotal ${cash(subtotal())} · Recojo en tienda</p>
+  ${pickupRequestError?'<div class="notice" role="alert">'+esc(pickupRequestError)+'</div>':''}
+  ${entry?.interactionId?'<button class="primary full" data-checkout-leave="1">Seguir explorando la app</button>':''}
+  ${entry?.interactionId?'<button class="outline full" data-checkout-cancel="1" '+(checkoutCancelInFlight?'disabled':'')+'>'+(checkoutCancelInFlight?'Cancelando solicitud…':'Cancelar solicitud')+'</button>':
+   pickupRequestError?'<button class="outline full" data-screen="identity">Corregir datos</button>':
+   '<p class="smallprint">Verificando el registro original. No se enviará otra solicitud automáticamente.</p>'}
+ </div></div>`;
+}
 function pickupRequestPending(){
- const store=shops.find(x=>String(x.id)===String(st.store));
- return '<div class="page">'+heading('Validación de recojo','phone')+
- '<div class="summary-card"><h2>Consultando disponibilidad</h2>'+
- '<p>Estamos enviando o verificando tu solicitud con la tienda. El pago se habilitará solo cuando el agente acepte.</p>'+
- '<p>Local seleccionado: <b>'+esc(store?.name||'Por seleccionar')+'</b></p></div>'+
- (pickupRequestError?'<div class="notice" role="alert">'+esc(pickupRequestError)+'</div><button class="primary full" data-screen="identity">Corregir datos y reintentar</button>':'<p class="smallprint" role="status">Espera mientras confirmamos el envío. No repitas la solicitud.</p>')+'</div>';
+ return pickupAgentWaitView(window.B3OrderAvailability?.readInteraction?.(),{preparing:true});
 }
 function payment(){
  const available=paymentOptions();
