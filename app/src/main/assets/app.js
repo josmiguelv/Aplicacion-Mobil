@@ -369,7 +369,7 @@ function productsFromApi(rows){
    id,name:x.name.trim(),desc:typeof x.description==='string'?x.description:'',
    cat:typeof x.category==='string'&&x.category.trim()?x.category.trim():'Otros',
    price:Number.isFinite(price)&&price>=0?price:0,
-   disabled:!Number.isFinite(price)||price<=0,
+   disabled:x.active===false||x.isActive===false||x.enabled===false||!Number.isFinite(price)||price<=0,
    imageUrl,isPublished:true,pic:1
   }];
  });
@@ -2162,16 +2162,16 @@ function linkedPromoProduct(p){
  const raw=p?.productId??p?.product_id??p?.product?.id??p?.linkedProductId??null;
  if(typeof raw!=='string'||!raw.trim())return null;
  const id=raw.startsWith('api:')?raw:'api:'+raw;
- return products.find(item=>item.id===id&&item.isPublished===true&&!item.disabled)||null;
+ return products.find(item=>item.id===id&&item.isPublished===true&&categoryMatches(item,'Promociones'))||null;
 }
 function openLinkedPromoProduct(){
  const p=promoNoticeItems[promoNoticeIndex],linked=linkedPromoProduct(p);
- if(!linked){toast('El producto de esta promoción no está disponible en la carta actual.');return}
+ if(!linked||linked.disabled){toast('Este producto de promoción está desactivado o no disponible.');return}
  closePromoNotice();st.selected=linked.id;st.qty=1;screen('detail');
 }
 function paintPromoNotice(){
  const el=document.getElementById('b3-promo-notice');if(!el)return;
- promoNoticeItems=promoNoticeItems.filter(p=>promoVisibleNow(p));if(!promoNoticeItems.length){closePromoNotice();return}
+ promoNoticeItems=promoNoticeItems.filter(p=>promoVisibleNow(p)&&linkedPromoProduct(p));if(!promoNoticeItems.length){closePromoNotice();return}
  promoNoticeIndex=(promoNoticeIndex+promoNoticeItems.length)%promoNoticeItems.length;
  const p=promoNoticeItems[promoNoticeIndex],linked=linkedPromoProduct(p);
  el.querySelector('[data-promo-title]').textContent=p.title;
@@ -2180,14 +2180,16 @@ function paintPromoNotice(){
  image.hidden=!src;
  if(src){image.src=src.startsWith('/')?API_BASE+src:src;image.alt='Imagen de '+linked.name}else image.removeAttribute('src');
  price.textContent=linked?linked.name+' · '+cash(linked.price):'';
- open.disabled=!linked;open.textContent=linked?'Ver producto':'Producto no disponible';open.style.opacity=linked?'1':'.55';
+ const inactive=!linked||linked.disabled;
+ const tag=el.querySelector('[data-promo-inactive]');tag.hidden=!inactive;tag.textContent=linked?'DESACTIVADO':'PRODUCTO NO DISPONIBLE';
+ open.disabled=inactive;open.textContent=inactive?'No disponible':'Ver producto';open.style.opacity=inactive?'.55':'1';
  el.querySelector('[data-promo-dots]').replaceChildren(...promoNoticeItems.map((_,i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label','Promoción '+(i+1));b.style.cssText='border:0;border-radius:50%;width:9px;height:9px;padding:0;background:'+(i===promoNoticeIndex?'#b91c1c':'#ddd');b.onclick=()=>{promoNoticeIndex=i;paintPromoNotice()};return b}));
 }
 function showPromoNotice(items){
  if(!promoHomeEligible()||document.getElementById('b3-promo-notice'))return;
  promoNoticeItems=items;promoNoticeIndex=0;items.forEach(p=>promoNoticeShown.add(promoKey(p)));
  const el=document.createElement('div');el.id='b3-promo-notice';el.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .18s ease';
- el.innerHTML='<section role="dialog" aria-modal="true" aria-label="Promociones" style="box-sizing:border-box;width:75vw;height:75vh;height:75dvh;max-height:75vh;max-height:75dvh;display:flex;flex-direction:column;justify-content:center;overflow:auto;background:#fff;color:#222;border-radius:22px;padding:20px;box-shadow:0 16px 50px #0004;text-align:center;position:relative"><button data-close-promo aria-label="Cerrar" style="position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:24px;color:#555">×</button><div style="font-size:11px;letter-spacing:2px;color:#b91c1c;font-weight:800;margin:12px 0">PROMOCIÓN ESPECIAL</div><h2 data-promo-title style="font-size:clamp(24px,6vw,34px);line-height:1.2;overflow-wrap:anywhere;margin:14px 0"></h2><img data-promo-image hidden style="width:100%;max-height:35vh;object-fit:contain;border-radius:12px;margin:0 auto 12px" alt=""><div data-promo-price style="font-weight:700;margin-bottom:12px"></div><button data-open-promo style="width:100%;border:0;background:#b91c1c;color:white;border-radius:12px;padding:13px;font-weight:700">Ver promoción</button><div data-promo-dots style="display:flex;justify-content:center;gap:8px;margin-top:14px"></div></section>';
+ el.innerHTML='<section role="dialog" aria-modal="true" aria-label="Promociones" style="box-sizing:border-box;width:min(86vw,420px);max-height:85vh;max-height:85dvh;display:flex;flex-direction:column;justify-content:flex-start;overflow:auto;background:#fff;color:#222;border-radius:22px;padding:18px 18px 20px;box-shadow:0 16px 50px #0004;text-align:center;position:relative"><button data-close-promo aria-label="Cerrar" style="position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:24px;color:#555">×</button><div style="font-size:11px;letter-spacing:2px;color:#b91c1c;font-weight:800;margin:24px 0 8px">PROMOCIÓN ESPECIAL</div><h2 data-promo-title style="font-size:clamp(22px,5vw,29px);line-height:1.2;overflow-wrap:anywhere;margin:8px 0 12px"></h2><img data-promo-image hidden style="width:100%;max-height:43vh;object-fit:contain;border-radius:12px;margin:0 auto 10px" alt=""><div data-promo-price style="font-weight:700;margin-bottom:8px"></div><div data-promo-inactive hidden style="color:#b91c1c;font-weight:800;margin-bottom:10px" role="status">DESACTIVADO</div><button data-open-promo style="width:100%;border:0;background:#b91c1c;color:white;border-radius:12px;padding:13px;font-weight:700">Ver promoción</button><div data-promo-dots style="display:flex;justify-content:center;gap:8px;margin-top:14px"></div></section>';
  document.body.append(el);requestAnimationFrame(()=>{el.style.opacity='1'});paintPromoNotice();
  el.querySelector('[data-close-promo]').onclick=closePromoNotice;
  el.querySelector('[data-open-promo]').onclick=openLinkedPromoProduct;
@@ -2200,7 +2202,7 @@ async function tickPromoNotice(){
  if(Date.now()-promoHomeSince<3000||promoNoticeBusy||document.getElementById('b3-promo-notice')||Date.now()-promoLastCheck<30000||!API_BASE)return;
  promoNoticeBusy=true;promoLastCheck=Date.now();
  try{const response=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!response.ok)return;const c=await response.json();if(!c.ready||!Array.isArray(c.promotions))return;
- const items=c.promotions.filter(p=>p&&typeof p.title==='string'&&p.title.trim()&&promoVisibleNow(p)&&!promoNoticeShown.has(promoKey(p)));if(items.length)showPromoNotice(items);
+ const items=c.promotions.filter(p=>p&&typeof p.title==='string'&&p.title.trim()&&promoVisibleNow(p)&&linkedPromoProduct(p)&&!promoNoticeShown.has(promoKey(p)));if(items.length)showPromoNotice(items);
  }catch{}finally{promoNoticeBusy=false}
 }
 setInterval(tickPromoNotice,250);
