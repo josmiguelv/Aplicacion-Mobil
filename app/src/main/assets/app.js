@@ -1,30 +1,13 @@
 /* POLLOS B3 — V12 checkout piloto: interfaz y seguimiento local de pedidos, sin cobros reales. */
 (()=>{'use strict';
 const K='b3-v6-demo-20261110', root=document.getElementById('app');
-const demoProducts=[
-{id:'p1',name:'1 Pollo a la Brasa',price:47.99,cat:'Pollos',pic:1,desc:'Pollo a la brasa. Acompañamientos sujetos a confirmación de la carta.'},
-{id:'p2',name:'1/2 Pollo a la Brasa',price:26.99,cat:'Pollos',pic:2,desc:'Medio pollo a la brasa. Presentación referencial.'},
-{id:'p3',name:'1/4 Pollo con Papas',price:12.99,cat:'Pollos',pic:3,desc:'Cuarto de pollo a la brasa con papas. Referencial.'},
-{id:'p4',name:'Combo 1',price:57.99,cat:'Promociones',pic:1,desc:'Combo comercial de referencia; verificar contenido y vigencia.'},
-{id:'p5',name:'Combo 2',price:31.99,cat:'Promociones',pic:2,desc:'Combo comercial de referencia; verificar contenido y vigencia.'},
-{id:'p6',name:'Combo 3',price:61,cat:'Promociones',pic:3,desc:'Combo mostrado en material de referencia. Precio sujeto a validación.'},
-{id:'p7',name:'Combo 4',price:71,cat:'Promociones',pic:4,desc:'Combo mostrado en material de referencia. Precio sujeto a validación.'},
-{id:'p8',name:'Bebida',price:0,cat:'Bebidas',pic:4,desc:'Consultar presentaciones y precios. No disponible para compra de prueba.',disabled:true}
-].map(p=>({...p,isDemo:true}));
-const products=[...demoProducts]; // Demo visible + productos publicados por API.
+const products=[]; // Solo productos publicados por la API.
 // Los locales se reciben exclusivamente desde el catálogo publicado en la web administrativa.
 const defaultStoreSchedule=()=>Object.fromEntries(
  ['monday','tuesday','wednesday','thursday','friday','saturday','sunday']
  .map(day=>[day,{open:'11:00',close:'23:00'}])
 );
 // Datos de demostración solicitados: sin validación oficial de direcciones ni horarios.
-const demoStores=[
- {id:'demo-nogales',name:'Los Nogales',address:'Av. Los Nogales 482, Santa Anita, Lima'},
- {id:'demo-eucaliptos',name:'Eucaliptos',address:'Av. Los Eucaliptos 1163, Santa Anita, Lima'},
- {id:'demo-ficus',name:'Los Ficus',address:'Av. Francisco Bolognesi 673, Santa Anita, Lima'},
- {id:'demo-universal',name:'Universal',address:'Av. Túpac Amaru 650, Santa Anita, Lima'}
-].map(s=>({...s,isDemo:true,active:true,hoursConfigured:true,
- weeklyHours:defaultStoreSchedule(),pickup_enabled:true,delivery_enabled:true,latitude:null,longitude:null}));
 const shops=[]; // Solo locales publicados por API; sin sucursales de demostración.
 
 function demoStoreClock(s){
@@ -264,11 +247,7 @@ let publishedPromotions=[];
 let publishedVacancies=[];
 let complaintsBookUrl=null;
 // Demo-only artwork supplied by the user; never represented as a published vacancy.
-const demonstrationVacancies=[
- {id:'demo-horneros',title:'Horneros con experiencia',summary:'Publicación de prueba basada en el afiche proporcionado.',description:'Se buscan horneros con experiencia.',requirements:'Experiencia como hornero.',schedule:'',employmentType:'',locationLabel:'',imageUrl:'images/demo-horneros.webp',whatsappPhone:'51937602607',isDemo:true},
- {id:'demo-cajeras-meseras',title:'Cajeras y meseras con experiencia',summary:'Publicación de prueba basada en el afiche proporcionado.',description:'Se buscan cajeras y meseras con experiencia.',requirements:'Experiencia en el puesto.',schedule:'Full time: 10:30 a. m. a 6:30 p. m. · Part time: 6:30 p. m. a 10:30 p. m.',employmentType:'Full time / Part time',locationLabel:'',imageUrl:'images/demo-cajeras-meseras.webp',whatsappPhone:'51937602607',isDemo:true}
-];
-function visibleVacancies(){return catalogPublished?publishedVacancies:demonstrationVacancies}
+function visibleVacancies(){return publishedVacancies}
 let selectedVacancyId=null;
 
 const storeAllowed=(s,m)=>!!s&&s.active!==false&&(m==='delivery'?s.delivery_enabled!==false:m==='pickup'?s.pickup_enabled!==false:s.dine_in_enabled===true);
