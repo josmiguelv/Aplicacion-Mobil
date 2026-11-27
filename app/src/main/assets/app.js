@@ -2434,7 +2434,8 @@ function reservationPicker(){
    !st.reservationAt?'<div class="notice">Selecciona fecha y hora para consultar disponibilidad.</div>':
    '')+
   (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div>':'')+
-  (st.mode==='pickup'?'<button class="primary full" data-reservation-verify="1">Continuar con recojo programado</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
+  (st.mode==='pickup'&&reservationQuote?.mode==='pickup'&&reservationQuote.dateTime===st.reservationAt?'<div class="summary-card"><b>Sede confirmada:</b> '+esc(shops.find(x=>x.id===reservationQuote.storeId)?.name||'Sede asignada')+'<p>Un agente está disponible para revisar la solicitud. Los productos se confirmarán antes del pago.</p></div>':'')+
+  (st.mode==='pickup'?'<button class="primary full" data-reservation-verify="1" '+(reservationQuoteBusy||!reservationQuote||reservationQuote.dateTime!==st.reservationAt?'disabled':'')+'>'+(reservationQuoteBusy?'Consultando disponibilidad...':'Continuar con recojo programado')+'</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Cambiar a pedido inmediato (sin reserva)</button>'+
   '</div>';
 }
@@ -2969,7 +2970,12 @@ async function submitPickupRequest(){
    throw Error('Actualiza la aplicación para solicitar el recojo.');
   await fetchConfig({strict:true});
   const selected=shops.find(x=>String(x.id)===String(st.store));
-  if(!selected||!eligibleForPickup(selected))throw Error('El local ya no está habilitado para recojo.');
+  if(!selected||(st.scheduleMode==='reservation'?
+     !(selected.active===true&&selected.pickup_enabled===true&&selected.reservation_enabled===true&&
+       selected.reservationAcceptingRequests===true&&reservationQuote?.storeId===selected.id&&
+       reservationQuote?.dateTime===st.reservationAt&&reservationQuote?.agentAvailable===true&&
+       reservationQuote?.acceptingRequests===true):!eligibleForPickup(selected)))
+   throw Error('El local ya no está habilitado para este recojo.');
   const items=publishedOrderItems();
   if(!/^9\\d{8}$/.test(st.profile.phone||'')||!String(st.profile.first||'').trim()||
      !String(st.profile.last||'').trim())throw Error('Confirma tus nombres y celular.');
@@ -3757,7 +3763,17 @@ if(b.hasAttribute('data-reservation-verify')){
   const when=window.B3ReservationForms.schedule(st.reservationAt);
   if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
   const selected=shops.find(x=>String(x.id)===String(st.store));
-  if(!selected||!eligibleForPickup(selected))return toast('Selecciona una tienda habilitada para recojo.');
+  if(reservationQuoteBusy)return toast('Espera mientras verificamos la disponibilidad de la reserva.');
+  if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt||reservationQuote.mode!=='pickup'||
+     reservationQuote.storeId!==st.store||reservationQuote.agentAvailable!==true||
+     reservationQuote.acceptingRequests!==true)return toast('Primero confirma la disponibilidad de tu recojo programado.');
+  if(!selected||selected.active!==true||selected.reservation_enabled!==true||
+     selected.pickup_enabled!==true||selected.reservationAcceptingRequests!==true)
+   return toast('La tienda ya no está habilitada para recojo programado. Vuelve a consultar.');
+  const lead=reservationMinLead(selected);
+  if(lead!==null&&when.from<Date.now()+lead*60000)return toast('El horario no cumple la anticipación mínima publicada.');
+  if(!Array.isArray(reservationQuote.paymentMethods)||!reservationQuote.paymentMethods.length)
+   return toast('La tienda no tiene métodos de pago habilitados para esta reserva.');
   checkoutPending=true;screen('identity');return;
  }
  resetDeliveryOrderContact();checkoutPending=true;confirmedDeliveryReviewKey=null;screen('identity');
