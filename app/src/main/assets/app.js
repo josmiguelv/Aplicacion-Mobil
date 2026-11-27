@@ -2977,7 +2977,7 @@ async function submitPickupRequest(){
        reservationQuote?.acceptingRequests===true):!eligibleForPickup(selected)))
    throw Error('El local ya no está habilitado para este recojo.');
   const items=publishedOrderItems();
-  if(!/^9\\d{8}$/.test(st.profile.phone||'')||!String(st.profile.first||'').trim()||
+  if(!/^9[0-9]{8}$/.test(String(st.profile.phone||'').trim())||!String(st.profile.first||'').trim()||
      !String(st.profile.last||'').trim())throw Error('Confirma tus nombres y celular.');
   const input={storeName:selected.name,customerName:[st.profile.first,st.profile.last].filter(Boolean).join(' '),customerPhone:st.profile.phone,when:st.scheduleMode==='reservation'?'scheduled':'now',
    dateTime:st.reservationAt,items:st.cart.map(x=>{const p=product(x.id);return {
@@ -3013,7 +3013,7 @@ function pickupRequestPending(){
  '<div class="summary-card"><h2>Consultando disponibilidad</h2>'+
  '<p>Estamos enviando o verificando tu solicitud con la tienda. El pago se habilitará solo cuando el agente acepte.</p>'+
  '<p>Local seleccionado: <b>'+esc(store?.name||'Por seleccionar')+'</b></p></div>'+
- (pickupRequestError?'<p role="alert">'+esc(pickupRequestError)+'</p>':'')+'</div>';
+ (pickupRequestError?'<div class="notice" role="alert">'+esc(pickupRequestError)+'</div><button class="primary full" data-screen="identity">Corregir datos y reintentar</button>':'<p class="smallprint" role="status">Espera mientras confirmamos el envío. No repitas la solicitud.</p>')+'</div>';
 }
 function payment(){
  const available=paymentOptions();
