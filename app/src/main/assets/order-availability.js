@@ -379,17 +379,17 @@
   function normalizeOrderForm(form) {
     if(form?.title==='VALIDACIÓN DE RECOJO'){
       if(form.subtitle!=='Confirmar disponibilidad de productos para retiro en tienda'||
-         !Array.isArray(form.fields)||form.fields.length<4||form.fields.length>5)
+         !Array.isArray(form.fields)||form.fields.length<6||form.fields.length>7)
         throw Error('El FORM de recojo no cumple el contrato.');
       const labels=form.fields.map(x=>x?.variable).join('|');
-      if(labels!=='Productos|Subtotal|Tienda de recojo|Modalidad'&&
-         labels!=='Productos|Subtotal|Tienda de recojo|Modalidad|Fecha y hora')
+      if(labels!=='Cliente|Celular|Productos|Subtotal|Tienda de recojo|Modalidad'&&
+         labels!=='Cliente|Celular|Productos|Subtotal|Tienda de recojo|Modalidad|Fecha y hora')
         throw Error('Las variables del FORM de recojo no coinciden.');
       if(form.fields.some(x=>!x||typeof x.value!=='string'||!x.value.trim()||
          x.value.length>500||typeof x.variable!=='string'||x.variable.length>80))
         throw Error('Campos inválidos del FORM de recojo.');
-      if(!['Retirar ahora','Recojo programado'].includes(form.fields[3].value)||
-         (form.fields.length===5)!==(form.fields[3].value==='Recojo programado'))
+      if(!['Retirar ahora','Recojo programado'].includes(form.fields[5].value)||
+         (form.fields.length===7)!==(form.fields[3].value==='Recojo programado'))
         throw Error('Modalidad de recojo inconsistente.');
       return {title:form.title,subtitle:form.subtitle,
         fields:form.fields.map(x=>({variable:x.variable,value:x.value}))};
