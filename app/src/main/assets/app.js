@@ -2227,7 +2227,8 @@ function carta(){const term=(st.search||'').toLocaleLowerCase('es-PE');const lis
 let b3OrdersFilter='all';
 function b3OrderStatus(o){
  const code=String(o.status||'');
- return ORDER_STAGES.find(x=>x[0]===code)?.[1]||'Sin procesar';
+ const stage=ORDER_STAGES.find(x=>x[0]===code);
+ return stage?orderStageDisplay(o,code,stage[1],stage[2]).title:'Sin procesar';
 }
 function b3OrderCard(o){
  const done=orderDelivered(o),label=b3OrderStatus(o);
