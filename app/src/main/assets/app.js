@@ -2207,8 +2207,8 @@ function orders(){
  if(confirmed?.paymentConfirmation?.status==='ACCEPTED')recordVerifiedPaymentOrder(confirmed);
  const list=Array.isArray(st.orders)?st.orders.filter(o=>o&&typeof o.id==='string'&&Date.now()-o.ts<60*24*3600000):[];
  const active=list.filter(o=>!orderDelivered(o)),history=list.filter(o=>orderDelivered(o));
- const shownActive=b3OrdersFilter==='all'||b3OrdersFilter==='active';
- const shownHistory=b3OrdersFilter==='all'||b3OrdersFilter==='history';
+ const shownActive=true;
+ const shownHistory=true;
  const filters=[['all','Todos',list.length],['active','En seguimiento',active.length],['history','Entregados',history.length]];
  const css='<style>'+
  '.b3-orders-page{padding-bottom:100px}.b3-orders-intro{display:flex;align-items:center;justify-content:space-between;gap:12px}.b3-orders-intro h1{margin-bottom:5px}.b3-orders-intro p{color:#747474;margin:0;font-size:13px}.b3-orders-intro-icon{width:48px;height:48px;border-radius:15px;background:#fff0f1;color:#d50b27;display:grid;place-items:center;flex-shrink:0}'+
@@ -2218,9 +2218,7 @@ function orders(){
  '</style>';
  return '<div class="page b3-orders-page">'+css+
  '<div class="b3-orders-intro"><div><h1>Mis pedidos</h1><p>Consulta tus pedidos y su seguimiento.</p></div><span class="b3-orders-intro-icon">'+ic('orders',25)+'</span></div>'+
- (list.length?'<div class="b3-orders-summary"><div><b>'+active.length+'</b><small>En seguimiento</small></div><div><b>'+history.length+'</b><small>Entregados</small></div></div>'+
- '<div class="b3-orders-filters" aria-label="Filtrar pedidos">'+filters.map(([key,label,count])=>'<button data-orders-filter="'+key+'" class="'+(b3OrdersFilter===key?'selected':'')+'" aria-pressed="'+(b3OrdersFilter===key)+'">'+label+' <span>'+count+'</span></button>').join('')+'</div>'+
- (shownActive?'<section class="b3-orders-group"><h2>En seguimiento</h2>'+(active.length?active.map(b3OrderCard).join(''):'<p class="b3-orders-empty-group">No tienes pedidos en seguimiento.</p>')+'</section>':'')+
+ (list.length?(shownActive?'<section class="b3-orders-group"><h2>En seguimiento</h2>'+(active.length?active.map(b3OrderCard).join(''):'<p class="b3-orders-empty-group">No tienes pedidos en seguimiento.</p>')+'</section>':'')+
  (shownHistory?'<section class="b3-orders-group"><h2>Historial de entregas</h2>'+(history.length?history.map(b3OrderCard).join(''):'<p class="b3-orders-empty-group">Todavía no tienes pedidos entregados.</p>')+'</section>':''):
  '<div class="empty-state"><h2>Aún no tienes pedidos</h2><p>Cuando confirmes un pedido podrás consultar aquí su información.</p><button class="primary" data-tab="carta">Ver la carta</button></div>')+'</div>';
 }
