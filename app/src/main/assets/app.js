@@ -2157,21 +2157,40 @@ function closePromoNotice(){
  clearInterval(promoNoticeRotation);promoNoticeRotation=null;promoNoticeItems=[];
  const el=document.getElementById('b3-promo-notice');if(el){el.style.opacity='0';el.style.pointerEvents='none';setTimeout(()=>el.remove(),180)}
 }
+function linkedPromoProduct(p){
+ // Only open a product actually published in the current catalog.
+ const raw=p?.productId??p?.product_id??p?.product?.id??p?.linkedProductId??null;
+ if(typeof raw!=='string'||!raw.trim())return null;
+ const id=raw.startsWith('api:')?raw:'api:'+raw;
+ return products.find(item=>item.id===id&&item.isPublished===true&&!item.disabled)||null;
+}
+function openLinkedPromoProduct(){
+ const p=promoNoticeItems[promoNoticeIndex],linked=linkedPromoProduct(p);
+ if(!linked){toast('El producto de esta promoción no está disponible en la carta actual.');return}
+ closePromoNotice();st.selected=linked.id;st.qty=1;screen('detail');
+}
 function paintPromoNotice(){
  const el=document.getElementById('b3-promo-notice');if(!el)return;
  promoNoticeItems=promoNoticeItems.filter(p=>promoVisibleNow(p));if(!promoNoticeItems.length){closePromoNotice();return}
  promoNoticeIndex=(promoNoticeIndex+promoNoticeItems.length)%promoNoticeItems.length;
- const p=promoNoticeItems[promoNoticeIndex];el.querySelector('[data-promo-title]').textContent=p.title;
+ const p=promoNoticeItems[promoNoticeIndex],linked=linkedPromoProduct(p);
+ el.querySelector('[data-promo-title]').textContent=p.title;
+ const image=el.querySelector('[data-promo-image]'),price=el.querySelector('[data-promo-price]'),open=el.querySelector('[data-open-promo]');
+ const src=linked?.imageUrl||'';
+ image.hidden=!src;
+ if(src){image.src=src.startsWith('/')?API_BASE+src:src;image.alt='Imagen de '+linked.name}else image.removeAttribute('src');
+ price.textContent=linked?linked.name+' · '+cash(linked.price):'';
+ open.disabled=!linked;open.textContent=linked?'Ver producto':'Producto no disponible';open.style.opacity=linked?'1':'.55';
  el.querySelector('[data-promo-dots]').replaceChildren(...promoNoticeItems.map((_,i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label','Promoción '+(i+1));b.style.cssText='border:0;border-radius:50%;width:9px;height:9px;padding:0;background:'+(i===promoNoticeIndex?'#b91c1c':'#ddd');b.onclick=()=>{promoNoticeIndex=i;paintPromoNotice()};return b}));
 }
 function showPromoNotice(items){
  if(!promoHomeEligible()||document.getElementById('b3-promo-notice'))return;
  promoNoticeItems=items;promoNoticeIndex=0;items.forEach(p=>promoNoticeShown.add(promoKey(p)));
  const el=document.createElement('div');el.id='b3-promo-notice';el.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .18s ease';
- el.innerHTML='<section role="dialog" aria-modal="true" aria-label="Promociones" style="box-sizing:border-box;width:75vw;height:75vh;height:75dvh;max-height:75vh;max-height:75dvh;display:flex;flex-direction:column;justify-content:center;overflow:auto;background:#fff;color:#222;border-radius:22px;padding:20px;box-shadow:0 16px 50px #0004;text-align:center;position:relative"><button data-close-promo aria-label="Cerrar" style="position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:24px;color:#555">×</button><div style="font-size:11px;letter-spacing:2px;color:#b91c1c;font-weight:800;margin:12px 0">PROMOCIÓN ESPECIAL</div><h2 data-promo-title style="font-size:clamp(24px,6vw,34px);line-height:1.2;overflow-wrap:anywhere;margin:24px 0"></h2><button data-open-promo style="width:100%;border:0;background:#b91c1c;color:white;border-radius:12px;padding:13px;font-weight:700">Ver promoción</button><div data-promo-dots style="display:flex;justify-content:center;gap:8px;margin-top:14px"></div></section>';
+ el.innerHTML='<section role="dialog" aria-modal="true" aria-label="Promociones" style="box-sizing:border-box;width:75vw;height:75vh;height:75dvh;max-height:75vh;max-height:75dvh;display:flex;flex-direction:column;justify-content:center;overflow:auto;background:#fff;color:#222;border-radius:22px;padding:20px;box-shadow:0 16px 50px #0004;text-align:center;position:relative"><button data-close-promo aria-label="Cerrar" style="position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:24px;color:#555">×</button><div style="font-size:11px;letter-spacing:2px;color:#b91c1c;font-weight:800;margin:12px 0">PROMOCIÓN ESPECIAL</div><h2 data-promo-title style="font-size:clamp(24px,6vw,34px);line-height:1.2;overflow-wrap:anywhere;margin:14px 0"></h2><img data-promo-image hidden style="width:100%;max-height:35vh;object-fit:contain;border-radius:12px;margin:0 auto 12px" alt=""><div data-promo-price style="font-weight:700;margin-bottom:12px"></div><button data-open-promo style="width:100%;border:0;background:#b91c1c;color:white;border-radius:12px;padding:13px;font-weight:700">Ver promoción</button><div data-promo-dots style="display:flex;justify-content:center;gap:8px;margin-top:14px"></div></section>';
  document.body.append(el);requestAnimationFrame(()=>{el.style.opacity='1'});paintPromoNotice();
  el.querySelector('[data-close-promo]').onclick=closePromoNotice;
- el.querySelector('[data-open-promo]').onclick=()=>{closePromoNotice();st.category='Promociones';st.search='';nav('carta')};
+ el.querySelector('[data-open-promo]').onclick=openLinkedPromoProduct;
  let x=0;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{const d=e.changedTouches[0].clientX-x;if(Math.abs(d)>35){promoNoticeIndex+=d<0?1:-1;paintPromoNotice()}},{passive:true});
  promoNoticeRotation=setInterval(()=>{if(!promoHomeEligible()){closePromoNotice();return}if(promoNoticeItems.length>1)promoNoticeIndex++;paintPromoNotice()},5000);
 }
