@@ -1780,7 +1780,7 @@ function fulfillmentOverlay(){
    ${deliveryRequestError?`<div class="notice" role="alert">${esc(deliveryRequestError)}</div>`:""}
    <button type="button" class="primary full" data-modal-save-delivery="1" ${deliveryRequestPending?"disabled":""}>${deliveryRequestPending?"Buscando sedes...":"Consultar disponibilidad"}</button>
  </div>`;
- const pickupPanel=`<div class="b3-modal-fields">
+ const pickupPanel=`<div class="b3-modal-fields"><p class="smallprint">Elige dónde recogerás tu pedido. Consulta cómo llegar antes de seleccionar la tienda.</p>
    <button type="button" class="outline full" data-gps="1">${ic('pin',18)} Usar mi ubicación actual</button>
    <label>O ingresa una dirección de referencia<input id="pickup-origin" placeholder="Calle, número y distrito" value="${esc(st.pickupOrigin||'')}"></label>
    <button type="button" class="outline full" data-pickup-origin-save="1">Guardar dirección de referencia</button>
@@ -1790,11 +1790,12 @@ function fulfillmentOverlay(){
      ${s.address?`<span class="b3-store-line">${ic('pin',15)}${esc(s.address)}</span>`:''}
      ${straightDistanceKm(s)?`<span class="b3-store-line">${ic('map',15)}${esc(straightDistanceKm(s))}</span>`:''}
      ${pickupPaymentWarning(s)}
+     ${s.address||s.addr?`<button type="button" class="outline full" data-openmaps="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.address||s.addr)}">${ic("map",16)} Cómo llegar con Google Maps</button>`:""}
      ${eligibleForPickup(s)?`<button type="button" class="b3-store-select" data-modal-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'} ${ic('chev',16)}</button>`:'<span class="b3-store-unavailable">No disponible para retiro inmediato</span>'}
    </div>`).join(''):'<div class="notice">No hay locales activos publicados por la web administrativa.</div>'}</div>
  </div>`;
- return `<div class="b3-modal-backdrop" data-modal-close="1">
-   <section class="b3-modal-sheet" role="dialog" aria-modal="true" aria-label="Configurar pedido">
+ return `<style>.b3-modal-sheet.b3-pickup-fullscreen{position:fixed!important;inset:0!important;width:100%!important;max-width:none!important;height:100dvh!important;min-height:100dvh!important;max-height:100dvh!important;border-radius:0!important;overflow-y:auto!important;box-sizing:border-box!important;padding-top:max(18px,env(safe-area-inset-top))!important;padding-bottom:max(30px,env(safe-area-inset-bottom))!important}.b3-pickup-fullscreen .b3-modal-handle{display:none!important}.b3-pickup-fullscreen .b3-modal-store .outline{margin:8px 0}</style><div class="b3-modal-backdrop" data-modal-close="1">
+   <section class="b3-modal-sheet ${pick?'b3-pickup-fullscreen':''}" role="dialog" aria-modal="true" aria-label="Configurar pedido">
     <div class="b3-modal-handle" aria-hidden="true"></div>
     <div class="b3-modal-heading"><div><h2>${choice?'¿Para dónde hoy?':delivery?'Pollo Delivery':'Pide y Retira'}</h2><p>${choice?'Elige cómo quieres recibir tu pedido':delivery?'Indica dónde entregaremos tu pedido':'Elige dónde recogerás tu pedido'}</p></div>
     <button type="button" data-modal-close="1" class="b3-modal-close" aria-label="Cerrar">${ic('close',21)}</button></div>
