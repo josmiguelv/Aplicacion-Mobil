@@ -256,7 +256,7 @@ function straightDistanceKm(s){
  const a=Math.sin(dLat/2)**2+Math.cos(rad(st.coords.lat))*Math.cos(rad(Number(s.latitude)))*Math.sin(dLon/2)**2;
  return (6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))).toFixed(1)+' km aprox. en línea recta';
 }
-const prefetchedPaymentImages=new Map();
+const prefetchedPaymentImages=new Set();
 function paymentImageUrl(method){
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const storeUrl=selected?.paymentOptions?.[st.mode]?.find(x=>x?.method===method)?.imageUrl;
@@ -4342,6 +4342,7 @@ window.handleB3Back=()=>{
 // Keep image warmup bounded: WebView's HTTP cache handles subsequent requests.
 // Prefetching every store's payment artwork can waste mobile data and memory.
 function preloadPublishedPaymentImages(){
+ if(!API_BASE||typeof Image==='undefined')return Promise.resolve();
  const urls=new Set();
  function addPath(path){
   if(typeof path==='string'&&path.startsWith('/api/v1/mobile/images/')&&
@@ -4355,7 +4356,7 @@ function preloadPublishedPaymentImages(){
  return Promise.all([...urls].slice(0,6).map(url=>new Promise(resolve=>{
   if(prefetchedPaymentImages.has(url)){resolve();return}
   const image=new Image();
-  image.onload=()=>{prefetchedPaymentImages.set(url,true);resolve()};
+  image.onload=()=>{if(prefetchedPaymentImages.size>=24)prefetchedPaymentImages.clear();prefetchedPaymentImages.add(url);resolve()};
   image.onerror=()=>resolve();
   image.src=url;
  })));
