@@ -3750,7 +3750,13 @@ if(b.hasAttribute('data-reservation-verify')){
   const when=window.B3ReservationForms.schedule(st.reservationAt);
   if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
  }else{const preview=reservationFormPreview();if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');}
- if(st.mode!=='delivery')return toast('El recojo programado aún requiere integración.');
+ if(st.mode==='pickup'){
+  const when=window.B3ReservationForms.schedule(st.reservationAt);
+  if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
+  const selected=shops.find(x=>String(x.id)===String(st.store));
+  if(!selected||!eligibleForPickup(selected))return toast('Selecciona una tienda habilitada para recojo.');
+  checkoutPending=true;screen('identity');return;
+ }
  resetDeliveryOrderContact();checkoutPending=true;confirmedDeliveryReviewKey=null;screen('identity');
  return;
 }
