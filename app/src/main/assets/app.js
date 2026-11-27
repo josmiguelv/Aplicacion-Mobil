@@ -2667,7 +2667,7 @@ function prepaymentReview(){
  </div>`;
 }
 function paymentInstructions(){
- const valid=st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&deliveryQuoteValid();
+ const valid=st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&deliveryQuoteValid()&&window.B3OrderAvailability?.readInteraction?.()?.status==='ACCEPTED';
  const image=paymentImageUrl(st.pay);
  const title=({yape:'Yape',plin:'Plin',card:'Tarjeta'})[st.pay]||'';
  if(!valid||!paymentOptions().some(x=>x[0]===st.pay)||!title)return '<div class="page"><div class="notice">Selecciona un método válido.</div><button class="outline full" data-screen="payment">Volver</button></div>';
@@ -2894,7 +2894,7 @@ function payment(){
  const available=paymentOptions();
  const selected=shops.find(x=>String(x.id)===String(st.store));
  const missing=st.configReady&&!available.length;
- const acceptedDelivery=st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED';
+ const acceptedDelivery=st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&deliveryQuoteValid()&&window.B3OrderAvailability?.readInteraction?.()?.status==='ACCEPTED';
  const awaitingDigitalAcceptance=['yape','plin'].includes(st.pay)&&!acceptedDelivery;
  return `<div class="page">${heading(acceptedDelivery?'Pagar pedido':'Método de pago',acceptedDelivery?'inicio':'prepaymentReview')}
  ${acceptedDelivery?`<div class="summary-card"><h2>Pedido aceptado · ${esc(selected?.name||'Sede asignada')}</h2><p>Productos <b>${cash(subtotal())}</b></p><p>Delivery <b>${cash(st.quote.deliveryFeePen)}</b></p><p class="grand">Total a pagar <strong>${cash(orderTotal())}</strong></p></div>${personalCheckoutTimeHtml()}`:''}
@@ -3772,7 +3772,24 @@ if(b.dataset.pay){
  }
  render();return;
 }
-if(b.hasAttribute('data-pay-next')){if(['yape','plin'].includes(st.pay)){const accepted=st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&deliveryQuoteValid()&&window.B3OrderAvailability?.readInteraction?.()?.status==='ACCEPTED';if(!accepted)return toast('Primero la tienda debe aceptar tu pedido para habilitar el pago con '+(st.pay==='yape'?'Yape':'Plin')+'.');if(!paymentImageUrl(st.pay))return toast('La tienda no ha publicado la imagen de pago de '+(st.pay==='yape'?'Yape':'Plin')+'.');screen('paymentInstructions');return;}if(st.mode==='pickup')return toast('El pedido de recojo aún requiere confirmación del agente antes del pago. No se ha enviado ninguna solicitud.');if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED')return toast('La integración de pagos se implementará en una fase posterior.');if(checkoutRefreshPending)return;if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');if(st.pay==='cash')st.cash=v('cash');save();void revalidateCheckout('summary');return}
+if(b.hasAttribute('data-pay-next')){
+ if(checkoutRefreshPending)return;
+ if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método de pago habilitado');
+ if(st.mode==='pickup')return toast('Primero se necesita la aceptación del agente para el pedido de recojo. No se ha iniciado ningún pago.');
+ if(['yape','plin','card'].includes(st.pay)){
+  const entry=window.B3OrderAvailability?.readInteraction?.();
+  if(st.mode!=='delivery'||st.quote?.quoteOrigin!=='ANDROID_CATALOG_ACCEPTED'||!deliveryQuoteValid()||entry?.status!=='ACCEPTED')
+   return toast('Primero la tienda debe aceptar tu pedido antes de mostrar el pago.');
+  if(!paymentImageUrl(st.pay))return toast('La sede no ha publicado una imagen de pago para este método.');
+  screen('paymentInstructions');return;
+ }
+ if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'){
+  if(window.B3OrderAvailability?.readInteraction?.()?.status!=='ACCEPTED'||!deliveryQuoteValid())return toast('La aceptación de la tienda debe estar vigente.');
+  screen('paymentProofPreview');return;
+ }
+ if(st.pay==='cash')st.cash=v('cash');
+ save();void revalidateCheckout('summary');return;
+}
 if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
 if(b.hasAttribute('data-google-login')){if(googleSignInPending)return;if(!window.AndroidBridge?.signInWithGoogle){toast('El acceso con Google requiere actualizar Android.');return}googleSignInPending=true;render();window.AndroidBridge.signInWithGoogle();return}
 if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin!=='phone'||!/^9\d{8}$/.test(x))return toast('Completa un celular peruano de 9 dígitos');if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=true;st.authProvider='demo-phone';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';st.profile.phone=x;save();enterApp();return}
