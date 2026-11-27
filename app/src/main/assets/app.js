@@ -1357,6 +1357,7 @@ window.b3DeliveryGpsAddress=(token,street,district,hasNumber,error)=>{
  }
  if(deliveryLocation?.source==='gps')deliveryLocation.key=deliveryAddressKey(st.profile.address,st.profile.district);
  deliveryRequestError='';save();render();
+ if(st.stage==='reservationPicker'&&st.scheduleMode==='reservation'&&st.mode==='delivery'&&!error&&hasNumber&&st.profile.district){reservationAddressEditing=false;render();autoCheckReservationQuote();}
 };
 // Android permission allows access but cannot switch the device's master GPS
 // toggle on. Offer a user-controlled route to the proper system settings.
@@ -1413,7 +1414,8 @@ window.b3NativeLocation=(lat,lng,error)=>{
   return;
  }
  st.coords={lat,lng};save();resolveStoreDistances();
- if(forDelivery&&(fulfillmentModal==='delivery'||st.stage==='deliveryAddress')){
+ if(forDelivery&&(fulfillmentModal==='delivery'||st.stage==='deliveryAddress'||(st.stage==='reservationPicker'&&st.mode==='delivery'))){
+  if(st.stage==='reservationPicker'){resetReservationQuote();reservationAddressEditing=true;st.store='';st.pay='';}
   st.profile.address=v('address')||st.profile.address;
   st.profile.district=v('district')||st.profile.district;
   st.profile.reference=v('reference')||st.profile.reference;
@@ -2303,7 +2305,7 @@ function reservationPicker(){
   (st.mode==='delivery'?
    '<div class="summary-card"><b>Dirección de entrega</b><p>'+
      esc([st.profile.address,st.profile.district].filter(Boolean).join(', ')||'Todavía no indicada')+
-   '</p><button type="button" class="outline full" data-reservation-address="1">'+
+   '</p><button type="button" class="outline full" data-gps="1" '+(deliveryGpsPending?'disabled':'')+'>'+ic('pin',18)+' Usar mi ubicación actual</button>'+(deliveryGpsMessage?'<p class="smallprint">'+esc(deliveryGpsMessage)+'</p>':'')+'<button type="button" class="outline full" data-reservation-address="1">'+
    (reservationAddressEditing?'Ocultar edición':'Editar dirección')+'</button>'+
    (reservationAddressEditing?
     '<label>Dirección<input id="b3-reservation-address" value="'+esc(st.profile.address)+'"></label>'+
@@ -3464,7 +3466,7 @@ if(b.hasAttribute('data-modal-save-delivery')){
  save();if(st.scheduleMode==='reservation'){screen('reservationPicker');return}if(st.mode==='delivery')void resolveDelivery();else render();return;
 }
 if(b.dataset.modalPickstore){void confirmStore('pickup',b.dataset.modalPickstore);return;}
-if(b.hasAttribute('data-gps')){locationPromptDismissed=false;deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress';if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.hasAttribute('data-checkout-return')){returnToPersonalCheckout();return}
+if(b.hasAttribute('data-gps')){locationPromptDismissed=false;deliveryGpsRequested=fulfillmentModal==='delivery'||st.stage==='deliveryAddress'||(st.stage==='reservationPicker'&&st.mode==='delivery');if(window.AndroidBridge?.requestLocation)window.AndroidBridge.requestLocation();else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.b3NativeLocation(p.coords.latitude,p.coords.longitude,null),()=>window.b3NativeLocation(null,null,'Permiso denegado o GPS desactivado'),{enableHighAccuracy:true,timeout:12000});else {deliveryGpsRequested=false;toast('GPS no disponible. Ingresa la dirección manualmente.')}return}if(b.hasAttribute('data-pickup-origin-save')){st.pickupOrigin=v('pickup-origin');st.coords=null;save();render();return}if(b.hasAttribute('data-clearsearch')){st.search='';render();return}if(b.hasAttribute('data-checkout-return')){returnToPersonalCheckout();return}
 if(b.hasAttribute('data-checkout-leave')){nav('inicio');return}
 if(b.hasAttribute('data-rejected-new-catalog')){
  if(window.B3OrderAvailability?.readInteraction?.()?.status!=='REJECTED')return;
@@ -3517,7 +3519,7 @@ if(b.hasAttribute('data-reservation-address-save')){
  const address=v('b3-reservation-address'),district=v('b3-reservation-district'),reference=v('b3-reservation-reference');
  if(address.trim().length<6||district.trim().length<2)return toast('Ingresa una dirección completa y el distrito.');
  st.profile.address=address.trim();st.profile.district=district.trim();st.profile.reference=reference.trim();
- deliveryLocation=null;reservationQuote=null;st.store='';st.pay='';
+ if(deliveryLocation?.source!=='gps'||deliveryLocation.key!==deliveryAddressKey(st.profile.address,st.profile.district))deliveryLocation=null;reservationQuote=null;st.store='';st.pay='';
  reservationQuoteError='';reservationQuoteBusy=false;++reservationQuoteGeneration;reservationAddressEditing=false;save();render();autoCheckReservationQuote();return;
 }
 if(b.dataset.reservationPay){
