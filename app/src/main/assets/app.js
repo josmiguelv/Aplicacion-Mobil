@@ -584,23 +584,6 @@ function deliveryOrderTicketForm(address,district){
   throw Error('El formulario supera los límites permitidos de variables.');
  return {title,subtitle,fields};
 }
-function applyBackendQuote(result,entry,address,district){
- const fee=Number(result.deliveryFee),amount=Number(result.total),serverSubtotal=Number(result.subtotal);
- if(result.currency!=='PEN'||!result.store||!shops.some(s=>String(s.id)===String(result.store.id))||
-  result.deliveryFee==null||result.total==null||result.subtotal==null||
-  !Number.isFinite(fee)||fee<0||!Number.isFinite(amount)||!Number.isFinite(serverSubtotal)||
-  Math.abs(amount-fee-serverSubtotal)>.015||Math.abs(serverSubtotal-subtotal())>.015)
-  throw Error('La cotización del servidor no coincide con el catálogo. Revisa los productos y vuelve a intentarlo.');
- const dist=result.routeDistanceKm==null?null:Number(result.routeDistanceKm);
- st.store=result.store.id;
- st.quote={storeId:result.store.id,storeName:String(result.store.name||'Sede asignada'),
-   deliveryFeePen:fee,serverSubtotalPen:serverSubtotal,serverTotalPen:amount,
-   paymentMethods:Array.isArray(result.paymentMethods)?result.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)):[],
-   routeDistanceKm:Number.isFinite(dist)&&dist>=0?dist:null,distanceSource:'SERVER_ROUTE',
-   quoteOrigin:'ADMIN_API',serverValidated:true,provisional:true,
-   validationId:entry.validationId,quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
- deliveryAvailability={status:'READY',storeName:st.quote.storeName,candidateNames:[],message:''};save();
-}
 let agentDecisionTimer=null,agentDecisionPolling=false;
 // Never retry a confirmed order's delivery quotation without a bound.
 let acceptedQuoteFailures=0,acceptedQuotePaused=false,acceptedQuoteInteractionId='';
@@ -3190,7 +3173,7 @@ function summary(){
  <div class="notice">Para confirmar un pedido, inicia una solicitud con la sede desde Delivery o Pide y Retira.</div>
  <button class="primary full" data-screen="cart">Volver al carrito</button></div>`;
 }
-function success(){let o=st.orders[0];return `<div class="success"><div class="success-mark">${ic('check',54)}</div><h1>¡Pedido de prueba registrado!</h1><p>Este pedido se guardó en tu teléfono. <b>No fue enviado a Pollos B3 ni cobrado.</b></p><div class="success-box"><b>${esc(o?.id||'')}</b><span>${cash(o?.total||0)}</span><small>Simulación local</small></div><button class="primary full" data-tab="pedidos">Ver mis pedidos</button><button class="outline full" data-tab="inicio">Volver al inicio</button></div>`}
+function success(){const o=st.orders[0];return `<div class="success"><div class="success-mark">${ic('info',54)}</div><h1>Registro anterior en este dispositivo</h1><p>Este registro local no confirma un pedido comercial, su aceptación ni su pago.</p><div class="success-box"><b>${esc(o?.id||'')}</b><span>${cash(o?.total||0)}</span><small>Registro histórico local</small></div><button class="primary full" data-tab="pedidos">Ver mis pedidos</button><button class="outline full" data-tab="inicio">Volver al inicio</button></div>`}
 // The chat is a read-only view of the current device's verified interaction.
 const B3_CHAT_ACTIVITY=Object.freeze({
  prepared:'Estamos preparando tu solicitud.',
