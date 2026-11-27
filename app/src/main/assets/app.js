@@ -319,7 +319,7 @@ function paymentConfirmationForm(imageUrl=''){
   {variable:'Dirección',value:[st.profile.address,st.profile.district].filter(Boolean).join(', ')},
   {variable:'Total',value:cash(orderTotal())}
  ];
- if(st.scheduleMode==='reservation'){const when=window.B3ReservationForms.schedule(st.reservationAt);fields.unshift({variable:'Fecha',value:when.date+' · '+when.interval});}
+ if(st.scheduleMode==='reservation'){const when=window.B3ReservationForms.schedule(st.reservationAt);fields.unshift({variable:'Fecha',value:when.date+' · '+(()=>{const [h,m]=st.reservationAt.split('T')[1].split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+' '+(h<12?'a. m.':'p. m.');})()});}
  if(fields.length>10||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario de pago requiere seis campos válidos');
  return {type:'FORM',form:{title:(st.scheduleMode==='reservation'?'PAGO DE RESERVA - ':'PAGO REALIZADO - ')+names[st.pay],
   subtitle:'Comprobante adjunto',...(imageUrl?{imageUrl}:{}),fields}};
@@ -601,7 +601,7 @@ function deliveryOrderTicketForm(address,district){
   {variable:'Dirección y referencia',value:destination}
  ];
  const scheduled=st.scheduleMode==='reservation';
- if(scheduled){const when=window.B3ReservationForms.schedule(st.reservationAt);if(fields.length===10){const merged=fields.splice(6,2);fields.splice(6,0,{variable:'Detalle adicional',value:merged.map(f=>f.variable+': '+f.value).join(' · ')});}fields.unshift({variable:'Fecha',value:when.date+' · '+when.interval});}
+ if(scheduled){const when=window.B3ReservationForms.schedule(st.reservationAt);if(fields.length===10){const merged=fields.splice(6,2);fields.splice(6,0,{variable:'Detalle adicional',value:merged.map(f=>f.variable+': '+f.value).join(' · ')});}fields.unshift({variable:'Fecha',value:when.date+' · '+(()=>{const [h,m]=st.reservationAt.split('T')[1].split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+' '+(h<12?'a. m.':'p. m.');})()});}
  const title=scheduled?'VALIDACIÓN DE RESERVA':'VALIDACIÓN DE PEDIDO',subtitle=scheduled?'Confirmar disponibilidad para delivery programado':'Confirmar disponibilidad para delivery';
  if(fields.length>10||fields.some(({variable,value})=>
     variable.length>80||value.length>500||!value.trim()))
