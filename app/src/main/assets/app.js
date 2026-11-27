@@ -1920,6 +1920,8 @@ const DELIVERY_STATUS_WORDS={
  'preparando':'PREPARING','pedido en preparacion':'PREPARING',
  'en despacho':'DISPATCH','despacho':'DISPATCH',
  'despachado':'DISPATCH','en camino':'DISPATCH',
+ 'listo para recoger':'DISPATCH','pedido listo para recoger':'DISPATCH',
+ 'listo para recojo':'DISPATCH','pedido listo para recojo':'DISPATCH',
  'salio a reparto':'DISPATCH','pedido en despacho':'DISPATCH',
  'entregado':'DELIVERED','pedido entregado':'DELIVERED'
 };
@@ -1957,7 +1959,7 @@ function vibrateConfirmedOrderStage(stage){
  // The browser/Android decides whether vibration is permitted by device settings.
  if(typeof document==='undefined'||document.visibilityState!=='visible')return;
  if(typeof navigator==='undefined'||typeof navigator.vibrate!=='function')return;
- try{navigator.vibrate(stage==='DELIVERED'?[110,90,110]:150)}catch{}
+ try{navigator.vibrate(stage==='DELIVERED'?[200,100,200]:250)}catch{}
 }
 async function refreshLiveTracking(){
  if(trackingPollBusy)return;
