@@ -1209,6 +1209,11 @@ public class MainActivity extends Activity {
         WebSettings settings=web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        // Defense in depth for the bundled app: block risky browsing capabilities.
+        settings.setSafeBrowsingEnabled(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        settings.setSupportMultipleWindows(false);
+        settings.setAllowContentAccess(false);
         // Cache remote catalog images and payment QRs for the active app version.
         // Clear cache once per bundled UI version to avoid stale packaged assets.
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
