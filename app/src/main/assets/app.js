@@ -2334,10 +2334,7 @@ function reservationPicker(){
    '</div>':'')+
   (reservationQuoteBusy?'<div class="notice" role="status">Buscando automáticamente una sede disponible...</div>':
    !st.reservationAt?'<div class="notice">Selecciona fecha y hora para consultar disponibilidad.</div>':
-   reservationQuote?'<div class="summary-card"><b>Atención disponible</b><p>'+
-     esc(selected?.name||'Sede disponible')+'</p>'+
-     (st.mode==='delivery'?'<p>Tarifa de entrega: '+esc(cash(reservationQuote.deliveryFeePen))+'</p>':'')+
-   '</div>':'')+
+   '')+
   (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div>':'')+
   (reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Cambiar a pedido inmediato (sin reserva)</button>'+
