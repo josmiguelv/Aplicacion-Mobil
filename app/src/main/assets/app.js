@@ -50,7 +50,9 @@ st.orderContactDraft=null;
 st.deliveryContactConfirmed=false;
 if(!['','delivery','pickup'].includes(st.mode))st.mode='';
 if(!['now','reservation'].includes(st.scheduleMode))st.scheduleMode='now';
-if(typeof st.reservationAt!=='string')st.reservationAt=''; // Retirado de la navegación de Pollos B3 V11.
+if(typeof st.reservationAt!=='string')st.reservationAt='';
+// Explicit pickup choice; legacy default 'now' is not proof the customer selected it.
+if(typeof st.pickupScheduleSelected!=='boolean')st.pickupScheduleSelected=false; // Retirado de la navegación de Pollos B3 V11.
 // Demo-only flag: stores whether the visitor already chose guest access or test sign-in.
 let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
@@ -3358,6 +3360,7 @@ async function revalidateCheckout(next){
 }
 function startCheckout(){
  const issue=checkoutCartIssue();if(issue){toast(issue);return}
+ if(st.mode==='pickup'&&!st.pickupScheduleSelected){checkoutPending=true;screen('scheduleChoice');return}
  if(st.scheduleMode==='reservation'){checkoutPending=false;screen('reservationPicker');return}
  if(!st.mode){checkoutPending=true;screen('choice');return}
  if(st.mode==='delivery'){
@@ -3518,7 +3521,7 @@ if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
 if(b.dataset.modalMode){
  const next=b.dataset.modalMode;
  if(next!=='delivery'&&next!=='pickup')return;
- if(st.mode!==next){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.mode=next;if(st.scheduleMode==='reservation'){resetReservationQuote();}else st.reservationAt='';st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)queueNotice('Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.')}
+ if(st.mode!==next){st.pickupScheduleSelected=false;deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.mode=next;if(st.scheduleMode==='reservation'){resetReservationQuote();}else st.reservationAt='';st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)queueNotice('Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.')}
  fulfillmentOutcomeNote='';scheduleReturnToModal=true;fulfillmentModal=null;screen('scheduleChoice');return;
 }
 if(b.hasAttribute('data-profile-save')){saveProfile();return}
@@ -3584,7 +3587,7 @@ if(b.dataset.screen){
  if(b.dataset.screen==='cart'){
   screen('cart');
   // Viewing the subtotal must never start a delivery availability consultation.
-  if(st.mode==='pickup'&&st.store)void revalidateCheckout('cart');
+  if(st.mode==='pickup'&&st.store&&st.pickupScheduleSelected)void revalidateCheckout('cart');
   return;
  }
  if(checkoutPending&&!['choice','locations','deliveryAddress'].includes(b.dataset.screen))checkoutPending=false;
@@ -3595,8 +3598,8 @@ if(b.dataset.scheduleChoice){
  const choice=b.dataset.scheduleChoice;
  if(choice==='reservation'){
    if(activePersonalCheckout()||['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status))return toast('Finaliza o cancela tu solicitud activa antes de programar una reserva.');
-   ++deliveryValidationGeneration;deliveryRequestPending=false;resetReservationQuote();st.scheduleMode='reservation';save();screen('reservationPicker');return}
- if(choice==='now'){resetReservationQuote();st.scheduleMode='now';st.reservationAt='';save();
+   ++deliveryValidationGeneration;deliveryRequestPending=false;resetReservationQuote();st.scheduleMode='reservation';if(st.mode==='pickup')st.pickupScheduleSelected=true;save();screen('reservationPicker');return}
+ if(choice==='now'){resetReservationQuote();st.scheduleMode='now';st.reservationAt='';if(st.mode==='pickup')st.pickupScheduleSelected=true;save();
    if(scheduleReturnToModal){scheduleReturnToModal=false;st.stage='app';st.tab='inicio';fulfillmentModal=st.mode;render();if(st.mode==='pickup'&&API_BASE)void fetchConfig();return}
    if(st.mode==='delivery')screen('deliveryAddress');
    else {screen('locations');if(API_BASE)void fetchConfig()}
@@ -3637,11 +3640,11 @@ if(b.hasAttribute('data-reservation-verify')){
  resetDeliveryOrderContact();checkoutPending=true;confirmedDeliveryReviewKey=null;screen('identity');
  return;
 }
-if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;scheduleReturnToModal=false;save();screen('scheduleChoice');return}
-if(b.dataset.store){void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
+if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){st.pickupScheduleSelected=false;deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;scheduleReturnToModal=false;save();screen('scheduleChoice');return}
+if(b.dataset.store){if(st.mode==='pickup'&&!st.pickupScheduleSelected){checkoutPending=true;screen('scheduleChoice');return}void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){if(st.mode==='pickup'&&!st.pickupScheduleSelected){checkoutPending=true;screen('scheduleChoice');return}void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
- if(st.stage==='localDetail'&&st.mode==='pickup'){void confirmStore('pickup',st.store);return}
+ if(st.stage==='localDetail'&&st.mode==='pickup'){if(!st.pickupScheduleSelected){checkoutPending=true;screen('scheduleChoice');return}void confirmStore('pickup',st.store);return}
  if(st.selected&&product(st.selected)){screen('detail');return}
  nav('carta');return;
 }
