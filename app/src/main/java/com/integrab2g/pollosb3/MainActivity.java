@@ -744,13 +744,16 @@ public class MainActivity extends Activity {
                         JSONArray fields = form == null ? null : form.optJSONArray("fields");
                         boolean scheduledOrder = form!=null&&"VALIDACIÓN DE RESERVA".equals(form.optString("title",""));
                         boolean orderApproval = scheduledOrder||"VALIDACIÓN DE PEDIDO".equals(form == null ? "" : form.optString("title",""));
+                        boolean cashApproval=form!=null&&form.optString("title","").matches("PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)");
+                        boolean cashScheduled=cashApproval&&form.optString("title","").startsWith("PAGO DE RESERVA");
                         boolean paymentApproval = form != null &&
                             form.optString("title","").matches("PAGO REALIZADO - (YAPE|PLIN|TARJETA)");
                         if (!"FORM".equals(payload.optString("type", "")) ||
-                            payload.length() != 4 || form == null || form.length() != (orderApproval?3:4) ||
+                            payload.length() != 4 || form == null || form.length() != ((orderApproval||cashApproval)?3:4) ||
                             form.optString("title", "").length() > 180 ||
                             form.optString("subtitle", "").length() > 350 ||
-                            !(orderApproval || paymentApproval) ||
+                            !(orderApproval || paymentApproval || cashApproval) ||
+                            (cashApproval&&(!"Confirmar pedido con pago en efectivo".equals(form.optString("subtitle",""))||fields==null||fields.length()!=(cashScheduled?9:8))) ||
                             (orderApproval && (!(scheduledOrder?"Confirmar disponibilidad para delivery programado":"Confirmar disponibilidad para delivery").equals(form.optString("subtitle", "")) ||
                                 fields == null || fields.length() < (scheduledOrder?4:3) || fields.length() > 10)) ||
                             (paymentApproval && (!"Comprobante adjunto".equals(form.optString("subtitle", "")) ||
@@ -791,7 +794,7 @@ public class MainActivity extends Activity {
                                 }else if(!(row==productsCount?"Subtotal":"Dirección y referencia").equals(label))
                                     throw new IllegalArgumentException("Invalid order FORM summary");
                             }else{
-                                String[] paymentLabels={"Pedido","Subtotal","Delivery","Dirección","Total"};
+                                String[] paymentLabels=cashApproval?(cashScheduled?new String[]{"Fecha","N.º de pedido","Pedido","Subtotal","Delivery","Dirección","Total","Paga con","Vuelto"}:new String[]{"N.º de pedido","Pedido","Subtotal","Delivery","Dirección","Total","Paga con","Vuelto"}):new String[]{"Pedido","Subtotal","Delivery","Dirección","Total"};
                                 if(!paymentLabels[i].equals(label))
                                     throw new IllegalArgumentException("Invalid payment FORM field");
                             }
