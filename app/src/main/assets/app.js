@@ -1723,6 +1723,7 @@ function nav(tab){
  if(tab==='inicio')beginNewCheckoutAfterRejection();
  checkoutPending=false;selectedHomeStore=null;selectedVacancyId=null;fulfillmentModal=null;
  st.tab=tab;st.stage='app';window.scrollTo({top:0});render();
+ if(tab==='carta')void syncPromotionCatalog();
 }
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
 const demo=`<div class="demo">PILOTO · PRECIOS Y FOTOS REFERENCIALES · SIN COBROS REALES</div>`;
@@ -2150,6 +2151,7 @@ const categoryMatches=(p,c)=>String(p.cat||'').trim().toLocaleLowerCase('es-PE')
 const comboProducts=()=>products.filter(p=>categoryMatches(p,'Combos'));
 
 let promoHomeSince=0,promoNoticeTimer=null,promoNoticeBusy=false,promoNoticeShown=new Set(),promoNoticeItems=[],promoNoticeIndex=0,promoNoticeRotation=null,promoLastCheck=0;
+let promotionSyncAt=0,promotionSyncPromise=null;
 function promoHomeEligible(){return st.stage==='app'&&st.tab==='inicio'&&!fulfillmentModal&&!selectedHomeStore&&document.visibilityState==='visible'&&!root.querySelector('[role="dialog"],[aria-modal="true"]')}
 function promoVisibleNow(p,now=new Date()){
  if(p.active===false)return false;
@@ -2211,16 +2213,46 @@ function showPromoNotice(items){
  let x=0;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{const d=e.changedTouches[0].clientX-x;if(Math.abs(d)>35){promoNoticeIndex+=d<0?1:-1;paintPromoNotice()}},{passive:true});
  promoNoticeRotation=setInterval(()=>{if(!promoHomeEligible()){closePromoNotice();return}if(promoNoticeItems.length>1)promoNoticeIndex++;paintPromoNotice()},5000);
 }
+async function syncPromotionCatalog({force=false}={}){
+ if(!API_BASE||document.visibilityState!=='visible')return false;
+ if(promotionSyncPromise)return promotionSyncPromise;
+ if(!force&&Date.now()-promotionSyncAt<30000)return true;
+ promotionSyncAt=Date.now();
+ promotionSyncPromise=(async()=>{
+  try{
+   // One published snapshot feeds both the popup and the catalog.
+   // Do not use fetchConfig here: it also resets delivery availability on revision changes.
+   const response=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});
+   if(!response.ok)return false;
+   const c=await response.json();
+   if(!c.ready||!Array.isArray(c.promotions)||!Array.isArray(c.products))return false;
+   const refreshed=productsFromApi(c.products);
+   products.splice(0,products.length,...refreshed);
+   publishedPromotions=c.promotions.filter(p=>p&&typeof p.title==='string'&&p.title.trim());
+   catalogPublished=true;
+   if(st.stage==='app'&&(st.tab==='inicio'||st.tab==='carta'))render();
+   return true;
+  }catch{return false}
+  finally{promotionSyncPromise=null}
+ })();
+ return promotionSyncPromise;
+}
 async function tickPromoNotice(){
  if(!promoHomeEligible()){promoHomeSince=0;closePromoNotice();return}
  if(!promoHomeSince)promoHomeSince=Date.now();
- if(Date.now()-promoHomeSince<3000||promoNoticeBusy||document.getElementById('b3-promo-notice')||Date.now()-promoLastCheck<30000||!API_BASE)return;
- promoNoticeBusy=true;promoLastCheck=Date.now();
- try{const response=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!response.ok)return;const c=await response.json();if(!c.ready||!Array.isArray(c.promotions))return;
- const items=c.promotions.filter(p=>p&&typeof p.title==='string'&&p.title.trim()&&promoVisibleNow(p)&&linkedPromoProduct(p)&&!promoNoticeShown.has(promoKey(p)));if(items.length)showPromoNotice(items);
- }catch{}finally{promoNoticeBusy=false}
+ if(Date.now()-promoHomeSince<3000||promoNoticeBusy||document.getElementById('b3-promo-notice')||!API_BASE)return;
+ promoNoticeBusy=true;
+ try{
+  if(!await syncPromotionCatalog())return;
+  if(!promoHomeEligible())return;
+  const items=publishedPromotions.filter(p=>promoVisibleNow(p)&&linkedPromoProduct(p)&&!promoNoticeShown.has(promoKey(p)));
+  if(items.length)showPromoNotice(items);
+ }finally{promoNoticeBusy=false}
 }
-setInterval(tickPromoNotice,250);
+setInterval(tickPromoNotice,1000);
+setInterval(()=>{
+ if(document.visibilityState==='visible'&&st.stage==='app'&&st.tab==='carta')render();
+},60000);
 
 function home(){
   const featured=products.slice(0,4);
@@ -4472,6 +4504,7 @@ setInterval(()=>{
 },1000);
 document.addEventListener('visibilitychange',()=>{
  if(document.visibilityState!=='visible')return;
+ if(st.stage==='app'&&(st.tab==='inicio'||st.tab==='carta'))void syncPromotionCatalog();
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry)return;
  if(['SUBMITTING','PENDING'].includes(entry.status))scheduleAgentDecisionPoll(500);
