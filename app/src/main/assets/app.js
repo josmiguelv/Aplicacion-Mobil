@@ -26,7 +26,7 @@ const demoStores=[
 ].map(s=>({...s,isDemo:true,active:true,hoursConfigured:true,
  weeklyHours:defaultStoreSchedule(),pickup_enabled:true,delivery_enabled:true,latitude:null,longitude:null}));
 const shops=[]; // Solo locales publicados por API; sin sucursales de demostración.
-function resetDemoStores(){shops.splice(0,shops.length)}
+
 function demoStoreClock(s){
  const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'America/Lima',weekday:'long',
   hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date());
@@ -270,10 +270,10 @@ const demonstrationVacancies=[
 ];
 function visibleVacancies(){return catalogPublished?publishedVacancies:demonstrationVacancies}
 let selectedVacancyId=null;
-function modeName(m){return ({delivery:'Pollo Delivery',pickup:'Pide y Retira'})[m]||'Elegir modalidad'}
+
 const storeAllowed=(s,m)=>!!s&&s.active!==false&&(m==='delivery'?s.delivery_enabled!==false:m==='pickup'?s.pickup_enabled!==false:s.dine_in_enabled===true);
 function availableStores(m){return shops.filter(s=>s.active!==false)}
-function localIsClosed(s){return s.isDemo?!demoStoreClock(s).isOpen:s.hoursConfigured===true&&s.isOpen===false}
+
 function eligibleForPickup(s){return !!s&&s.active!==false&&s.pickup_enabled===true&&
  (s.isDemo?!!demoStoreClock(s).isOpen:s.hoursConfigured===true&&s.isOpen===true)}
 function pickupPaymentConfigured(s){
@@ -490,9 +490,7 @@ function quoteForDeliveryCandidate(selected){ const fee=selected.mode==='FIXED'?
   notice:'Cálculo aproximado en línea recta basado en locales y tarifas publicados. No se ha confirmado un pedido.'
  };
 }
-function calculateLocalDeliveryQuote(destination,storeList=shops){
- return quoteForDeliveryCandidate(eligibleDeliveryCandidates(destination,storeList)[0]);
-}
+
 function storeAvailabilitySetting(store){
  const value=store?.consultOrderAvailability??store?.consult_order_availability;
  return typeof value==='boolean'?value:null; // unknown is not equivalent to false
@@ -3769,7 +3767,7 @@ async function validateCartPromotionsBeforeRequest(){
  throw error;
 }
 function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||promotionNotPurchasable(p))return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();vibrateCartAddition();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
-function swipeHandler(el,startCb,nextCb){let x=null;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{if(x!==null){let dx=e.changedTouches[0].clientX-x;if(Math.abs(dx)>42)nextCb(dx<0?1:-1);x=null}},{passive:true})}
+
 root.addEventListener('click',async e=>{const orderFilter=e.target.closest('[data-orders-filter]');if(orderFilter){const next=orderFilter.dataset.ordersFilter;if(['all','active','history'].includes(next)){b3OrdersFilter=next;render()}return}if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-address],[data-reservation-address-save],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-demo-signin],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(['SUBMITTING','PENDING','ACCEPTED'].includes(liveRequest?.status)&&
