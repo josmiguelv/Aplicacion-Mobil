@@ -3745,12 +3745,6 @@ if(activePersonalCheckout()&&
  returnToPersonalCheckout();
  return;
 }
-if(activePersonalCheckout()&&
-   (b.hasAttribute('data-add')||b.hasAttribute('data-cartdelta')||b.hasAttribute('data-remove'))){
- toast('Primero debes cancelar la solicitud actual para cambiar los productos.');
- screen(liveRequest.status==='ACCEPTED'?'prepaymentReview':'availability');
- return;
-}
 if(b.dataset.orderOpen){
  const o=findLocalOrder(b.dataset.orderOpen);if(!o)return;
  selectedOrderId=o.id;screen('orderDetail');return;
