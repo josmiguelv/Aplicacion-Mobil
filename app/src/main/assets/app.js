@@ -1561,6 +1561,17 @@ function queueNotice(t,options={}){
  else noticeTimer=setTimeout(dismissNotice,Number.isFinite(options.durationMs)?Math.max(500,Math.min(10000,options.durationMs)):(kind==='cart'?1800:kind==='warning'?4500:2600));
 }
 function toast(t,options={}){queueNotice(t,options)}
+// Draft for a second purchase: never mutate the items of the in-flight interaction.
+const B3_NEXT_CART_KEY='b3-next-cart-draft-v1';
+function nextCartDraft(){
+ try{const raw=JSON.parse(localStorage.getItem(B3_NEXT_CART_KEY)||'[]');
+  return Array.isArray(raw)?raw.filter(x=>typeof x?.id==='string'&&Number.isInteger(x.qty)&&x.qty>0&&x.qty<=99).slice(0,100):[]}
+ catch{return []}
+}
+function saveNextCartDraft(items){localStorage.setItem(B3_NEXT_CART_KEY,JSON.stringify(items))}
+function shoppingCart(){return activePersonalCheckout()?nextCartDraft():st.cart}
+function shoppingSubtotal(){return shoppingCart().reduce((sum,x)=>sum+x.qty*(product(x.id)?.price||0),0)}
+function shoppingCount(){return shoppingCart().reduce((sum,x)=>sum+x.qty,0)}
 function activePersonalCheckout(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  // A payment-approved order recorded in local history no longer blocks a new purchase.
@@ -1662,7 +1673,7 @@ function beginNewOrderAfterPayment(){
  st.quote=null;st.pay='';st.cash='';st.fulfillment='';st.pickupOrigin='';
  // A paid and archived order must not leak its items into the next checkout.
  // The verified order is already indexed in st.orders above.
- st.cart=[];
+ st.cart=nextCartDraft();saveNextCartDraft([]);
  st.coords=null;st.selected='';st.qty=1;
  resetDeliveryOrderContact();clearDeliveryAvailability();
  save();
@@ -1794,7 +1805,7 @@ function fulfillmentOverlay(){
     ${choice?modeButtons:delivery?deliveryPanel:pickupPanel}
    </section></div>`;
 }
-function main(){return `<div class="shell"><main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${cartCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(subtotal())}</b><span>${cartCount()}</span></button>`:''}${bar()}</div>${selectedHomeStore?homeStoreSheet():fulfillmentOverlay()}`}
+function main(){return `<div class="shell"><main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${shoppingCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(shoppingSubtotal())}</b><span>${shoppingCount()}</span></button>`:''}${bar()}</div>${selectedHomeStore?homeStoreSheet():fulfillmentOverlay()}`}
 
 /* Published B3 stores, one independently configurable schedule for each weekday. */
 const storeDayNames=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
@@ -2544,22 +2555,24 @@ function localDetail(){
 }
 function detail(){let p=product(st.selected);if(p&&promotionNotPurchasable(p))return '<div class="page">'+heading('Promoción desactivada','app')+'<div class="notice" role="status">Esta promoción está fuera de su fecha u horario de disponibilidad.</div><button class="primary full" data-tab="carta">Volver a la carta</button></div>';if(!p)return `<div class="page"><div class="empty-state"><h2>No hay productos publicados</h2><p>La carta estará disponible cuando Pollos B3 publique sus productos.</p><button class="primary" data-tab="carta">Volver a la carta</button></div></div>`;return `<div class="detail">${heading('','app')}<div class="detail-photo">${img(p)}<small>${p.isPublished?'Imagen publicada':'Imagen referencial'}</small></div><div class="detail-content"><h1>${esc(p.name)}</h1><p>${esc(p.desc)}</p><div class="detail-price"><strong>${cash(p.price)}</strong><div class="counter"><button data-qty="-1">−</button><span>${st.qty}</span><button data-qty="1">+</button></div></div><button class="primary full" data-add="1">Agregar · ${cash(p.price*st.qty)}</button></div></div>`}
 function cart(){
- const rows=st.cart.map(x=>{
+ const draft=!!activePersonalCheckout();
+ const cartItems=shoppingCart();
+ const rows=cartItems.map(x=>{
   const p=product(x.id);
   if(!p)return '<div class="cart-row"><div><strong>Producto retirado de la carta</strong><p>Quítalo para continuar.</p></div><button class="remove" data-remove="'+esc(x.id)+'" aria-label="Quitar producto">'+ic('trash',18)+'</button></div>';
   return '<div class="cart-row">'+img(p)+'<div><strong>'+esc(p.name)+'</strong><span>'+cash(p.price)+'</span><div class="counter"><button data-cartdelta="'+esc(p.id)+'|-1">−</button><b>'+x.qty+'</b><button data-cartdelta="'+esc(p.id)+'|1">+</button></div></div><button class="remove" data-remove="'+esc(p.id)+'" aria-label="Quitar producto">'+ic('trash',18)+'</button></div>';
  }).join('');
  return `<div class="page">${heading('Tu carrito','app')}
- ${!st.cart.length?'<div class="empty-state"><h2>Tu carrito está vacío</h2><button class="primary" data-tab="carta">Ver la carta</button></div>':`
+ ${!cartItems.length?'<div class="empty-state"><h2>Tu carrito está vacío</h2><button class="primary" data-tab="carta">Ver la carta</button></div>':`
   <div>${rows}</div><div class="totals">
-   <p><span>Subtotal</span><b>${cash(subtotal())}</b></p>
-   <p><span>Delivery</span><span>${st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
-   <p class="grand"><b>Total estimado</b><strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Por cotizar':cash(orderTotal())}</strong></p>
+   <p><span>Subtotal</span><b>${cash(shoppingSubtotal())}</b></p>
+   <p><span>Delivery</span><span>${draft?'Se calculará al enviar':st.mode==='delivery'?(deliveryQuoteValid()?cash(st.quote.deliveryFeePen):'Pendiente de cotizar'):'No aplica'}</span></p>
+   <p class="grand"><b>Total estimado</b><strong>${draft?'Pendiente de validar':st.mode==='delivery'&&!deliveryQuoteValid()?'Por cotizar':cash(orderTotal())}</strong></p>
   </div>${st.mode==='delivery'&&deliveryQuoteValid()? `<p class="smallprint">Desde ${esc(st.quote.storeName||'sede disponible')} · ${st.quote.serverValidated?'Cotización del servidor':Number(st.quote.straightDistanceKm).toFixed(2)+' km aproximados en línea recta · '+(st.quote.deliveryPricingMode==='FIXED'?'tarifa fija':'tarifa por km')}.</p>`:''}
   ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
   <p class="smallprint">No se enviarán pedidos reales ni se harán cobros en esta versión de prueba.</p>
   <button class="outline full" data-tab="carta">Seguir pidiendo</button>
-  <button class="primary full" data-screen="identity" ${checkoutRefreshPending?"disabled":""}>${checkoutRefreshPending?"Actualizando disponibilidad...":"Continuar con pedido de prueba"}</button>`}
+  ${draft?'<div class="notice">Este es un carrito nuevo, separado del pedido en validación. Podrás enviarlo cuando finalice la solicitud activa.</div><button class="outline full" data-checkout-return="1">Ver pedido en validación</button>':`<button class="primary full" data-screen="identity" ${checkoutRefreshPending?"disabled":""}>${checkoutRefreshPending?"Actualizando disponibilidad...":"Continuar con pedido de prueba"}</button>`}`}
  </div>`;
 }
 function availability(){
@@ -3720,7 +3733,7 @@ async function validateCartPromotionsBeforeRequest(){
  const error=new Error(message);error.code='PROMOTIONS_REMOVED';
  throw error;
 }
-function addToCart(id,qty=1){if(activePersonalCheckout())return false;let p=product(id);if(!p||promotionNotPurchasable(p))return false;let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save();vibrateCartAddition();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
+function addToCart(id,qty=1){let p=product(id);if(!p||promotionNotPurchasable(p))return false;if(activePersonalCheckout()){const draft=nextCartDraft();let found=draft.find(x=>x.id===id);if(found)found.qty=Math.min(99,found.qty+qty);else draft.push({id,qty:Math.min(99,qty)});saveNextCartDraft(draft)}else{let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save()}vibrateCartAddition();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 
 root.addEventListener('click',async e=>{const orderFilter=e.target.closest('[data-orders-filter]');if(orderFilter){const next=orderFilter.dataset.ordersFilter;if(['all','active','history'].includes(next)){b3OrdersFilter=next;render()}return}if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-delivery-notice-ok],[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-address],[data-reservation-address-save],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-phone-continue],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
@@ -3988,8 +4001,8 @@ if(b.hasAttribute('data-add')){
 }
 if(b.dataset.filter){st.category=b.dataset.filter;render();return}
 if(b.dataset.carousel!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('hero',Number(b.dataset.carousel));return}if(b.dataset.promo!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('promo',Number(b.dataset.promo));return}if(b.dataset.local!==undefined){st.local=Number(b.dataset.local);render();return}
-if(b.dataset.cartdelta){let [id,delta]=b.dataset.cartdelta.split('|');let c=st.cart.find(x=>x.id===id);if(c){c.qty+=Number(delta);st.cart=st.cart.filter(x=>x.qty>0);invalidateDeliverySelection();save();render()}return}
-if(b.dataset.remove){st.cart=st.cart.filter(x=>x.id!==b.dataset.remove);invalidateDeliverySelection();save();render();return}
+if(b.dataset.cartdelta){let [id,delta]=b.dataset.cartdelta.split('|');const draft=!!activePersonalCheckout(),items=draft?nextCartDraft():st.cart;let c=items.find(x=>x.id===id);if(c){c.qty=Math.min(99,c.qty+Number(delta));const next=items.filter(x=>x.qty>0);if(draft)saveNextCartDraft(next);else{st.cart=next;invalidateDeliverySelection();save()}render()}return}
+if(b.dataset.remove){if(activePersonalCheckout())saveNextCartDraft(nextCartDraft().filter(x=>x.id!==b.dataset.remove));else{st.cart=st.cart.filter(x=>x.id!==b.dataset.remove);invalidateDeliverySelection();save()}render();return}
 if(b.hasAttribute('data-prepay-payment')){
  if(!deliveryQuoteValid()||window.B3OrderAvailability?.readInteraction?.()?.status!=='ACCEPTED')
   return toast('Primero necesitamos la aceptación del local y una cotización vigente.');
