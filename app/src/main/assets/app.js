@@ -1588,14 +1588,26 @@ function showOrderAcceptedOnce(entry){
 }
 function personalCheckoutBanner(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
- // La aceptación es un aviso temporal, no una tarjeta flotante persistente.
- if(!entry||!['SUBMITTING','PENDING','REJECTED'].includes(entry.status))return '';
- const rejected=entry.status==='REJECTED';
- const pending=entry.status!=='ACCEPTED'&&!rejected;
- return `<button type="button" class="b3-checkout-floating" data-checkout-return="1" aria-label="Ver estado de mi solicitud">
-   <span class="b3-checkout-floating-icon">${ic(pending?'clock':'check',20)}</span>
-   <span><strong>${rejected?'Productos no confirmados':pending?'Tu pedido está en validación':'¡Tu pedido fue aceptado!'}</strong>
-   <small>${rejected?'Elige otros productos para un pedido nuevo.':pending?'Sigue activo. Toca para ver el estado.':'Continúa con el total y el pago.'}</small></span>
+ if(!entry?.interactionId||entry.paymentConfirmation?.status==='ACCEPTED'&&
+   st.orders?.some(o=>o?.interactionId===entry.interactionId&&o.paymentStatus==='ACCEPTED'))return '';
+ const payment=entry.paymentConfirmation?.status;
+ let title='',detail='',symbol='clock';
+ if(payment==='SENT'||payment==='PREPARED'){
+  title='Tu pago está en validación';detail='Toca para consultar la respuesta de la sede.';
+ }else if(payment==='REJECTED'){
+  title='Tu pago requiere atención';detail='Toca para ver el resultado.';symbol='info';
+ }else if(payment==='ACCEPTED'){
+  title='Pago confirmado';detail='Toca para ver el resultado.';symbol='check';
+ }else if(entry.status==='REJECTED'){
+  title='Productos no confirmados';detail='Toca para revisar la respuesta.';symbol='info';
+ }else if(entry.status==='ACCEPTED'){
+  title='Tu pedido fue aceptado';detail='Continúa con el pago.';symbol='check';
+ }else if(['SUBMITTING','PENDING'].includes(entry.status)){
+  title='Tu pedido está en validación';detail='Toca para ver el estado de tu solicitud.';
+ }else return '';
+ return `<button type="button" class="b3-checkout-floating" data-checkout-return="1" aria-label="Ver estado de mi pedido">
+   <span class="b3-checkout-floating-icon">${ic(symbol,20)}</span>
+   <span><strong>${esc(title)}</strong><small>${esc(detail)}</small></span>
    ${ic('chev',16)}</button>`;
 }
 function returnToPersonalCheckout(){
@@ -1604,7 +1616,7 @@ function returnToPersonalCheckout(){
  if(['ACCEPTED','REJECTED'].includes(entry.paymentConfirmation?.status))screen('paymentOutcome');
  else if(entry.paymentConfirmation?.status==='PREPARED'&&deliveryQuoteValid())screen('paymentProofPreview');
  else if(entry.paymentConfirmation)screen('paymentWaiting');
- else if(entry.status==='ACCEPTED'&&deliveryQuoteValid())screen('payment');
+ else if(entry.status==='ACCEPTED'&&(deliveryQuoteValid()||entry.orderForm?.title==='VALIDACIÓN DE RECOJO'))screen('payment');
  else if(entry.status==='REJECTED'){
   const store=shops.find(x=>x.id===entry.body?.storeId);
   const closedWithoutDecision=entry.rejectionReason==='AGENT_CLOSED_WITHOUT_CONFIRMATION';
@@ -1805,7 +1817,7 @@ function fulfillmentOverlay(){
     ${choice?modeButtons:delivery?deliveryPanel:pickupPanel}
    </section></div>`;
 }
-function main(){return `<div class="shell"><main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${shoppingCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(shoppingSubtotal())}</b><span>${shoppingCount()}</span></button>`:''}${bar()}</div>${selectedHomeStore?homeStoreSheet():fulfillmentOverlay()}`}
+function main(){return `<div class="shell"><main class="main">${st.tab==='inicio'?home():st.tab==='carta'?carta():st.tab==='pedidos'?orders():account()}</main>${personalCheckoutBanner()}${shoppingCount()?`<button class="float-cart" data-screen="cart" aria-label="Abrir carrito">${ic('cart',19)}<b>${cash(shoppingSubtotal())}</b><span>${shoppingCount()}</span></button>`:''}${bar()}</div>${selectedHomeStore?homeStoreSheet():fulfillmentOverlay()}`}
 
 /* Published B3 stores, one independently configurable schedule for each weekday. */
 const storeDayNames=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
@@ -2563,6 +2575,7 @@ function cart(){
   return '<div class="cart-row">'+img(p)+'<div><strong>'+esc(p.name)+'</strong><span>'+cash(p.price)+'</span><div class="counter"><button data-cartdelta="'+esc(p.id)+'|-1">−</button><b>'+x.qty+'</b><button data-cartdelta="'+esc(p.id)+'|1">+</button></div></div><button class="remove" data-remove="'+esc(p.id)+'" aria-label="Quitar producto">'+ic('trash',18)+'</button></div>';
  }).join('');
  return `<div class="page">${heading('Tu carrito','app')}
+ ${personalCheckoutBanner()}
  ${!cartItems.length?'<div class="empty-state"><h2>Tu carrito está vacío</h2><button class="primary" data-tab="carta">Ver la carta</button></div>':`
   <div>${rows}</div><div class="totals">
    <p><span>Subtotal</span><b>${cash(shoppingSubtotal())}</b></p>
