@@ -1665,7 +1665,7 @@ function nav(tab){
  if(tab==='carta')void syncPromotionCatalog();
 }
 function bar(){return `<nav class="bar" aria-label="Navegación"><button class="${st.tab==='inicio'?'active':''}" data-tab="inicio">${ic('home')}<span>Inicio</span></button><button class="${st.tab==='carta'?'active':''}" data-tab="carta">${ic('menu')}<span>Carta</span></button><button class="chat-center" data-screen="chat" aria-label="Abrir chat">${ic('chat',24)}</button><button class="${st.tab==='pedidos'?'active':''}" data-tab="pedidos">${ic('orders')}<span>Pedidos</span></button><button class="${st.tab==='cuenta'?'active':''}" data-tab="cuenta">${ic('account')}<span>Mi Cuenta</span></button></nav>`}
-const img=(p,c='',priority=false)=>{const src=photo(p);const eager=priority||c==='hero-img';return src?`<img class="${c}" src="${src}" loading="${eager?'eager':'lazy'}" decoding="async" ${eager?'fetchpriority="high"':''} alt="Imagen ${p.isPublished?'publicada':'referencial'} de ${esc(p.name||'combo')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
+const img=(p,c='',priority=false)=>{const src=photo(p);const eager=priority||c==='hero-img';return src?`<img class="${c}" src="${esc(src)}" loading="${eager?'eager':'lazy'}" decoding="async" ${eager?'fetchpriority="high"':''} alt="Imagen publicada de ${esc(p.name||'producto')}">`:`<div class="b3-no-photo ${c}" aria-label="Sin fotografía publicada"></div>`};
 function savedAddresses(){return Array.isArray(st.addresses)?st.addresses.filter(x=>x&&typeof x.id==='string'&&typeof x.street==='string'&&typeof x.district==='string'):[]}
 function pickSavedAddress(id,quote=false){
  const item=savedAddresses().find(x=>x.id===id);if(!item)return toast('Dirección no disponible');
