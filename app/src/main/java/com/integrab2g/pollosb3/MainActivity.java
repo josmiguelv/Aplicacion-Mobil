@@ -1015,7 +1015,7 @@ public class MainActivity extends Activity {
                                     if(created!=null)mobileCommunicationStreams.start(origin,
                                         remote.optString("interactionId",""),
                                         created.optString("appId",""),created.optString("storeId",""),
-                                        key,this::notifyMobileCommunicationClosed);
+                                        key,MainActivity.this::notifyMobileCommunicationClosed);
                                 } else if ("INTERACTION_STATUS".equals(operation)) {
                                     String activeId=request.optString("interactionId","");
                                     String remoteState=remote.optString("status","");
@@ -1026,7 +1026,7 @@ public class MainActivity extends Activity {
                                         mobileCommunicationStreams.stop(activeId);
                                     else mobileCommunicationStreams.start(origin,activeId,
                                         request.optString("appId",""),request.optString("storeId",""),
-                                        accessKey,this::notifyMobileCommunicationClosed);
+                                        accessKey,MainActivity.this::notifyMobileCommunicationClosed);
                                 } else if ("INTERACTION_CANCEL".equals(operation) &&
                                            "CANCELLED".equals(remote.optString("status",""))) {
                                     mobileCommunicationStreams.stop(request.optString("interactionId",""));
