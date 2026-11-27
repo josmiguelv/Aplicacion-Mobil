@@ -835,6 +835,20 @@ async function completeAcceptedQuote(entry){
  showOrderAcceptedOnce(entry);
  return true;
 }
+function revealVerifiedResponse(entry,kind,decision){
+ if(!entry?.interactionId||!['ACCEPTED','REJECTED'].includes(decision))return;
+ const key='b3-response-revealed-v1:'+kind+':'+entry.interactionId;
+ if(localStorage.getItem(key)===decision)return;
+ localStorage.setItem(key,decision);
+ if(document.visibilityState==='visible'&&navigator.vibrate){
+  try{navigator.vibrate([180,110,180,110,180])}catch{}
+ }
+ if(kind==='payment'){
+  if(st.stage!=='paymentOutcome')screen('paymentOutcome');
+ }else if(st.stage!=='availability'){
+  screen('availability');
+ }
+}
 async function pollAgentDecision(){
  const api=window.B3OrderAvailability,entry=api?.readInteraction?.();
  if(agentDecisionPolling||checkoutCancelInFlight||
@@ -906,7 +920,7 @@ async function pollAgentDecision(){
   if(result.decision==='ACCEPTED'){
    const updated=api.readInteraction?.()||entry;
    if(updated.orderForm?.title==='VALIDACIÓN DE RECOJO'){
-    if(updated.messageDelivered===true)completeAcceptedPickup(updated);
+    if(updated.messageDelivered===true){revealVerifiedResponse(updated,'order','ACCEPTED');completeAcceptedPickup(updated);}
     else ensureFormDelivery(updated);
     return;
    }
@@ -917,14 +931,14 @@ async function pollAgentDecision(){
     }else if(chatOverlay)refreshChatTimeline();else if(st.stage!=='chat'){render();toast('La sede respondió. Sincronizando los detalles del pedido.')}
    }else if(st.stage==='availability')await completeAcceptedQuote(updated);
    else if(st.stage==='chat'){
-    screen('availability');await completeAcceptedQuote(updated);
-   }else if(chatOverlay)refreshChatTimeline();else{render();toast('¡La sede aceptó tu pedido! Revisa el total y continúa con el pago.');}
+    revealVerifiedResponse(updated,'order','ACCEPTED');await completeAcceptedQuote(updated);
+   }else{revealVerifiedResponse(updated,'order','ACCEPTED');await completeAcceptedQuote(updated);}
    return;
   }
   if(result.decision==='REJECTED'){
    if(entry.orderForm?.title==='VALIDACIÓN DE RECOJO'){
     pickupRequestError='La tienda seleccionada no tiene disponible el producto solicitado. Puedes elegir otra tienda para realizar tu pedido.';
-    if(st.stage==='availability')render();return;
+    revealVerifiedResponse(api.readInteraction?.()||entry,'order','REJECTED');render();return;
    }
    // A verified rejection ends this interaction. No automatic retry or
    // re-routing to another store without explicit customer action.
@@ -940,9 +954,7 @@ async function pollAgentDecision(){
       unconfirmedClosure?' finalizó la atención sin confirmar los productos.':' no confirmó la disponibilidad de los productos solicitados.')+
      ' Puedes revisar la carta y elegir otros productos para un pedido nuevo.',
     reason:closedWithoutDecision?'AGENT_CLOSED':'AGENT_REJECTED'};
-   if(st.stage==='availability')render();
-   else if(chatOverlay)refreshChatTimeline();
-   else{render();toast('La sede no confirmó los productos del pedido. Puedes elegir otros.')}
+   revealVerifiedResponse(api.readInteraction?.()||entry,'order','REJECTED');render();
    return;
   }
   if(st.stage==='availability'){
@@ -3043,8 +3055,7 @@ async function pollPaymentDecision(){
     if(current.orderForm?.title==='VALIDACIÓN DE RECOJO')recordVerifiedPickupOrder(current);
     else recordVerifiedPaymentOrder(current);
    }
-   if(st.stage==='paymentWaiting')screen('paymentOutcome');
-   else toast(result.decision==='ACCEPTED'?'La sede aceptó el pago':'La sede rechazó el pago');
+   revealVerifiedResponse(current,'payment',result.decision);
    return;
   }
  }catch(error){
