@@ -389,7 +389,7 @@
          x.value.length>500||typeof x.variable!=='string'||x.variable.length>80))
         throw Error('Campos inválidos del FORM de recojo.');
       if(!['Retirar ahora','Recojo programado'].includes(form.fields[5].value)||
-         (form.fields.length===7)!==(form.fields[3].value==='Recojo programado'))
+         (form.fields.length===7)!==(form.fields[5].value==='Recojo programado'))
         throw Error('Modalidad de recojo inconsistente.');
       return {title:form.title,subtitle:form.subtitle,
         fields:form.fields.map(x=>({variable:x.variable,value:x.value}))};
