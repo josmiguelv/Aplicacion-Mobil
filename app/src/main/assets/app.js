@@ -1930,14 +1930,18 @@ function agentOrderStage(message){
  return DELIVERY_STATUS_WORDS[normalized]||null;
 }
 let trackingPollTimer=null,trackingPollBusy=false;
+let trackingRoundRobin=0;
 function visibleLiveOrder(){
- if(st.stage==='orderDetail')return findLocalOrder(selectedOrderId);
- if(st.stage==='app'&&st.tab==='pedidos'){
-  return (st.orders||[]).find(o=>o?.interactionId&&o.demo!==true&&
-   o.paymentStatus==='ACCEPTED'&&o.status!=='DELIVERED'&&
-   window.B3OrderAvailability?.readOrderInteraction?.(o.interactionId));
+ // Track confirmed orders while any screen is visible, not just My Orders.
+ const eligible=(st.orders||[]).filter(o=>o?.interactionId&&o.demo!==true&&
+  o.paymentStatus==='ACCEPTED'&&o.status!=='DELIVERED'&&
+  window.B3OrderAvailability?.readOrderInteraction?.(o.interactionId));
+ if(!eligible.length)return null;
+ if(st.stage==='orderDetail'){
+  const selected=eligible.find(o=>o.id===selectedOrderId);
+  if(selected)return selected;
  }
- return null;
+ return eligible[trackingRoundRobin%eligible.length];
 }
 function scheduleLiveTracking(delay=10000){
  if(trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}
@@ -2004,7 +2008,8 @@ async function refreshLiveTracking(){
   nextDelay=error?.httpStatus===429?65000:15000;
  }finally{
   trackingPollBusy=false;
-  if(visibleLiveOrder()?.status!=='DELIVERED')scheduleLiveTracking(nextDelay);
+  trackingRoundRobin++;
+  if(visibleLiveOrder())scheduleLiveTracking(nextDelay);
  }
 }
 
@@ -2832,7 +2837,7 @@ function recordVerifiedPickupOrder(entry){
   code:orderPublicCode(entry),ts:Date.now(),status:'ACCEPTED',paymentStatus:'ACCEPTED',
   mode:'pickup',storeId:entry.body.storeId,total,paymentApprovedAt:Date.now(),
   items:entry.body.items.map(x=>({id:'api:'+x.productId,qty:x.quantity}))});
- save();clearApprovedOrderBasket(entry);return true;
+ save();vibrateConfirmedOrderStage('ACCEPTED');clearApprovedOrderBasket(entry);return true;
 }
 function recordVerifiedPaymentOrder(entry){
  const approval=entry?.paymentConfirmation;
@@ -2874,6 +2879,7 @@ function recordVerifiedPaymentOrder(entry){
   demo:false,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false
  });
  save(); // Persist the confirmed order before changing the checkout basket.
+ vibrateConfirmedOrderStage('ACCEPTED');
  clearApprovedOrderBasket(entry);
  return true;
 }
