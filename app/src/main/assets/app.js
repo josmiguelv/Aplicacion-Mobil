@@ -2076,6 +2076,50 @@ function afterOrderDelivered(o){
 const menuCategories=['Todos','Pollos','Promociones','Combos','Bebidas'];
 const categoryMatches=(p,c)=>String(p.cat||'').trim().toLocaleLowerCase('es-PE')===c.toLocaleLowerCase('es-PE');
 const comboProducts=()=>products.filter(p=>categoryMatches(p,'Combos'));
+
+let promoHomeSince=0,promoNoticeTimer=null,promoNoticeBusy=false,promoNoticeShown=new Set(),promoNoticeItems=[],promoNoticeIndex=0,promoNoticeRotation=null,promoLastCheck=0;
+function promoHomeEligible(){return st.stage==='app'&&st.tab==='inicio'&&!fulfillmentModal&&!selectedHomeStore&&document.visibilityState==='visible'&&!root.querySelector('[role="dialog"],[aria-modal="true"]')}
+function promoVisibleNow(p,now=new Date()){
+ if(p.active===false)return false;
+ if(!p.startDate||!p.endDate||!p.startTime||!p.endTime||!Array.isArray(p.weekdays))return !(p.starts_at&&new Date(p.starts_at)>now)&&!(p.ends_at&&new Date(p.ends_at)<now);
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/Lima',year:'numeric',month:'2-digit',day:'2-digit',weekday:'short',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(now).map(x=>[x.type,x.value]));
+ const date=parts.year+'-'+parts.month+'-'+parts.day,clock=parts.hour+':'+parts.minute,day=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].indexOf(parts.weekday)+1;
+ return date>=p.startDate&&date<=p.endDate&&clock>=p.startTime&&clock<p.endTime&&p.weekdays.includes(day);
+}
+const promoKey=p=>String(p.id||p.title);
+function closePromoNotice(){
+ clearInterval(promoNoticeRotation);promoNoticeRotation=null;promoNoticeItems=[];
+ const el=document.getElementById('b3-promo-notice');if(el){el.style.opacity='0';el.style.pointerEvents='none';setTimeout(()=>el.remove(),180)}
+}
+function paintPromoNotice(){
+ const el=document.getElementById('b3-promo-notice');if(!el)return;
+ promoNoticeItems=promoNoticeItems.filter(p=>promoVisibleNow(p));if(!promoNoticeItems.length){closePromoNotice();return}
+ promoNoticeIndex=(promoNoticeIndex+promoNoticeItems.length)%promoNoticeItems.length;
+ const p=promoNoticeItems[promoNoticeIndex];el.querySelector('[data-promo-title]').textContent=p.title;
+ el.querySelector('[data-promo-dots]').replaceChildren(...promoNoticeItems.map((_,i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label','Promoción '+(i+1));b.style.cssText='border:0;border-radius:50%;width:9px;height:9px;padding:0;background:'+(i===promoNoticeIndex?'#b91c1c':'#ddd');b.onclick=()=>{promoNoticeIndex=i;paintPromoNotice()};return b}));
+}
+function showPromoNotice(items){
+ if(!promoHomeEligible()||document.getElementById('b3-promo-notice'))return;
+ promoNoticeItems=items;promoNoticeIndex=0;items.forEach(p=>promoNoticeShown.add(promoKey(p)));
+ const el=document.createElement('div');el.id='b3-promo-notice';el.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .18s ease';
+ el.innerHTML='<section role="dialog" aria-modal="true" aria-label="Promociones" style="box-sizing:border-box;width:75vw;max-width:380px;max-height:50dvh;overflow:auto;background:#fff;color:#222;border-radius:22px;padding:20px;box-shadow:0 16px 50px #0004;text-align:center;position:relative"><button data-close-promo aria-label="Cerrar" style="position:absolute;right:12px;top:10px;border:0;background:transparent;font-size:24px;color:#555">×</button><div style="font-size:11px;letter-spacing:2px;color:#b91c1c;font-weight:800;margin:12px 0">PROMOCIÓN ESPECIAL</div><h2 data-promo-title style="font-size:23px;line-height:1.2;overflow-wrap:anywhere;margin:18px 0"></h2><button data-open-promo style="width:100%;border:0;background:#b91c1c;color:white;border-radius:12px;padding:13px;font-weight:700">Ver promoción</button><div data-promo-dots style="display:flex;justify-content:center;gap:8px;margin-top:14px"></div></section>';
+ document.body.append(el);requestAnimationFrame(()=>{el.style.opacity='1'});paintPromoNotice();
+ el.querySelector('[data-close-promo]').onclick=closePromoNotice;
+ el.querySelector('[data-open-promo]').onclick=()=>{closePromoNotice();st.category='Promociones';st.search='';nav('carta')};
+ let x=0;el.addEventListener('touchstart',e=>{x=e.touches[0].clientX},{passive:true});el.addEventListener('touchend',e=>{const d=e.changedTouches[0].clientX-x;if(Math.abs(d)>35){promoNoticeIndex+=d<0?1:-1;paintPromoNotice()}},{passive:true});
+ promoNoticeRotation=setInterval(()=>{if(!promoHomeEligible()){closePromoNotice();return}if(promoNoticeItems.length>1)promoNoticeIndex++;paintPromoNotice()},5000);
+}
+async function tickPromoNotice(){
+ if(!promoHomeEligible()){promoHomeSince=0;closePromoNotice();return}
+ if(!promoHomeSince)promoHomeSince=Date.now();
+ if(Date.now()-promoHomeSince<3000||promoNoticeBusy||document.getElementById('b3-promo-notice')||Date.now()-promoLastCheck<30000||!API_BASE)return;
+ promoNoticeBusy=true;promoLastCheck=Date.now();
+ try{const response=await fetch(API_BASE+'/api/v1/mobile/config?appId='+encodeURIComponent(APP_ID),{cache:'no-store'});if(!response.ok)return;const c=await response.json();if(!c.ready||!Array.isArray(c.promotions))return;
+ const items=c.promotions.filter(p=>p&&typeof p.title==='string'&&p.title.trim()&&promoVisibleNow(p)&&!promoNoticeShown.has(promoKey(p)));if(items.length)showPromoNotice(items);
+ }catch{}finally{promoNoticeBusy=false}
+}
+setInterval(tickPromoNotice,250);
+
 function home(){
   const featured=products.slice(0,4);
   const f=featured.length?featured[st.carousel%featured.length]:null;
