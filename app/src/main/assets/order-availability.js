@@ -1111,6 +1111,78 @@
     persistInteraction(entry);
     return recordActivity(entry,'cancel_requested');
   }
+  // Durable close-only outbox. Never replay /cancel or any agent notification.
+  const CLOSE_OUTBOX_KEY='b3-communication-close-outbox-v1';
+  const closeInFlight=new Set();
+  function readCloseOutbox(){
+    try{
+      const value=JSON.parse(root.localStorage.getItem(CLOSE_OUTBOX_KEY)||'{}');
+      return value&&typeof value==='object'&&!Array.isArray(value)?value:{};
+    }catch{return {}}
+  }
+  function saveCloseOutbox(items){
+    root.localStorage.setItem(CLOSE_OUTBOX_KEY,JSON.stringify(items));
+  }
+  function queueCommunicationClose(entry,reason){
+    if(!entry||!UUID.test(entry.interactionId||'')||
+       !UUID.test(entry.idempotencyKey||'')||!UUID.test(entry.body?.storeId||'')||
+       typeof entry.body?.appId!=='string'||
+       !['CLIENT_CANCELLED','ORDER_DELIVERED'].includes(reason))
+      throw Error('No se puede registrar el cierre sin identificadores válidos.');
+    const items=readCloseOutbox(),key=entry.interactionId;
+    if(!items[key]){
+      items[key]={interactionId:key,idempotencyKey:entry.idempotencyKey,
+        appId:entry.body.appId,storeId:entry.body.storeId,reason,
+        attempts:0,nextAt:0,createdAt:Date.now()};
+      saveCloseOutbox(items);
+    }
+    return items[key];
+  }
+  async function flushCommunicationCloses(){
+    if(!root.AndroidBridge?.orderAvailabilityRequest)return;
+    const items=readCloseOutbox();
+    for(const [key,item] of Object.entries(items)){
+      if(closeInFlight.has(key)||Date.now()<Number(item?.nextAt||0))continue;
+      if(!UUID.test(key)||!UUID.test(item?.idempotencyKey||'')||
+         !UUID.test(item?.storeId||'')||
+         !['CLIENT_CANCELLED','ORDER_DELIVERED'].includes(item?.reason)){
+        delete items[key];saveCloseOutbox(items);continue;
+      }
+      closeInFlight.add(key);
+      try{
+        const result=await nativeRequest({operation:'INTERACTION_COMMUNICATION_CLOSE',
+          interactionId:key,accessKey:item.idempotencyKey,appId:item.appId,
+          storeId:item.storeId,reason:item.reason});
+        if(Number(result.status)!==200||result.data?.interactionId!==key||
+           result.data?.communicationStatus!=='CLOSED'||
+           (item.reason==='CLIENT_CANCELLED'&&result.data?.status!=='CANCELLED'))
+          throw responseError(result,'No se confirmó el cierre de comunicación');
+        const current=readCloseOutbox();
+        if(current[key]?.idempotencyKey===item.idempotencyKey){
+          delete current[key];saveCloseOutbox(current);
+        }
+        console.info('[B3 order] communication close confirmed',item.reason);
+      }catch(error){
+        const current=readCloseOutbox();
+        if(current[key]?.idempotencyKey===item.idempotencyKey){
+          const attempts=Math.min(20,(Number(current[key].attempts)||0)+1);
+          current[key].attempts=attempts;
+          current[key].nextAt=Date.now()+Math.min(300000,15000*Math.pow(2,Math.min(5,attempts-1)));
+          current[key].lastStatus=Number(error?.httpStatus)||0;
+          saveCloseOutbox(current);
+        }
+        console.warn('[B3 order] communication close pending',item.reason,
+          Number(error?.httpStatus)||0);
+      }finally{closeInFlight.delete(key)}
+    }
+  }
+  // Resume pending closures on app launch, foreground and connectivity recovery.
+  root.setTimeout(()=>{void flushCommunicationCloses()},1500);
+  root.setInterval(()=>{void flushCommunicationCloses()},30000);
+  root.addEventListener?.('online',()=>{void flushCommunicationCloses()});
+  root.document?.addEventListener?.('visibilitychange',()=>{
+    if(root.document.visibilityState==='visible')void flushCommunicationCloses();
+  });
   async function closeCommunication(entry,{reason}={}){
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
        !UUID.test(entry.body?.storeId)||!['CLIENT_CANCELLED','ORDER_DELIVERED'].includes(reason))
@@ -1126,6 +1198,8 @@
       if(response.data?.status!=='CANCELLED')throw Error('El servidor no confirmó la cancelación.');
       entry.status='CANCELLED';persistInteraction(entry);
     }
+    const outbox=readCloseOutbox();
+    if(outbox[entry.interactionId]){delete outbox[entry.interactionId];saveCloseOutbox(outbox)}
     recordActivity(entry,'communication_closed');
     return response.data;
   }
@@ -1176,7 +1250,7 @@
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,readOrderInteraction,archiveConfirmedInteraction,
-    pollInteraction,cancelInteraction,closeCommunication,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
+    pollInteraction,cancelInteraction,closeCommunication,queueCommunicationClose,flushCommunicationCloses,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
     submitOrderSurvey,readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
