@@ -2853,10 +2853,40 @@ function paymentOutcome(){
   const status=pickupEntry.paymentConfirmation?.status;
   if(!['ACCEPTED','REJECTED'].includes(status))return paymentWaiting();
   if(status==='ACCEPTED')recordVerifiedPickupOrder(pickupEntry);
-  return '<div class="page">'+heading('Confirmación de recojo','app')+
-   '<div class="summary-card"><h2>'+(status==='ACCEPTED'?'¡Pedido confirmado!':'Pedido no confirmado')+'</h2>'+
-   '<p>'+(status==='ACCEPTED'?'La tienda confirmó el pedido para recojo. Consulta Mis pedidos para el seguimiento.':'La tienda no confirmó el pago. Comunícate con la sede antes de intentar nuevamente.')+'</p></div>'+
-   '<button class="primary full" data-tab="pedidos">Ver mis pedidos</button></div>';
+  const store=shops.find(x=>String(x.id)===String(pickupEntry.body?.storeId));
+  const originalFields=pickupEntry.orderForm?.fields||[];
+  const originalValue=name=>originalFields.find(x=>x.variable===name)?.value||'';
+  const scheduled=originalValue('Modalidad')==='Recojo programado';
+  const scheduledAt=scheduled?String(originalValue('Fecha y hora')):'';
+  const scheduledMs=scheduled?reservationTimeValue(scheduledAt):NaN;
+  const formatTime=ms=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(ms));
+  const formatDate=ms=>new Intl.DateTimeFormat('es-PE',{timeZone:'America/Lima',weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date(ms));
+  const rawPrep=scheduled?store?.reservationSettings?.preparationMinutes:
+    (store?.pickupPreparationMinutes??store?.pickup_preparation_minutes);
+  const prep=rawPrep!==null&&rawPrep!==undefined&&rawPrep!==''?Number(rawPrep):NaN;
+  const validPrep=Number.isInteger(prep)&&prep>0&&prep<=240;
+  const accepted=status==='ACCEPTED';
+  return '<div class="page b3-payment-status-page">'+heading('Confirmación de recojo','app')+
+   '<div class="b3-payment-status-main '+(accepted?'b3-payment-status-approved':'b3-payment-status-rejected')+'" role="status">'+
+   '<div class="b3-payment-status-result-icon" aria-hidden="true">'+ic(accepted?'check':'info',43)+'</div>'+
+   '<div class="b3-payment-status-eyebrow">POLLOS B3 · PIDE Y RETIRA</div>'+
+   '<h2>'+(accepted?'¡Pedido confirmado!':'Pedido no confirmado')+'</h2>'+
+   '<p>'+(accepted?'La sede confirmó tu pedido para recojo.':'La sede no confirmó el pago. Comunícate con ella antes de intentarlo nuevamente.')+'</p>'+
+   (accepted?'<div class="b3-payment-status-note">'+
+    '<span class="b3-payment-prep-label">Sede de recojo</span><strong>'+esc(store?.name||originalValue('Tienda de recojo')||'Sede asignada')+'</strong>'+
+    (scheduled&&Number.isFinite(scheduledMs)?
+      '<span class="b3-payment-prep-label">Recojo programado · '+esc(formatDate(scheduledMs))+'</span>'+
+      '<strong>'+esc(formatTime(scheduledMs-15*60000))+' – '+esc(formatTime(scheduledMs+15*60000))+'</strong>'+
+      '<small>Puedes recoger tu pedido desde 15 minutos antes hasta 15 minutos después de la hora programada ('+esc(formatTime(scheduledMs))+').</small>':
+      scheduled?'<small>Consulta el horario programado con la sede.</small>':
+      '<span class="b3-payment-prep-label">Tiempo estimado de preparación</span>'+
+      (validPrep?'<strong class="b3-payment-prep-minutes">'+prep+' minutos</strong><small>Tiempo de preparación en tienda. No es una cuenta regresiva.</small>':
+       '<small>La sede confirmará el tiempo de preparación para recojo.</small>'))+
+    (scheduled&&validPrep?'<small>Preparación configurada: '+prep+' minutos. El intervalo de recojo corresponde al horario programado.</small>':'')+
+    '</div><p class="smallprint">Consulta el seguimiento de tu pedido desde Mis pedidos.</p>':'')+
+   '</div>'+
+   (accepted?'<button class="primary full" data-tab="pedidos">Ver mis pedidos</button>':'')+
+   '<button class="outline full" data-tab="inicio">'+(accepted?'Realizar otro pedido':'Volver al inicio')+'</button></div>';
  }
  const currentEntry=window.B3OrderAvailability?.readInteraction?.();
  const c=currentEntry?.paymentConfirmation;
