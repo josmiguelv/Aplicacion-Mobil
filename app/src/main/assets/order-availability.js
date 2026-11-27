@@ -377,6 +377,23 @@
   // Store the exact display ticket once, separate from the CREATE payload.
   // No Cliente or Teléfono fields: identity already travels with customer.
   function normalizeOrderForm(form) {
+    if(form?.title==='VALIDACIÓN DE RECOJO'){
+      if(form.subtitle!=='Confirmar disponibilidad de productos para retiro en tienda'||
+         !Array.isArray(form.fields)||form.fields.length<4||form.fields.length>5)
+        throw Error('El FORM de recojo no cumple el contrato.');
+      const labels=form.fields.map(x=>x?.variable).join('|');
+      if(labels!=='Productos|Subtotal|Tienda de recojo|Modalidad'&&
+         labels!=='Productos|Subtotal|Tienda de recojo|Modalidad|Fecha y hora')
+        throw Error('Las variables del FORM de recojo no coinciden.');
+      if(form.fields.some(x=>!x||typeof x.value!=='string'||!x.value.trim()||
+         x.value.length>500||typeof x.variable!=='string'||x.variable.length>80))
+        throw Error('Campos inválidos del FORM de recojo.');
+      if(!['Retirar ahora','Recojo programado'].includes(form.fields[3].value)||
+         (form.fields.length===5)!==(form.fields[3].value==='Recojo programado'))
+        throw Error('Modalidad de recojo inconsistente.');
+      return {title:form.title,subtitle:form.subtitle,
+        fields:form.fields.map(x=>({variable:x.variable,value:x.value}))};
+    }
     if(!form||typeof form!=='object'||Array.isArray(form)||
       Object.keys(form).some(k=>!['title','subtitle','fields'].includes(k))||
       !((form.title==='VALIDACIÓN DE PEDIDO'&&form.subtitle==='Confirmar disponibilidad para delivery')||
@@ -529,9 +546,9 @@
   async function sendInteractionMessageOnce(entry) {
     syncFormDeliveryState(entry);
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
-       !entry.body?.customer||entry.body.customer.mode!=='delivery'||
+       !(entry.body?.customer?.mode==='delivery'||entry.orderForm?.title==='VALIDACIÓN DE RECOJO')||
        !['PENDING','ACCEPTED'].includes(entry.status))
-      throw Error('No existe una solicitud de aprobación de Delivery pendiente.');
+      throw Error('No existe una solicitud de aprobación pendiente.');
     if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
     if(entry.messageDeliveryUncertain===true){
       const error=Error('La entrega del FORM no se pudo comprobar. No se reenviará automáticamente: se requiere confirmación del servidor.');
