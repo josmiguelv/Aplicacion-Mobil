@@ -869,7 +869,11 @@ async function pollAgentDecision(){
   }
   if(entry.cancelRequested){
    if(!entry.interactionId)throw Error('Esperando identificar la solicitud antes de cancelarla.');
-   await api.closeCommunication(entry,{reason:'CLIENT_CANCELLED'});
+   await api.cancelInteraction(entry,{reason:'CANCEL'});
+   // Additional independent close event: preserve the original cancellation
+   // notification and its confirmed CANCELLED state even if close fails.
+   try{await api.closeCommunication(entry,{reason:'CLIENT_CANCELLED'})}
+   catch(closeError){console.warn('[B3 order] Cancellation communication close pending',closeError?.message||'CLOSE_FAILED')}
    stopAgentDecisionPoll();
    ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
    clearDeliveryAvailability();resetDeliveryOrderContact();save();nav('inicio');toast('Solicitud cancelada.');return;
@@ -1210,7 +1214,11 @@ async function cancelPersonalCheckout(reason='CANCEL',skipConfirm=false){
  checkoutReviewNote='Cancelando tu solicitud...';
  render();
  try{
-  await api.closeCommunication(entry,{reason:'CLIENT_CANCELLED'});
+  await api.cancelInteraction(entry,{reason});
+   // Additional independent close event: preserve the original cancellation
+   // notification and its confirmed CANCELLED state even if close fails.
+   try{await api.closeCommunication(entry,{reason:'CLIENT_CANCELLED'})}
+   catch(closeError){console.warn('[B3 order] Cancellation communication close pending',closeError?.message||'CLOSE_FAILED')}
   stopAgentDecisionPoll();
   ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
   clearDeliveryAvailability();checkoutReviewNote='';
