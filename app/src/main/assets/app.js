@@ -2199,7 +2199,7 @@ function b3OrderCard(o){
  return '<article class="b3-orders-card">'+
  '<button class="b3-orders-card-main" data-order-open="'+esc(o.id)+'" aria-label="Ver detalle del pedido '+esc(orderPublicCode(o))+'">'+
  '<span class="b3-orders-icon">'+ic(done?'check':'orders',23)+'</span>'+
- '<span class="b3-orders-info"><b>'+esc(orderPublicCode(o))+'</b><small>'+new Date(o.ts).toLocaleDateString('es-PE',{day:'2-digit',month:'short',year:'numeric'})+' · '+(isDemoOrder(o)?'Pedido de prueba':'Pedido')+'</small><span class="b3-orders-status '+statusClass+'">'+esc(label)+'</span></span>'+
+ '<span class="b3-orders-info"><b>'+esc(orderPublicCode(o))+'</b><small>'+new Date(Number.isFinite(o.ts)&&o.ts>0?o.ts:o.paymentApprovedAt).toLocaleDateString('es-PE',{day:'2-digit',month:'short',year:'numeric'})+' · '+(isDemoOrder(o)?'Pedido de prueba':'Pedido')+'</small><span class="b3-orders-status '+statusClass+'">'+esc(label)+'</span></span>'+
  '<span class="b3-orders-price"><strong>'+cash(o.total||0)+'</strong>'+ic('chev',18)+'</span></button>'+
  (done?'<div class="b3-orders-card-footer"><button data-repeat-order="'+esc(o.id)+'">'+ic('cart',16)+' Volver a pedir</button>'+(o.review?'<span class="b3-orders-reviewed">'+ic('check',15)+' Opinión enviada</span>':'<button data-open-review="'+esc(o.id)+'">'+ic('check',15)+' '+(o.surveySubmission?'Reintentar encuesta':'Calificar pedido')+'</button>')+'</div>':'')+
  '</article>';
