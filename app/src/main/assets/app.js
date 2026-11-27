@@ -2927,7 +2927,7 @@ async function submitPickupRequest(){
   const items=publishedOrderItems();
   if(!/^9\\d{8}$/.test(st.profile.phone||'')||!String(st.profile.first||'').trim()||
      !String(st.profile.last||'').trim())throw Error('Confirma tus nombres y celular.');
-  const input={storeName:selected.name,when:st.scheduleMode==='reservation'?'scheduled':'now',
+  const input={storeName:selected.name,customerName:[st.profile.first,st.profile.last].filter(Boolean).join(' '),customerPhone:st.profile.phone,when:st.scheduleMode==='reservation'?'scheduled':'now',
    dateTime:st.reservationAt,items:st.cart.map(x=>{const p=product(x.id);return {
     name:p?.name,quantity:x.qty,unitPrice:p?.price};})};
   const form=window.B3PickupOrderContract.approval(input).form;
