@@ -1703,6 +1703,9 @@ function beginNewOrderAfterPayment(){
  checkoutRefreshPending=false;checkoutReviewNote='';checkoutPending=false;
  if(st.scheduleMode!=='reservation')st.reservationAt='';st.store='';
  st.quote=null;st.pay='';st.cash='';st.fulfillment='';st.pickupOrigin='';
+ // A paid and archived order must not leak its items into the next checkout.
+ // The verified order is already indexed in st.orders above.
+ st.cart=[];
  st.coords=null;st.selected='';st.qty=1;
  resetDeliveryOrderContact();clearDeliveryAvailability();
  save();
@@ -2704,6 +2707,12 @@ function personalCheckoutTimeHtml(){
 }
 function prepaymentReview(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
+ // A stale checkout screen must not show an empty or unrelated cart as an approved order.
+ if(!entry||entry.status!=='ACCEPTED'||!st.cart.length||checkoutCartIssue()){
+  return '<div class="page">'+heading('Revisa tu pedido','inicio')+
+   '<div class="notice" role="status">No hay una solicitud aceptada con productos vigentes para revisar. Comprueba tu carrito antes de continuar.</div>'+
+   '<button class="primary full" data-tab="carta">Ir a la carta</button></div>';
+ }
  const valid=entry?.status==='ACCEPTED'&&deliveryQuoteValid();
  const store=shops.find(x=>x.id===st.store);
  const items=st.cart.map(item=>{const p=product(item.id);return '<p>'+esc(p?.name||'Producto')+' ×'+item.qty+' <b>'+cash((p?.price||0)*item.qty)+'</b></p>'}).join('');
