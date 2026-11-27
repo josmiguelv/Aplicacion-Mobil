@@ -2454,6 +2454,11 @@ function locations(){
  return `<div class="page pickup-page">${heading('Pide y Retira','choice')}
  <p class="sub">Selecciona el local donde recogerás tu pedido.</p>
  ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
+ <section class="summary-card" aria-label="Alternativa de recojo programado">
+  <strong>¿Prefieres recogerlo otro día o a otra hora?</strong>
+  <p>Programa tu recojo según los horarios y la disponibilidad de reservas de la sede.</p>
+  <button type="button" class="primary full" data-schedule-choice="reservation">Programar mi recojo</button>
+ </section>
  <div class="locations pickup-list">
   ${ordered.length?ordered.map(s=>`<div class="pickup-location ${eligibleForPickup(s)?'':'unavailable'}">
      <div class="pickup-location-title"><b>${esc(s.name)}</b>${storeStatusHtml(s)}</div>
