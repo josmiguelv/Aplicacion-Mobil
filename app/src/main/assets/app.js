@@ -307,7 +307,7 @@ function paymentImageUrl(method){
 function paymentConfirmationForm(imageUrl=''){
  requireImmediateOrderFlow();
  const names={yape:'YAPE',plin:'PLIN',card:'TARJETA'};
- if(!names[st.pay])throw Error('Metodo no compatible con comprobante');
+ if(st.pay!=='cash'&&!names[st.pay])throw Error('Metodo no compatible con comprobante');
  const items=st.cart.map(item=>{const p=product(item.id);return (p?.name||'Producto')+' x'+item.qty}).join(', ');
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry?.interactionId)throw Error('Falta el identificador confirmado del pedido.');
@@ -320,6 +320,7 @@ function paymentConfirmationForm(imageUrl=''){
   {variable:'Total',value:cash(orderTotal())}
  ];
  if(st.scheduleMode==='reservation'){const when=window.B3ReservationForms.schedule(st.reservationAt);fields.unshift({variable:'Fecha',value:when.date+' · '+(()=>{const [h,m]=st.reservationAt.split('T')[1].split(':').map(Number);return (h%12||12)+':'+String(m).padStart(2,'0')+' '+(h<12?'a. m.':'p. m.');})()});}
+ if(st.pay==='cash'){const total=Math.round(orderTotal()*100),amount=Math.round(Number(st.cash)*100);if(!Number.isSafeInteger(amount)||amount<total)throw Error('Ingresa un monto igual o mayor al total.');fields.push({variable:'Paga con',value:cash(amount/100)},{variable:'Vuelto',value:cash((amount-total)/100)});return {type:'FORM',form:{title:st.scheduleMode==='reservation'?'PAGO DE RESERVA - EFECTIVO':'PAGO AL RECIBIR',subtitle:'Confirmar pedido con pago en efectivo',fields}};}
  if(fields.length>10||fields.some(f=>!f.value||f.value.length>500))throw Error('El formulario de pago requiere seis campos válidos');
  return {type:'FORM',form:{title:(st.scheduleMode==='reservation'?'PAGO DE RESERVA - ':'PAGO REALIZADO - ')+names[st.pay],
   subtitle:'Comprobante adjunto',...(imageUrl?{imageUrl}:{}),fields}};
@@ -2615,6 +2616,7 @@ function paymentInstructions(){
 }
 function paymentProofPreview(){
  if(!isPaymentFormReady())return '<div class="page"><div class="notice">Solicitud no disponible.</div></div>';
+ if(st.pay==='cash'){return '<div class="page">'+heading('Pago al recibir','payment')+personalCheckoutTimeHtml()+'<div class="summary-card"><p>Productos <b>'+cash(subtotal())+'</b></p><p>Delivery <b>'+cash(st.quote.deliveryFeePen)+'</b></p><p class="grand">Total <strong>'+cash(orderTotal())+'</strong></p></div><label>¿Con cuánto vas a pagar?<input id="b3-cash-amount" type="number" min="'+orderTotal()+'" step="0.01" value="'+esc(st.cash||'')+'"></label><button class="outline full" data-cash-exact="1">Tengo el monto exacto</button><p>Vuelto: <b id="b3-cash-change">'+cash(Math.max(0,Number(st.cash||0)-orderTotal()))+'</b></p>'+(paymentFormError?'<div class="notice">'+esc(paymentFormError)+'</div>':'')+'<button class="primary full" data-payment-confirm="1" '+(paymentFormBusy?'disabled':'')+'>Confirmar pedido</button></div>';}
  const form=paymentConfirmationForm(),confirmation=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
  return '<div class="page">'+heading('Confirmar pago','paymentInstructions')+personalCheckoutTimeHtml()+
  '<p class="sub">Adjunta el comprobante. Se enviará como imagen dentro del mismo FORM de pago.</p>'+ 
@@ -2630,10 +2632,11 @@ function paymentProofPreview(){
 function isPaymentFormReady(){
  return st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'&&
   deliveryQuoteValid()&&paymentOptions().some(x=>x[0]===st.pay)&&
-  ['yape','plin','card'].includes(st.pay);
+  ['yape','plin','card','cash'].includes(st.pay);
 }
 function paymentWaiting(){
  const c=window.B3OrderAvailability?.readInteraction?.()?.paymentConfirmation;
+ if(/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(c?.form?.form?.title||''))return '<div class="page">'+heading('Confirmación del pedido','app')+'<div class="notice">Esperando confirmación de la sede. El pago será al recibir.</div>'+(paymentFormError?'<div class="notice">'+esc(paymentFormError)+'</div>':'')+'<button class="outline full" data-checkout-leave="1">Seguir explorando</button></div>';
  return '<div class="page b3-payment-status-page">'+heading('Confirmación de pago','app')+
   '<div class="b3-payment-status-main" role="status" aria-live="polite">'+
   '<div class="b3-payment-status-anim" aria-hidden="true"><div class="b3-payment-status-ring"></div><div class="b3-payment-status-center">'+ic('card',34)+'</div><span class="b3-payment-status-orbit"></span></div>'+
@@ -2680,7 +2683,9 @@ function recordVerifiedPaymentOrder(entry){
   if(previouslyRecorded.paymentStatus==='ACCEPTED')clearApprovedOrderBasket(entry);
   return true;
  }
- const fields=approval.form?.form?.fields;
+ const allFields=approval.form?.form?.fields;
+ const cashOrder=/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(approval.form?.form?.title||'');
+ const fields=Array.isArray(allFields)?allFields.filter(f=>!['Fecha','Paga con','Vuelto'].includes(f.variable)):null;
  // Payment FORM v2 includes the public order code as its first of six fields.
  // Validate the complete certified payload before indexing the local history.
  if(!Array.isArray(fields)||fields.length!==6||
@@ -2691,15 +2696,15 @@ function recordVerifiedPaymentOrder(entry){
  const items=entry.body?.items?.map(x=>({id:'api:'+x.productId,qty:x.quantity}))||[];
  if(!Number.isFinite(total)||total<=0||!items.length||
     items.some(x=>!/^api:[0-9a-f-]{36}$/i.test(x.id)||!Number.isInteger(x.qty)||x.qty<1))return false;
- const payLabel=approval.form?.form?.title?.match(/^PAGO REALIZADO - (YAPE|PLIN|TARJETA)$/);
- if(!payLabel)return false;
- const pay={YAPE:'yape',PLIN:'plin',TARJETA:'card'}[payLabel[1]];
+ const payLabel=approval.form?.form?.title?.match(/^PAGO (?:REALIZADO|DE RESERVA) - (YAPE|PLIN|TARJETA)$/);
+ if(!payLabel&&!cashOrder)return false;
+ const pay=cashOrder?'cash':{YAPE:'yape',PLIN:'plin',TARJETA:'card'}[payLabel[1]];
  // This is a durable, locally indexed record of the confirmed conversation.
  // It is not a new commercial order on the Administrator backend.
  st.orders.unshift({
   id:entry.interactionId,interactionId:entry.interactionId,ts:Date.now(),
   total,items,mode:'delivery',pay,
-  status:'ACCEPTED',paymentStatus:'ACCEPTED',paymentAgentMessageId:approval.agentMessageId,
+  status:'ACCEPTED',paymentStatus:'ACCEPTED',collectionStatus:cashOrder?'PENDING_CASH':'PAID',paymentAgentMessageId:approval.agentMessageId,
   paymentApprovedAt:Date.now(),orderCode:'B3-'+entry.interactionId.replace(/-/g,'').slice(0,12).toUpperCase(),
   storeId:entry.body.storeId,address:entry.body.customer?.address||'',
   district:entry.body.customer?.district||'',
@@ -2726,14 +2731,15 @@ function paymentOutcome(){
  const c=currentEntry?.paymentConfirmation;
  if(!['ACCEPTED','REJECTED'].includes(c?.status))return paymentWaiting();
  const approved=c.status==='ACCEPTED';
+ const cashOrder=/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(c.form?.form?.title||'');
  if(approved)recordVerifiedPaymentOrder(currentEntry);
  const minutes=approved?publishedPreparationTime(currentEntry?.body?.storeId):null;
- return '<div class="page b3-payment-status-page">'+heading(approved?'Pago confirmado':'Validación del pago','app')+
+ return '<div class="page b3-payment-status-page">'+heading(cashOrder?'Confirmación del pedido':approved?'Pago confirmado':'Validación del pago','app')+
  '<div class="b3-payment-status-main '+(approved?'b3-payment-status-approved':'b3-payment-status-rejected')+'" role="status">'+
  '<div class="b3-payment-status-result-icon" aria-hidden="true">'+ic(approved?'check':'info',43)+'</div>'+
  '<div class="b3-payment-status-eyebrow">POLLOS B3 · TU PEDIDO</div>'+
- '<h2>'+(approved?'¡Pago confirmado!':'El pago no fue aprobado')+'</h2>'+
- '<p>'+(approved?'Tu comprobante fue aprobado por la sede. <strong>Tu pedido ya está listo para ser atendido.</strong>':
+ '<h2>'+(approved?(cashOrder?'¡Pedido confirmado!':'¡Pago confirmado!'):(cashOrder?'Pedido no confirmado':'El pago no fue aprobado'))+'</h2>'+
+ '<p>'+(approved?(cashOrder?'La sede confirmó tu pedido. Pagarás en efectivo al recibirlo.':'Tu comprobante fue aprobado por la sede. <strong>Tu pedido ya está listo para ser atendido.</strong>'):
  'La sede no confirmó el pago. Comunícate con la sede antes de volver a intentarlo.')+'</p>'+
  (approved?'<div class="b3-payment-status-note">'+
  (minutes!==null?'<span class="b3-payment-prep-label">Tiempo estimado de preparación</span><strong class="b3-payment-prep-minutes">'+minutes+' minutos</strong><span class="b3-payment-prep-context">'+ic('store',18)+' Antes de salir de tienda</span><small>El tiempo de traslado hasta tu domicilio no está incluido.</small>':
@@ -2750,12 +2756,13 @@ async function submitPaymentForm(){
  if(!entry||!isPaymentFormReady())return toast('La solicitud no permite confirmar el pago.');
  paymentFormBusy=true;paymentFormError='';render();
  try{
+  if(st.pay==='cash'){await api.preparePaymentConfirmation(entry,paymentConfirmationForm());}else{
   if(!receiptFileSelected&&!(entry.receiptUpload?.status==='UPLOADED'&&entry.receiptUpload?.imageUrl))
    throw Error('Selecciona un comprobante antes de confirmar el pago.');
   const uploaded=await api.uploadPaymentReceipt(entry);
   if(typeof uploaded.imageUrl!=='string'||!/^https:\/\/[^\s<>"']+\/api\/v1\/mobile\/payment-receipts\/images\/[0-9a-f-]{36}$/i.test(uploaded.imageUrl))
    throw Error('El Administrador no devolvió una URL HTTPS válida del comprobante.');
-  await api.preparePaymentConfirmation(api.readInteraction(),paymentConfirmationForm(uploaded.imageUrl));
+  await api.preparePaymentConfirmation(api.readInteraction(),paymentConfirmationForm(uploaded.imageUrl));}
   screen('paymentWaiting');
   await api.sendPaymentConfirmation(api.readInteraction());
   if(st.stage==='paymentWaiting')render();
@@ -2815,7 +2822,7 @@ function payment(){
  <p class="sub">${acceptedDelivery?'Toca cómo deseas pagar. Se mostrará la imagen configurada por la sede.':'Solo aparecen los métodos habilitados para la sede.'}</p>
  <div class="method-list">${available.map(([id,title,sub])=>`<button class="${st.pay===id?'chosen':''}" data-pay="${id}">${ic(id==='cash'?'store':'card')}<span><b>${title}</b><small>${sub}</small></span><span class="radio"></span></button>`).join('')}</div>
  ${missing?`<div class="notice" role="alert">${esc(selected?.name||'La sede asignada')} no tiene métodos de pago publicados para ${st.mode==='delivery'?'delivery':'recojo'}. Deben habilitarse desde el administrador web antes de continuar.</div>${!acceptedDelivery?`<button type="button" class="outline full" data-screen="${st.mode==='delivery'?'deliveryAddress':'locations'}">Cambiar sede o modalidad</button>`:''}`:''}
- ${!missing&&st.pay==='cash'?`<div class="notice" role="status">Pago al recibir: este método requiere una confirmación independiente. No se solicitará QR ni comprobante digital.</div>`:''}
+ ${!missing&&st.pay==='cash'?`<div class="notice" role="status">Pago al recibir: indica el monto y confirma tu pedido.</div><button class="primary full" data-payment-start="1">Continuar</button>`:''}
  ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
  ${acceptedDelivery?
    '<div class="b3-payment-secondary-actions" style="display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin:18px 0 8px"><button type="button" data-prepay-add="1" style="border:0;background:none;color:#8e2432;font-size:14px;text-decoration:underline;padding:8px">Cambiar productos</button><button type="button" data-prepay-cancel="1" style="border:0;background:none;color:#8e2432;font-size:14px;text-decoration:underline;padding:8px">Cancelar solicitud</button></div>':
@@ -3666,9 +3673,10 @@ if(b.hasAttribute('data-phone-next')){
   screen('confirmDetails');return
  }
  void revalidateCheckout('payment');return}
-if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash')return toast('El efectivo al recibir necesita un proceso independiente');if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
+if(b.hasAttribute('data-payment-start')){if(!paymentOptions().some(x=>x[0]===st.pay))return toast('Elige un método habilitado');if(st.pay==='cash'){st.cash='';paymentFormError='';screen('paymentProofPreview');return}if(!paymentImageUrl(st.pay))return toast('No hay imagen de pago configurada');screen('paymentInstructions');return}
 if(b.hasAttribute('data-payment-done')){if(isPaymentFormReady()){paymentFormError='';receiptFileSelected=false;if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';screen('paymentProofPreview')}return}
-if(b.hasAttribute('data-payment-confirm')){void submitPaymentForm();return}
+if(b.hasAttribute('data-cash-exact')){st.cash=orderTotal().toFixed(2);save();render();return}
+if(b.hasAttribute('data-payment-confirm')){if(st.pay==='cash'){const raw=v('b3-cash-amount');if(!/^\d+(?:\.\d{1,2})?$/.test(raw)||Number(raw)<orderTotal())return toast('Ingresa un monto válido igual o mayor al total');st.cash=raw;save();}void submitPaymentForm();return}
 if(b.hasAttribute('data-payment-save-image')){const url=paymentImageUrl(st.pay);if(url&&window.AndroidBridge?.downloadPaymentImage)window.AndroidBridge.downloadPaymentImage(url);else toast('La descarga de imágenes requiere una actualización de Android');return}
 if(b.dataset.pay){
  const method=b.dataset.pay;
@@ -4017,3 +4025,4 @@ document.addEventListener('visibilitychange',()=>{
 if(activeAtLaunch?.paymentConfirmation?.status==='SENT')schedulePaymentDecisionPoll(2000);
 // La salida del splash espera datos esenciales, sin temporizador fijo.
 })();
+ document.addEventListener('input',e=>{if(e.target?.id==='b3-cash-amount'){const n=document.getElementById('b3-cash-change');if(n)n.textContent=cash(Math.max(0,Number(e.target.value||0)-orderTotal()));}});
