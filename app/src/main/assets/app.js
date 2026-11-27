@@ -1210,7 +1210,7 @@ async function cancelPersonalCheckout(reason='CANCEL',skipConfirm=false){
  checkoutReviewNote='Cancelando tu solicitud...';
  render();
  try{
-  await api.cancelInteraction(entry,{reason});
+  await api.closeCommunication(entry,{reason:'CLIENT_CANCELLED'});
   stopAgentDecisionPoll();
   ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
   clearDeliveryAvailability();checkoutReviewNote='';
@@ -1988,7 +1988,7 @@ async function refreshLiveTracking(){
    save();
    vibrateConfirmedOrderStage(notifiedStage);
    render();
-   if(delivered)afterOrderDelivered(order);
+   if(delivered){afterOrderDelivered(order);void closeDeliveredOrderCommunication(order)}
   }
  }catch(error){
   nextDelay=error?.httpStatus===429?65000:15000;
@@ -1999,6 +1999,24 @@ async function refreshLiveTracking(){
  }
 }
 
+const deliveryCloseInFlight=new Set();
+async function closeDeliveredOrderCommunication(order){
+ if(!order?.interactionId||order.communicationClosedAt||deliveryCloseInFlight.has(order.interactionId))return;
+ const api=window.B3OrderAvailability;
+ const entry=api?.readOrderInteraction?.(order.interactionId);
+ if(!entry||entry.interactionId!==order.interactionId||!api.closeCommunication)return;
+ deliveryCloseInFlight.add(order.interactionId);
+ try{
+  // The agent's verified DELIVERED message is the delivery notice.
+  // The public close API has no free-text message field; do not fabricate one.
+  const response=await api.closeCommunication(entry,{reason:'ORDER_DELIVERED'});
+  if(response.communicationStatus==='CLOSED'){
+   order.communicationClosedAt=Date.now();save();render();
+  }
+ }catch(error){
+  console.warn('[B3 order] Delivery communication close not confirmed',error?.message||'CLOSE_FAILED');
+ }finally{deliveryCloseInFlight.delete(order.interactionId)}
+}
 function isDemoOrder(o){return o?.demo===true||String(o?.id||'').startsWith('B3-DEMO-')}
 function orderDelivered(o){return o?.status==='DELIVERED'&&Number.isFinite(o.deliveredAt)&&o.deliveredAt>0}
 function activeTracking(o){return o?.status==='DELIVERED'?orderDelivered(o)&&Date.now()-o.deliveredAt<TRACK_WINDOW:true}
