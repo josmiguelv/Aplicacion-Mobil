@@ -10,7 +10,7 @@ const state={orders:[order],favorite:null};
 const fakeDate={now:()=>0};
 const sandbox={window:{B3OrderAvailability:{readInteraction:()=>null}},st:state,Date:fakeDate,setInterval:()=>0,clearInterval:()=>{},setTimeout:()=>0,clearTimeout:()=>{},product:id=>id==='p1'?{id,name:'Producto de prueba',price:30}:null,
  cash:n=>'S/ '+n,esc:v=>String(v),ic:()=>'<svg></svg>',img:()=>'<img class="b3-favorite-thumb">',heading:()=>'',render:()=>{},
- selectedOrderId:order.id,favoritePromptOrderId:null,reviewSheetOrderId:null,reviewScore:0,reviewTags:[]};
+ selectedOrderId:order.id,favoritePromptOrderId:null,reviewSheetOrderId:null,reviewScore:0,reviewTags:[],reviewSending:false,reviewSendError:''};
 const helpers=runInNewContext(app.slice(start,end)+'\n({ORDER_STAGES,isDemoOrder,orderDelivered,activeTracking,normalizedBasket,trackCard,orderDetail,favoriteCard,favoritePrompt,reviewSheet,afterOrderDelivered})',sandbox);
 assert.deepEqual(Array.from(helpers.ORDER_STAGES,x=>x[0]),['RECEIVED','ACCEPTED','PREPARING','DISPATCH','DELIVERED']);
 assert.equal(helpers.isDemoOrder(order),true);
