@@ -527,7 +527,7 @@
       throw Error('La respuesta de TU VERSO no confirmó una interacción pendiente válida.');
     // Persist the server-confirmed interaction before the separate message POST.
     entry.status='PENDING';entry.interactionId=data.interactionId;
-    entry.messageDelivered=!entry.body.customer;
+    entry.messageDelivered=!entry.body.customer&&!entry.orderForm;
     persistInteraction(entry);
     recordActivity(entry,'created'); // Confirmed by the Administrator's 200/201 response.
     return {...data,status:'PENDING'};
