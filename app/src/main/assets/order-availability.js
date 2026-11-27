@@ -120,7 +120,7 @@
   // Track only counts/times: never store names, orders, IPs or credentials.
   const TRAFFIC_KEY='b3-mobile-interaction-traffic-v1';
   const TRAFFIC_OPS=new Set(['AGENT_AVAILABILITY','INTERACTION_CREATE','INTERACTION_MESSAGE',
-    'INTERACTION_STATUS','INTERACTION_CANCEL','INTERACTION_DEVICE','INTERACTION_PAYMENT',
+    'INTERACTION_STATUS','INTERACTION_CANCEL','INTERACTION_COMMUNICATION_CLOSE','INTERACTION_DEVICE','INTERACTION_PAYMENT',
     'INTERACTION_PAYMENT_STATUS','INTERACTION_RECEIPT_UPLOAD','INTERACTION_PAYMENT_FORM']);
   let blockedUntil=0;
   function recentInteractionCalls(now=Date.now()){
@@ -1111,6 +1111,20 @@
     persistInteraction(entry);
     return recordActivity(entry,'cancel_requested');
   }
+  async function closeCommunication(entry,{reason}={}){
+    if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
+       !UUID.test(entry.body?.storeId)||!['CLIENT_CANCELLED','ORDER_DELIVERED'].includes(reason))
+      throw Error('No hay una comunicación válida para finalizar.');
+    const response=await nativeRequest({operation:'INTERACTION_COMMUNICATION_CLOSE',
+      interactionId:entry.interactionId,accessKey:entry.idempotencyKey,
+      appId:entry.body.appId,storeId:entry.body.storeId,reason});
+    if(Number(response.status)!==200||
+       response.data?.interactionId!==entry.interactionId||
+       response.data?.communicationStatus!=='CLOSED')
+      throw responseError(response,'No se confirmó el cierre de comunicación');
+    recordActivity(entry,'communication_closed');
+    return response.data;
+  }
   async function cancelInteraction(entry,{reason='MODIFY'}={}){
     if(!entry||!UUID.test(entry.idempotencyKey))throw Error('No hay solicitud que cancelar.');
     if(entry.status==='CANCELLED')return {status:'CANCELLED'};
@@ -1158,7 +1172,7 @@
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,readOrderInteraction,archiveConfirmedInteraction,
-    pollInteraction,cancelInteraction,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
+    pollInteraction,cancelInteraction,closeCommunication,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
     submitOrderSurvey,readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
