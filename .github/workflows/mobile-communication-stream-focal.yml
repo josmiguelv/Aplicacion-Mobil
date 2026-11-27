@@ -1,0 +1,35 @@
+name: Android MOBILE_APP communication socket release focused
+on:
+  push:
+    branches: [feat/b3-mobile-communication-sse-release-20261127]
+    paths:
+      - 'app/src/main/java/com/integrab2g/pollosb3/MainActivity.java'
+      - 'app/src/main/java/com/integrab2g/pollosb3/MobileCommunicationStreamManager.java'
+      - 'scripts/mobile-communication-stream-lifecycle.test.mjs'
+      - '.github/workflows/mobile-communication-stream-focal.yml'
+permissions:
+  contents: read
+jobs:
+  stream:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Focused lifecycle and resource-release assertions
+        run: node --test scripts/mobile-communication-stream-lifecycle.test.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Install only required Android SDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
+      - name: Compile Android Java only, no APK and no full test suite
+        run: gradle --no-daemon :app:compileDebugJavaWithJavac
