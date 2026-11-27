@@ -1213,7 +1213,7 @@ public class MainActivity extends Activity {
         settings.setSafeBrowsingEnabled(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         settings.setSupportMultipleWindows(false);
-        settings.setAllowContentAccess(false);
+        // Keep content URI access for the existing Android payment-proof picker.
         // Cache remote catalog images and payment QRs for the active app version.
         // Clear cache once per bundled UI version to avoid stale packaged assets.
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
