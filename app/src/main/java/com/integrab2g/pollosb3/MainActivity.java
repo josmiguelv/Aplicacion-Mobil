@@ -696,9 +696,10 @@ public class MainActivity extends Activity {
                             throw new IllegalArgumentException("Invalid payment FORM identifiers");
                         JSONObject form=payload.optJSONObject("form");
                         JSONArray fields=form==null?null:form.optJSONArray("fields");
-                        String[] required={"N.º de pedido","Pedido","Subtotal","Delivery","Dirección","Total"};
+                        boolean scheduledPayment=form!=null&&form.optString("title","").startsWith("PAGO DE RESERVA - ");
+                        String[] required=scheduledPayment?new String[]{"Fecha","N.º de pedido","Pedido","Subtotal","Delivery","Dirección","Total"}:new String[]{"N.º de pedido","Pedido","Subtotal","Delivery","Dirección","Total"};
                         if(form==null||form.length()!=4||
-                           !form.optString("title","").matches("PAGO REALIZADO - (YAPE|PLIN|TARJETA)")||
+                           !form.optString("title","").matches("PAGO (REALIZADO|DE RESERVA) - (YAPE|PLIN|TARJETA)")||
                            !"Comprobante adjunto".equals(form.optString("subtitle",""))||
                            fields==null||fields.length()!=required.length)
                             throw new IllegalArgumentException("Invalid payment FORM");
@@ -741,7 +742,8 @@ public class MainActivity extends Activity {
                         // Reject all legacy text or other message types at the native boundary.
                         JSONObject form = payload.optJSONObject("form");
                         JSONArray fields = form == null ? null : form.optJSONArray("fields");
-                        boolean orderApproval = "VALIDACIÓN DE PEDIDO".equals(form == null ? "" : form.optString("title",""));
+                        boolean scheduledOrder = form!=null&&"VALIDACIÓN DE RESERVA".equals(form.optString("title",""));
+                        boolean orderApproval = scheduledOrder||"VALIDACIÓN DE PEDIDO".equals(form == null ? "" : form.optString("title",""));
                         boolean paymentApproval = form != null &&
                             form.optString("title","").matches("PAGO REALIZADO - (YAPE|PLIN|TARJETA)");
                         if (!"FORM".equals(payload.optString("type", "")) ||
@@ -749,13 +751,14 @@ public class MainActivity extends Activity {
                             form.optString("title", "").length() > 180 ||
                             form.optString("subtitle", "").length() > 350 ||
                             !(orderApproval || paymentApproval) ||
-                            (orderApproval && (!"Confirmar disponibilidad para delivery".equals(form.optString("subtitle", "")) ||
-                                fields == null || fields.length() < 3 || fields.length() > 10)) ||
+                            (orderApproval && (!(scheduledOrder?"Confirmar disponibilidad para delivery programado":"Confirmar disponibilidad para delivery").equals(form.optString("subtitle", "")) ||
+                                fields == null || fields.length() < (scheduledOrder?4:3) || fields.length() > 10)) ||
                             (paymentApproval && (!"Comprobante adjunto".equals(form.optString("subtitle", "")) ||
                                 !form.optString("imageUrl","").matches("https://[^\\s<>\\\"]+/api/v1/mobile/payment-receipts/[0-9a-fA-F-]{36}") ||
                                 fields == null || fields.length() != 5)))
                             throw new IllegalArgumentException("Invalid Pollos B3 approval FORM");
-                        int productsCount=orderApproval?fields.length()-2:0;
+                        int offset=scheduledOrder?1:0;
+                        int productsCount=orderApproval?fields.length()-2-offset:0;
                         java.util.HashSet<String> productLabels=new java.util.HashSet<>();
                         for (int i = 0; i < fields.length(); i++) {
                             JSONObject field=fields.optJSONObject(i);
@@ -766,21 +769,26 @@ public class MainActivity extends Activity {
                                !label.trim().equals(label))
                                 throw new IllegalArgumentException("Invalid order FORM fields");
                             if(orderApproval){
-                                if(i<productsCount){
-                                    boolean legacy=fields.length()==3&&"Productos".equals(fields.optJSONObject(0).optString("variable",""));
-                                    boolean indexed=("Producto "+(i+1)).equals(label)||
-                                        (i==7&&"Productos 8 en adelante".equals(label));
+                                if(scheduledOrder&&i==0){
+                                    if(!"Fecha".equals(label))throw new IllegalArgumentException("Missing reservation date");
+                                    continue;
+                                }
+                                int row=i-offset;
+                                if(row<productsCount){
+                                    boolean legacy=fields.length()==3+offset&&"Productos".equals(fields.optJSONObject(offset).optString("variable",""));
+                                    boolean indexed=("Producto "+(row+1)).equals(label)||
+                                        (row==7&&"Productos 8 en adelante".equals(label));
                                     boolean named=!label.equalsIgnoreCase("Subtotal")&&
                                         !label.equalsIgnoreCase("Dirección y referencia")&&
                                         !label.equalsIgnoreCase("Productos")&&
-                                        (!label.equals("Productos restantes")||i==7)&&
+                                        (!label.equals("Productos restantes")||row==7)&&
                                         (label.equals("Productos restantes")?
                                             value.contains(" × S/ "):
                                             value.matches("[0-9]+ × S/ [0-9]+(?:\\.[0-9]{2})?"));
                                     if(!(legacy||indexed||named)||
                                        !productLabels.add(label.toLowerCase(java.util.Locale.ROOT)))
                                         throw new IllegalArgumentException("Invalid product FORM row");
-                                }else if(!(i==productsCount?"Subtotal":"Dirección y referencia").equals(label))
+                                }else if(!(row==productsCount?"Subtotal":"Dirección y referencia").equals(label))
                                     throw new IllegalArgumentException("Invalid order FORM summary");
                             }else{
                                 String[] paymentLabels={"Pedido","Subtotal","Delivery","Dirección","Total"};
