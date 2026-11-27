@@ -1670,7 +1670,7 @@ function screen(n){
     activePersonalCheckout()?.status==='ACCEPTED'&&deliveryQuoteValid()){
   nav('inicio');return;
  }
- selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications();if(n==='reservationPicker')autoCheckReservationQuote()}
+ selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications();if(n==='reservationPicker'&&st.mode==='delivery')autoCheckReservationQuote()}
 // Returning Home after a confirmed rejection is a NEW order, not a resume.
 // Preserve profile/address/favorites but discard rejected checkout and old cart.
 function beginNewCheckoutAfterRejection(){
@@ -2434,7 +2434,7 @@ function reservationPicker(){
    !st.reservationAt?'<div class="notice">Selecciona fecha y hora para consultar disponibilidad.</div>':
    '')+
   (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div>':'')+
-  (reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
+  (st.mode==='pickup'?'<button class="primary full" data-reservation-verify="1">Continuar con recojo programado</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Cambiar a pedido inmediato (sin reserva)</button>'+
   '</div>';
 }
