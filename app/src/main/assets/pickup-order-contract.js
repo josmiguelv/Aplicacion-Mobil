@@ -18,7 +18,10 @@
  function approval(input){
   const total=validate(input);
   const lines=input.items.map(x=>x.name+' × '+x.quantity+' ('+money(x.unitPrice*x.quantity)+')');
+  if(!safe(input.customerName,120)||!/^9[0-9]{8}$/.test(String(input.customerPhone||'')))throw Error('Confirma nombre y celular para el recojo');
   const fields=[
+   {variable:'Cliente',value:input.customerName},
+   {variable:'Celular',value:input.customerPhone},
    {variable:'Productos',value:lines.join(' · ')},
    {variable:'Subtotal',value:money(total)},
    {variable:'Tienda de recojo',value:input.storeName},
