@@ -2726,13 +2726,27 @@ function publishedPreparationTime(storeId){
  return Number.isInteger(minutes)&&minutes>0&&minutes<=240?minutes:null;
 }
 function paymentOutcome(){
- // Existing immediate-order confirmation remains untouched; reservations are not submitted until supported.
  const currentEntry=window.B3OrderAvailability?.readInteraction?.();
  const c=currentEntry?.paymentConfirmation;
  if(!['ACCEPTED','REJECTED'].includes(c?.status))return paymentWaiting();
  const approved=c.status==='ACCEPTED';
  const cashOrder=/^PAGO (AL RECIBIR|DE RESERVA - EFECTIVO)$/.test(c.form?.form?.title||'');
  if(approved)recordVerifiedPaymentOrder(currentEntry);
+ const scheduled=(c.form?.form?.title||'').startsWith('PAGO DE RESERVA');
+ if(approved&&scheduled){
+  const dateField=c.form.form.fields.find(f=>f.variable==='Fecha')?.value||'';
+  const match=dateField.match(/^(\d{2})\/(\d{2})\/(\d{4}) · (\d{1,2}):(\d{2}) ([ap])\. m\.$/);
+  let when=null;
+  if(match){const [,d,m,y,h,min,period]=match;const hour=Number(h)%12+(period==='p'?12:0);try{when=window.B3ReservationForms.schedule(y+'-'+m+'-'+d+'T'+String(hour).padStart(2,'0')+':'+min)}catch{}}
+  return '<div class="page b3-payment-status-page">'+heading('Confirmación del pedido','app')+
+   '<div class="b3-payment-status-main b3-payment-status-approved" role="status">'+
+   '<div class="b3-payment-status-result-icon" aria-hidden="true">'+ic('check',43)+'</div>'+
+   '<div class="b3-payment-status-eyebrow">POLLOS B3 · TU PEDIDO</div><h2>¡Pedido confirmado!</h2>'+
+   '<p>Tu reserva ha sido registrada correctamente.</p><div class="b3-payment-status-note">'+
+   (when?'<span class="b3-payment-prep-label">Fecha de entrega</span><strong>'+esc(when.date)+'</strong><span class="b3-payment-prep-label">Horario programado de entrega</span><strong>'+esc(when.interval)+'</strong>':'<span>Horario solicitado: '+esc(dateField||'Consulta con la sede')+'</span>')+
+   '</div><p>'+(cashOrder?'Pagarás en efectivo al recibir tu pedido.':'Tu pago ha sido aprobado por la sede.')+'</p></div>'+
+   '<button class="primary full" data-tab="pedidos">Ver seguimiento del pedido</button><button class="outline full" data-tab="inicio">Realizar otro pedido</button></div>';
+ }
  const minutes=approved?publishedPreparationTime(currentEntry?.body?.storeId):null;
  return '<div class="page b3-payment-status-page">'+heading(cashOrder?'Confirmación del pedido':approved?'Pago confirmado':'Validación del pago','app')+
  '<div class="b3-payment-status-main '+(approved?'b3-payment-status-approved':'b3-payment-status-rejected')+'" role="status">'+
