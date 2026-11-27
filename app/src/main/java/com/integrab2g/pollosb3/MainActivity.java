@@ -890,6 +890,7 @@ public class MainActivity extends Activity {
                         path="/api/v1/mobile/orders/"+interactionId+"/survey";
                     } else if ("INTERACTION_STATUS".equals(operation) ||
                                "INTERACTION_CANCEL".equals(operation) ||
+                               "INTERACTION_COMMUNICATION_CLOSE".equals(operation) ||
                                "INTERACTION_DEVICE".equals(operation) ||
                                "INTERACTION_PAYMENT".equals(operation) ||
                                "INTERACTION_PAYMENT_STATUS".equals(operation)) {
@@ -907,7 +908,7 @@ public class MainActivity extends Activity {
                             path += ("INTERACTION_STATUS".equals(operation)?"/status?appId=":"/payment?appId=") + java.net.URLEncoder.encode(appId, "UTF-8") +
                                 "&storeId=" + java.net.URLEncoder.encode(storeId, "UTF-8");
                         } else {
-                            path += "INTERACTION_CANCEL".equals(operation)?"/cancel":"INTERACTION_DEVICE".equals(operation)?"/device":"/payment";
+                            path += "INTERACTION_COMMUNICATION_CLOSE".equals(operation)?"/communication-close":"INTERACTION_CANCEL".equals(operation)?"/cancel":"INTERACTION_DEVICE".equals(operation)?"/device":"/payment";
                             JSONObject payload = new JSONObject();
                             payload.put("appId",appId);
                             payload.put("storeId",storeId);
@@ -918,6 +919,12 @@ public class MainActivity extends Activity {
                                 payload.put("fcmToken",fcmToken);
                             }
                             if("INTERACTION_CANCEL".equals(operation))payload.put("reason",request.optString("reason","MODIFY"));
+                            if("INTERACTION_COMMUNICATION_CLOSE".equals(operation)){
+                                String closeReason=request.optString("reason","");
+                                if(!"CLIENT_CANCELLED".equals(closeReason)&&!"ORDER_DELIVERED".equals(closeReason))
+                                    throw new IllegalArgumentException("Invalid communication close reason");
+                                payload.put("reason",closeReason);
+                            }
                             body=payload.toString();
                         }
                     } else if ("GET".equals(operation)) {
@@ -954,6 +961,7 @@ public class MainActivity extends Activity {
                             "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
                             "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_PAYMENT_FORM".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
+                            "INTERACTION_COMMUNICATION_CLOSE".equals(operation) ||
                             "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ||
                             "INTERACTION_RECEIPT_UPLOAD".equals(operation) || "ORDER_SURVEY".equals(operation) ? "POST" : operation;
                         connection.setRequestMethod(httpMethod);
