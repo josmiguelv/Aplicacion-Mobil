@@ -1122,6 +1122,10 @@
        response.data?.interactionId!==entry.interactionId||
        response.data?.communicationStatus!=='CLOSED')
       throw responseError(response,'No se confirmó el cierre de comunicación');
+    if(reason==='CLIENT_CANCELLED'){
+      if(response.data?.status!=='CANCELLED')throw Error('El servidor no confirmó la cancelación.');
+      entry.status='CANCELLED';persistInteraction(entry);
+    }
     recordActivity(entry,'communication_closed');
     return response.data;
   }
