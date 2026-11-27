@@ -3187,8 +3187,8 @@ function summary(){
  ${st.mode==='delivery'&&deliveryQuoteValid()?`<p>Sede: ${esc(st.quote.storeName||selectedStore?.name||'Asignada por cobertura')} · ${st.quote.serverValidated?'Cotización de servidor':Number(st.quote.straightDistanceKm).toFixed(2)+' km aproximados en línea recta · '+(st.quote.deliveryPricingMode==='FIXED'?'Tarifa fija':'Tarifa por kilómetro')}</p><p class="smallprint">${st.quote.serverValidated?'Disponibilidad validada. No reserva productos ni crea un pedido comercial.':'Distancia estimada, no equivale a un recorrido por carretera.'}</p>`:''}
  <p class="grand">Total estimado <strong>${st.mode==='delivery'&&!deliveryQuoteValid()?'Pendiente de cotizar':cash(orderTotal())}</strong></p>
  </div>${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
- <div class="notice">Recorrido de prueba: no se confirmarán pagos ni se enviarán pedidos a Pollos B3.</div>
- <button class="primary full" data-confirm="1" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando disponibilidad...':'Registrar pedido de prueba'}</button></div>`;
+ <div class="notice">Para confirmar un pedido, inicia una solicitud con la sede desde Delivery o Pide y Retira.</div>
+ <button class="primary full" data-screen="cart">Volver al carrito</button></div>`;
 }
 function success(){let o=st.orders[0];return `<div class="success"><div class="success-mark">${ic('check',54)}</div><h1>¡Pedido de prueba registrado!</h1><p>Este pedido se guardó en tu teléfono. <b>No fue enviado a Pollos B3 ni cobrado.</b></p><div class="success-box"><b>${esc(o?.id||'')}</b><span>${cash(o?.total||0)}</span><small>Simulación local</small></div><button class="primary full" data-tab="pedidos">Ver mis pedidos</button><button class="outline full" data-tab="inicio">Volver al inicio</button></div>`}
 // The chat is a read-only view of the current device's verified interaction.
@@ -3550,14 +3550,6 @@ function checkoutSnapshot(){
  return {store:String(st.store||''),total:Math.round(orderTotal()*100),
   items:st.cart.map(x=>{const p=product(x.id);return [x.id,x.qty,p?.price??'missing'].join(':')}).join('|')};
 }
-function finalizeDemoOrder(){
- const issue=checkoutCartIssue();if(issue){checkoutReviewNote=issue;screen('cart');return}
- if(st.mode==='delivery'&&!deliveryQuoteValid()){checkoutReviewNote='La sede debe validar disponibilidad y tarifa antes de continuar.';screen('availability');return}
- if(st.mode==='pickup'&&!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){checkoutReviewNote='El local de recojo ya no está disponible.';screen('locations');return}
- if(!paymentOptions().some(x=>x[0]===st.pay)){checkoutReviewNote='El método de pago ya no está disponible.';screen('payment');return}
- const order={id:'B3-DEMO-'+String(Date.now()),ts:Date.now(),total:orderTotal(),items:st.cart.map(x=>({id:x.id,qty:x.qty})),mode:st.mode,pay:st.pay,status:'RECEIVED',demo:true,deliveredAt:null,favoritePromptDone:false,reviewDismissed:false};
- st.orders.unshift(order);st.cart=[];save();screen('success');
-}
 async function revalidateCheckout(next){
  
  if(checkoutRefreshPending)return false;
@@ -3602,7 +3594,7 @@ async function revalidateCheckout(next){
    screen('payment');return false
   }
   save();
-  if(next==='confirm')finalizeDemoOrder();
+  if(next==='confirm'){checkoutReviewNote='Este recorrido anterior no registra pedidos. Inicia una nueva solicitud desde Delivery o Pide y Retira.';screen('cart');return false;}
   else screen(next);
   return true;
  }catch(err){
@@ -4131,7 +4123,7 @@ if(b.hasAttribute('data-pay-next')){
  if(st.pay==='cash')st.cash=v('cash');
  save();void revalidateCheckout('summary');return;
 }
-if(b.hasAttribute('data-confirm')){if(st.mode==='delivery'&&st.quote?.quoteOrigin==='ANDROID_CATALOG_ACCEPTED')return toast('Aún no se realizan cobros reales.');if(checkoutRefreshPending)return;void revalidateCheckout('confirm');return}
+if(b.hasAttribute('data-confirm')){toast('Este recorrido no confirma pedidos. Inicia una solicitud con la sede.');screen('cart');return}
 if(b.hasAttribute('data-google-login')){if(googleSignInPending)return;if(!window.AndroidBridge?.signInWithGoogle){toast('El acceso con Google requiere actualizar Android.');return}googleSignInPending=true;render();window.AndroidBridge.signInWithGoogle();return}
 if(b.dataset.demoSignin){const x=v('signin-value');if(b.dataset.demoSignin!=='phone'||!/^9\d{8}$/.test(x))return toast('Completa un celular peruano de 9 dígitos');if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=true;st.authProvider='demo-phone';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';st.profile.phone=x;save();enterApp();return}
 if(b.hasAttribute('data-logout')){if(st.authProvider==='google'){window.AndroidBridge?.signOutGoogle?.();return}st.registered=false;st.authProvider='';st.authUid='';save();render();return}
