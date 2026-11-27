@@ -1246,6 +1246,7 @@
     root.localStorage.removeItem(INTERACTION_KEY);
     root.localStorage.removeItem(SERIES_KEY);
     root.localStorage.removeItem(PAID_ARCHIVE_KEY);
+    root.localStorage.removeItem(CLOSE_OUTBOX_KEY);
   }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
