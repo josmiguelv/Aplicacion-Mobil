@@ -24,7 +24,7 @@ let enteredBefore=localStorage.getItem('b3-visitor-entered-v9')==='1';
 let loginFromAccount=false;
 let googleSignInPending=false;
 let addressEditId=null;
-let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,reviewScore=0,reviewTags=[];
+let selectedOrderId=null,reviewSheetOrderId=null,favoritePromptOrderId=null,deliveredNoticeOrderId=null,reviewScore=0,reviewTags=[];
 let reviewSending=false,reviewSendError='';
 let fulfillmentModal=null; // null | choose | delivery | pickup; transient UI state, never persisted
 let fulfillmentOutcomeNote=''; // Terminal outcome only; never initiates a new request.
@@ -1944,7 +1944,7 @@ async function refreshLiveTracking(){
    order.lastTrackingMessageId=message.id;
    order.lastTrackingAt=at;
    if(stage==='DELIVERED'&&(!order.deliveredAt||order.deliveredAt<=0)){
-    order.deliveredAt=at;order.reviewDismissed=false;delivered=true;
+    order.deliveredAt=at;order.reviewDismissed=false;order.deliveryNoticePending=true;delivered=true;
    }
    changed=true;
    notifiedStage=stage;
@@ -2010,6 +2010,11 @@ function orderDetail(){
  '<div class="b3-order-recap"><h3>Resumen</h3><p>'+esc(basketNames(o.items))+'</p><strong>'+cash(o.total||0)+'</strong></div>'+
  (orderDelivered(o)?'<button class="primary full" data-repeat-order="'+esc(o.id)+'">Pedir de nuevo</button>'+(o.review?'<p class="smallprint">Opinión guardada en este dispositivo.</p>':'<button class="outline full" data-open-review="'+esc(o.id)+'">Calificar pedido</button>'):'')+'</div>';
 }
+function deliveredNotice(){
+ const o=findLocalOrder(deliveredNoticeOrderId);
+ if(!o||!orderDelivered(o)||!o.deliveryNoticePending)return '';
+ return '<div class="b3-overlay"><div class="b3-bottom-sheet" role="dialog" aria-modal="true" aria-label="Pedido entregado"><div class="b3-sheet-grip"></div><h2>¡Tu pedido fue entregado!</h2><p>El pedido <strong>'+esc(orderPublicCode(o))+'</strong> figura como entregado.</p><button class="primary full" data-delivery-notice-ok="1">Aceptar</button></div></div>';
+}
 function favoritePrompt(){
  const o=findLocalOrder(favoritePromptOrderId);
  if(!o||!orderDelivered(o)||o.favoritePromptDone)return '';
@@ -2020,7 +2025,7 @@ function reviewSheet(){
  if(!o||!orderDelivered(o)||o.review)return '';
  const submission=o.surveySubmission;
  return '<div class="b3-overlay"><div class="b3-bottom-sheet" role="dialog" aria-modal="true" aria-label="Encuesta de satisfacción"><div class="b3-sheet-grip"></div><h2>¿Qué tal estuvo tu pedido?</h2><p>Tu opinión nos ayuda a mejorar.</p>'+
- '<div class="b3-rating-stars">'+[1,2,3,4,5].map(n=>'<button data-review-star="'+n+'" '+(reviewSending||submission?'disabled':'')+' aria-label="'+n+' estrellas">'+((submission?.rating||reviewScore)>=n?'★':'☆')+'</button>').join('')+'</div>'+
+ '<button type="button" data-review-close="1" aria-label="Cerrar encuesta" style="position:absolute;right:20px;top:18px;border:0;background:transparent;font-size:30px;line-height:1;padding:8px;cursor:pointer">×</button><div class="b3-rating-stars">'+[1,2,3,4,5].map(n=>'<button data-review-star="'+n+'" '+(reviewSending||submission?'disabled':'')+' aria-label="'+n+' estrellas">'+((submission?.rating||reviewScore)>=n?'★':'☆')+'</button>').join('')+'</div>'+
  '<div class="b3-feedback-tags">'+['Sabor','Temperatura','Tiempo','Presentación','Atención'].map(k=>'<button class="'+((submission?.tags||reviewTags).includes(k)?'selected':'')+'" data-review-tag="'+k+'" '+(reviewSending||submission?'disabled':'')+'>'+k+'</button>').join('')+'</div>'+
  '<label>Comentario (opcional)<textarea id="review-comment" maxlength="500" rows="3" '+(reviewSending||submission?'disabled':'')+' placeholder="Cuéntanos tu experiencia">'+esc(submission?.comment||'')+'</textarea></label>'+
  (reviewSendError?'<div class="notice" role="alert">'+esc(reviewSendError)+'</div>':'')+
@@ -2078,6 +2083,7 @@ async function sendDeliveredSurvey(order){
 }
 function afterOrderDelivered(o){
  if(!orderDelivered(o))return;
+ if(o.deliveryNoticePending){deliveredNoticeOrderId=o.id;favoritePromptOrderId=null;reviewSheetOrderId=null;render();return}
  if(!o.favoritePromptDone&&(!st.favorite||normalizedBasket(st.favorite.items)!==normalizedBasket(o.items))){favoritePromptOrderId=o.id;reviewSheetOrderId=null;render();return}
  if(!o.review&&!o.reviewDismissed){reviewSheetOrderId=o.id;reviewScore=0;reviewTags=[];render()}
 }
@@ -3527,7 +3533,7 @@ function openPrivacyLaw(){
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){return `<div class="page form">${heading('Continuar con teléfono','login')}<p class="sub">Ingresa tu celular peruano. No enviamos SMS ni verificamos que seas titular de este número. Para cada pedido deberás confirmar los datos del destinatario.</p><label>Celular (+51)<input id="signin-value" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="9" pattern="9[0-9]{8}" placeholder="9 dígitos"></label><button class="primary full" data-phone-continue="1">Continuar sin verificación SMS</button><p class="smallprint">Tu número se guarda en este dispositivo como dato de contacto, no como identidad verificada.</p></div>`}
 function render(){if(visibleLiveOrder()&&!trackingPollBusy&&trackingPollTimer===null)scheduleLiveTracking(3000);else if(!visibleLiveOrder()&&trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='scheduleChoice')html=scheduleChoice();else if(st.stage==='reservationPicker')html=reservationPicker();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='pickupRequestPending')html=pickupRequestPending();else if(st.stage==='confirmDetails')html=confirmDetails();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
-  `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
+  `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+deliveredNotice()+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
  return {store:String(st.store||''),total:Math.round(orderTotal()*100),
@@ -3733,6 +3739,10 @@ if(b.hasAttribute('data-fav-remove')){
    if(yes){st.favorite=null;save();render()}
   });
  return;
+}
+if(b.hasAttribute('data-delivery-notice-ok')){
+ const o=findLocalOrder(deliveredNoticeOrderId);if(!o)return;
+ o.deliveryNoticePending=false;deliveredNoticeOrderId=null;save();afterOrderDelivered(o);render();return;
 }
 if(b.hasAttribute('data-accept-favorite')||b.hasAttribute('data-decline-favorite')){
  const o=findLocalOrder(favoritePromptOrderId);if(!o)return;
@@ -4311,6 +4321,7 @@ window.b3OpenPersonalOrderNotification=(id)=>{
 window.b3OpenFromLink=()=>{
   reviewSheetOrderId=null;
   favoritePromptOrderId=null;
+  deliveredNoticeOrderId=null;
   loginFromAccount=false;
   nav('inicio');
 };
