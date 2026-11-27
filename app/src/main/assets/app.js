@@ -2021,6 +2021,12 @@ function favoriteCard(){
  const first=product(f.items[0].id);
  return '<section class="b3-favorite-home"><div class="b3-feature-title">'+ic('heart',20)+'<h2>Vuelve a pedir tu favorito</h2></div><div class="b3-favorite-row">'+(first?img(first,'b3-favorite-thumb'):'')+'<p>'+esc(basketNames(f.items))+'</p></div><strong>'+cash(total)+'</strong><small>Precio actual estimado; no incluye Delivery</small><div class="b3-favorite-actions"><button data-fav-reorder="1" '+(!available?'disabled':'')+'>Pedir de nuevo</button><button data-fav-remove="1">Quitar favorito</button></div></section>';
 }
+function orderStageDisplay(order,id,title,info){
+ if(id!=='DISPATCH')return {title,info};
+ return order?.mode==='pickup'
+  ?{title:'Listo para recoger',info:'Tu pedido está listo para recoger en la sede'}
+  :{title:'En camino',info:'Tu pedido salió para entrega'};
+}
 function trackCard(o){
  const index=Math.max(0,ORDER_STAGES.findIndex(row=>row[0]===o.status));
  return '<div class="b3-track">'+(isDemoOrder(o)?'<p class="b3-demo-alert">SIMULACIÓN LOCAL — No son estados reportados por Pollos B3.</p>':'')+
@@ -2028,7 +2034,8 @@ function trackCard(o){
  '<div class="b3-track-bar"><div style="width:'+((index+1)/ORDER_STAGES.length*100)+'%"></div></div>'+
  ORDER_STAGES.map(([id,title,info],i)=>{
   const completed=i<=index;
-  return '<div class="b3-track-stage '+(completed?'done':i===index+1?'current':'upcoming')+'"><span class="b3-track-dot">'+(completed?'✓':i+1)+'</span><div><b>'+title+'</b><small>'+(completed?'Completado':i===index+1?info:'Pendiente')+'</small></div></div>';
+  const display=orderStageDisplay(o,id,title,info);
+  return '<div class="b3-track-stage '+(completed?'done':i===index+1?'current':'upcoming')+'"><span class="b3-track-dot">'+(completed?'✓':i+1)+'</span><div><b>'+esc(display.title)+'</b><small>'+(completed?'Completado':i===index+1?esc(display.info):'Pendiente')+'</small></div></div>';
  }).join('')+
  (isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-demo-next="'+esc(o.id)+'">Simular siguiente etapa</button>':'')+
  (!isDemoOrder(o)&&o.status!=='DELIVERED'?'<button class="outline full" data-tracking-refresh="1">Actualizar seguimiento</button>':'')+'</div>';
