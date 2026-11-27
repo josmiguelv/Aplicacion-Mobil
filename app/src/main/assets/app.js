@@ -869,7 +869,7 @@ async function pollAgentDecision(){
   }
   if(entry.cancelRequested){
    if(!entry.interactionId)throw Error('Esperando identificar la solicitud antes de cancelarla.');
-   await api.cancelInteraction(entry,{reason:'CANCEL'});
+   await api.closeCommunication(entry,{reason:'CLIENT_CANCELLED'});
    stopAgentDecisionPoll();
    ++deliveryValidationGeneration;st.quote=null;st.store='';st.pay='';
    clearDeliveryAvailability();resetDeliveryOrderContact();save();nav('inicio');toast('Solicitud cancelada.');return;
