@@ -2022,8 +2022,10 @@ function trackCard(o){
 }
 function orderDetail(){
  const confirmed=window.B3OrderAvailability?.readInteraction?.();
- if(confirmed?.interactionId===selectedOrderId&&confirmed.paymentConfirmation?.status==='ACCEPTED')
-  recordVerifiedPaymentOrder(confirmed);
+ if(confirmed?.interactionId===selectedOrderId&&confirmed.paymentConfirmation?.status==='ACCEPTED'){
+  if(confirmed.orderForm?.title==='VALIDACIÓN DE RECOJO')recordVerifiedPickupOrder(confirmed);
+  else recordVerifiedPaymentOrder(confirmed);
+ }
  const o=findLocalOrder(selectedOrderId);
  if(!o)return '<div class="page">'+heading('Pedido no disponible','app')+'</div>';
  const active=activeTracking(o);
@@ -2204,8 +2206,12 @@ function b3OrderCard(o){
 }
 function orders(){
  const confirmed=window.B3OrderAvailability?.readInteraction?.();
- if(confirmed?.paymentConfirmation?.status==='ACCEPTED')recordVerifiedPaymentOrder(confirmed);
- const list=Array.isArray(st.orders)?st.orders.filter(o=>o&&typeof o.id==='string'&&Date.now()-o.ts<60*24*3600000):[];
+ if(confirmed?.paymentConfirmation?.status==='ACCEPTED'){
+  if(confirmed.orderForm?.title==='VALIDACIÓN DE RECOJO')recordVerifiedPickupOrder(confirmed);
+  else recordVerifiedPaymentOrder(confirmed);
+ }
+ const list=Array.isArray(st.orders)?st.orders.filter(o=>o&&typeof o.id==='string'&&
+  Date.now()-(Number.isFinite(o.ts)&&o.ts>0?o.ts:o.paymentApprovedAt)<60*24*3600000):[];
  const active=list.filter(o=>!orderDelivered(o)),history=list.filter(o=>orderDelivered(o));
  const shownActive=true;
  const shownHistory=true;
@@ -2780,13 +2786,19 @@ function recordVerifiedPickupOrder(entry){
  const confirmation=entry?.paymentConfirmation;
  if(confirmation?.status!=='ACCEPTED'||!confirmation.agentMessageId||!entry?.interactionId)return false;
  if(!Array.isArray(st.orders))st.orders=[];
- if(st.orders.some(x=>x.interactionId===entry.interactionId))return true;
+ const previous=st.orders.find(x=>x.interactionId===entry.interactionId);
+ if(previous){
+  if(!Number.isFinite(previous.ts)||previous.ts<=0){
+   previous.ts=Number.isFinite(previous.paymentApprovedAt)&&previous.paymentApprovedAt>0?previous.paymentApprovedAt:Date.now();save();
+  }
+  return true;
+ }
  const fields=confirmation.form?.form?.fields||[];
  const amount=fields.find(x=>x.variable==='Total')?.value;
  const total=Number(String(amount||'').replace('S/','').trim());
  if(!Number.isFinite(total)||total<=0)return false;
  st.orders.unshift({id:entry.interactionId,interactionId:entry.interactionId,
-  code:orderPublicCode(entry),status:'ACCEPTED',paymentStatus:'ACCEPTED',
+  code:orderPublicCode(entry),ts:Date.now(),status:'ACCEPTED',paymentStatus:'ACCEPTED',
   mode:'pickup',storeId:entry.body.storeId,total,paymentApprovedAt:Date.now(),
   items:entry.body.items.map(x=>({id:'api:'+x.productId,qty:x.quantity}))});
  save();clearApprovedOrderBasket(entry);return true;
