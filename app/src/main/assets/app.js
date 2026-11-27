@@ -2418,15 +2418,6 @@ function locations(){
  return `<div class="page pickup-page">${heading('Pide y Retira','choice')}
  <p class="sub">Selecciona el local donde recogerás tu pedido.</p>
  ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
- <div class="pickup-origin">
-   <button class="outline full" data-gps="1">${ic('pin')} Usar mi ubicación actual</button>
-   <p class="smallprint">${st.coords?'Distancias aproximadas calculadas con tu ubicación.':'Puedes ver los locales sin compartir tu ubicación.'}</p>
-   <label>O ingresa una dirección de referencia
-     <input id="pickup-origin" placeholder="Calle, número y distrito" value="${esc(st.pickupOrigin||'')}">
-   </label>
-   <button class="outline full" data-pickup-origin-save="1">Guardar dirección de referencia</button>
-   ${st.pickupOrigin&&!st.coords?'<p class="smallprint">Dirección guardada. La distancia se calculará cuando se verifique su ubicación en el mapa; no se muestran kilómetros estimados sin coordenadas.</p>':''}
- </div>
  <div class="locations pickup-list">
   ${ordered.length?ordered.map(s=>`<div class="pickup-location ${eligibleForPickup(s)?'':'unavailable'}">
      <div class="pickup-location-title"><b>${esc(s.name)}</b>${storeStatusHtml(s)}</div>
@@ -2434,6 +2425,7 @@ function locations(){
      ${straightDistanceKm(s)?`<p class="pickup-distance">${ic('map',16)} ${esc(straightDistanceKm(s))}</p>`:''}
      ${pickupPaymentWarning(s)}
      <div class="pickup-actions">
+      ${(s.address||s.addr)?`<button type="button" class="outline" data-openmaps="${esc('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(s.address||s.addr))}">${ic('map',17)} Cómo llegar</button>`:''}
       ${eligibleForPickup(s)?`<button class="primary" data-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'}</button>`:'<span class="smallprint">No disponible para recojo inmediato</span>'}
      </div>
    </div>`).join(''):'<div class="notice">No hay locales publicados por la administración. Consulta más adelante.</div>'}
