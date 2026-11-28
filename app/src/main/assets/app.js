@@ -1998,6 +1998,7 @@ async function refreshLiveTracking(){
  try{
   const result=await api.readTrackingMessages(entry);
   if(!result.available)return;
+  observeChatConversationState(order.interactionId,result.conversationState);
   const messages=result.messages;
   // Prefer the verified payment-approval message as chronology barrier.
   const approvalId=order.paymentAgentMessageId;
@@ -2029,7 +2030,7 @@ async function refreshLiveTracking(){
    save();
    vibrateConfirmedOrderStage(notifiedStage);
    render();
-   if(delivered){afterOrderDelivered(order);void closeDeliveredOrderCommunication(order)}
+   if(delivered){if(chatOverlay)refreshChatTimeline();afterOrderDelivered(order);void closeDeliveredOrderCommunication(order)}
   }
  }catch(error){
   nextDelay=error?.httpStatus===429?65000:15000;
@@ -3347,11 +3348,37 @@ const B3_CHAT_ACTIVITY=Object.freeze({
 });
 const b3ChatSent=new Map();
 let b3ChatBusy=false;
+const b3ChatClosedByServer=new Set();
 function chatWritable(entry){
  if(!entry||entry.agentDecision!=='ACCEPTED'||entry.status!=='ACCEPTED'||
-    !entry.interactionId||['CLOSED','RESOLVED'].includes(entry.operationalConversationStatus))return false;
+    !entry.interactionId||['CLOSED','RESOLVED'].includes(entry.operationalConversationStatus)||
+    b3ChatClosedByServer.has(entry.interactionId)||
+    window.B3OrderAvailability?.isCommunicationCloseConfirmed?.(entry.interactionId))return false;
  const order=st.orders?.find(o=>o?.interactionId===entry.interactionId);
  return order?.status!=='DELIVERED'&&order?.status!=='CANCELLED';
+}
+function observeChatConversationState(interactionId,state){
+ const status=typeof state==='string'?state:
+  (state&&typeof state==='object'?(state.communicationStatus||state.status||''):'');
+ if(['CLOSED','RESOLVED'].includes(String(status).toUpperCase())){
+  b3ChatClosedByServer.add(interactionId);
+  if(chatOverlay)refreshChatTimeline();
+ }
+}
+const b3ChatStatusInFlight=new Set();
+async function verifyChatStillOpen(entry){
+ if(!chatWritable(entry))return false;
+ const api=window.B3OrderAvailability;
+ if(!api?.readTrackingMessages||b3ChatStatusInFlight.has(entry.interactionId))return false;
+ b3ChatStatusInFlight.add(entry.interactionId);
+ try{
+  const result=await api.readTrackingMessages(entry);
+  observeChatConversationState(entry.interactionId,result.conversationState);
+  return chatWritable(entry);
+ }catch(error){
+  console.warn('[B3 chat] Could not verify conversation state',error?.message||'STATUS_UNAVAILABLE');
+  return false;
+ }finally{b3ChatStatusInFlight.delete(entry.interactionId)}
 }
 async function sendChatTextFromOverlay(){
  if(b3ChatBusy||!chatOverlay)return;
@@ -3366,6 +3393,10 @@ async function sendChatTextFromOverlay(){
  if(send)send.disabled=true;
  if(error)error.textContent='';
  try{
+  if(!await verifyChatStillOpen(entry)){
+   if(error)error.textContent='No se pudo verificar que la conversación siga abierta. Intenta nuevamente.';
+   refreshChatTimeline();return;
+  }
   // New key for each independent customer message. No automatic retry on uncertainty.
   const key=window.B3OrderAvailability.newChatMessageKey();
   await window.B3OrderAvailability.sendCustomerChatText(entry,text,key);
