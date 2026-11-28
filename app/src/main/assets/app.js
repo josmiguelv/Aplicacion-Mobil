@@ -3832,7 +3832,7 @@ function chatTranscript(){
  }).join('');
 }
 function chatStatusLine(){
- const entry=window.B3OrderAvailability?.readInteraction?.();
+ const entry=chatEntry();
  if(!entry)return 'Sin solicitudes recientes';
  if(entry.status==='EXPIRED')return 'Solicitud vencida';
  if(entry.status==='CANCELLED')return 'Solicitud cancelada';
@@ -3860,7 +3860,7 @@ function refreshChatTimeline(){
  }
  const status=chatOverlay.querySelector('#b3-chat-status');
  if(status)status.textContent=chatStatusLine();
- const writable=chatWritable(window.B3OrderAvailability?.readInteraction?.());
+ const writable=chatWritable(chatEntry());
  const composer=chatOverlay.querySelector('#b3-chat-composer');
  if(composer)composer.hidden=!writable;
  const locked=chatOverlay.querySelector('#b3-chat-locked');
@@ -3868,8 +3868,9 @@ function refreshChatTimeline(){
 }
 // The overlay lives outside #app so its opening/closing never rebuilds forms.
 let chatOverlay=null,chatRestoreFocus=null;
-function openChatOverlay(){
- if(chatOverlay)return;
+function openChatOverlay(id=null){
+ if(chatOverlay)closeChatOverlay();
+ b3ChatInteractionId=id;
  const current=document.activeElement;
  chatRestoreFocus=current&&root.contains(current)?current:null;
  const layer=document.createElement('div');
@@ -3893,20 +3894,23 @@ function openChatOverlay(){
  if(close)close.focus({preventScroll:true});
  const list=layer.querySelector('#b3-chat-history');
  if(list)list.scrollTop=list.scrollHeight;
+ const entry=chatEntry();
+ if(entry?.interactionId)void fetchOrderChatMessages(entry.interactionId);
 }
 function closeChatOverlay(){
  if(!chatOverlay)return;
  chatOverlay.remove();
  chatOverlay=null;
+ b3ChatInteractionId=null;
  const focus=chatRestoreFocus;
  chatRestoreFocus=null;
  if(focus?.isConnected)focus.focus({preventScroll:true});
 }
 function chat(){
- const entry=window.B3OrderAvailability?.readInteraction?.();
+ const entry=chatEntry();
  const open=!!entry&&['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(entry.status);
  return '<div class="chat-screen b3-order-chat">'+
-  '<div class="b3-chat-modal-header"><div><small>POLLOS B3 · ATENCIÓN</small><strong>Seguimiento del pedido</strong></div><button type="button" data-chat-close="1" aria-label="Cerrar chat y continuar donde estaba">'+ic('close',20)+'</button></div>'+
+  '<div class="b3-chat-modal-header"><div><small>POLLOS B3 · ATENCIÓN</small><strong>'+esc(entry?.interactionId?'Pedido '+orderPublicCode(entry):'Seguimiento del pedido')+'</strong></div><button type="button" data-chat-close="1" aria-label="Cerrar chat y continuar donde estaba">'+ic('close',20)+'</button></div>'+
   '<div class="chat-info b3-chat-info">'+ic('chat',20)+'<span id="b3-chat-status">'+esc(chatStatusLine())+'</span></div>'+
   '<div id="b3-chat-history" class="chat-messages b3-chat-history" role="log" aria-label="Historial de la solicitud">'+chatTranscript()+'</div>'+
   (open?'<button type="button" class="outline full b3-chat-return" data-checkout-return="1">Ver estado de mi solicitud</button>':'')+
