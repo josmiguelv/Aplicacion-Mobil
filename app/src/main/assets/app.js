@@ -3087,7 +3087,7 @@ function availability(){
 }
 function identity(){
  const p=st.mode==='delivery'?currentDeliveryOrderContact():st.profile;
- return `<div class="page form">${heading('Datos de este pedido','cart')}<p class="sub">${st.mode==='delivery'?'Confirma o cambia el nombre de quien recibirá este pedido. Puedes pedir para otra persona sin modificar tu perfil.':'Confirma los datos de quien recibirá el pedido.'}</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(p.first)}" maxlength="60" placeholder="Ingresa sus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(p.last)}" maxlength="60" placeholder="Ingresa sus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(p.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`;
+ return `<div class="page form">${heading('Datos de este pedido','cart')}<p class="sub">${st.mode==='delivery'?'Confirma o cambia el nombre de quien recibirá este pedido. Puedes pedir para otra persona sin modificar tu perfil.':'Confirma los datos de quien recibirá el pedido.'}</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(p.first)}" maxlength="60" placeholder="Ingresa sus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(p.last)}" maxlength="60" placeholder="Ingresa sus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(p.doc)}" placeholder="Solo si necesitas un comprobante"></label>${phoneFields('phone',p.phone)}<button class="primary full" data-identity-next="1">Continuar</button></div>`;
 }
 const PHONE_COUNTRIES=[['+51','Perú'],['+57','Colombia'],['+593','Ecuador'],['+56','Chile'],['+54','Argentina'],['+52','México'],['+1','Estados Unidos / Canadá'],['+34','España'],['+55','Brasil'],['+58','Venezuela'],['+591','Bolivia']];
 function phoneFields(id,value){
@@ -3126,15 +3126,14 @@ function phone(){
 }
 function confirmDetails(){
  const p=currentDeliveryOrderContact();
- return `<div class="page form">${heading('Confirma los datos de tu pedido','phone')}
+ return `<div class="page form">${heading('Confirma los datos de tu pedido','identity')}
   <p class="sub">Revisa los datos antes de enviar la solicitud a la sede. Todavía no se ha enviado ningún pedido.</p>
   <div class="summary-card">
    <h2>Persona que recibirá</h2>
    <p><b>Nombres:</b> ${esc(p.first)} ${esc(p.last)}</p>
    <p><b>Teléfono:</b> ${esc(p.phone)}</p>
    <p><b>DNI o CE:</b> ${esc(p.doc||'No indicado (opcional)')}</p>
-   <button type="button" class="outline full" data-review-edit="identity">Editar datos personales</button>
-   <button type="button" class="outline full" data-review-edit="phone">Editar teléfono</button>
+   <button type="button" class="outline full" data-review-edit="identity">Editar datos de contacto</button>
    <hr>
    <h2>Entrega</h2>
    <p><b>Dirección:</b> ${esc(st.profile.address)}</p>
@@ -4600,11 +4599,24 @@ if(b.hasAttribute('data-identity-next')){
  }else{
   st.profile.first=v('first');st.profile.last=v('last');st.profile.doc=v('doc');
  }
- save();screen('phone');return;
+ let fullPhone;
+ try{fullPhone=readPhoneFields('phone')}catch(error){return toast(error.message)}
+ if(st.mode==='delivery'){
+  currentDeliveryOrderContact().phone=fullPhone;
+  st.deliveryContactConfirmed=true;
+ }else st.profile.phone=fullPhone;
+ save();
+ if(st.mode==='delivery'){
+  if(!st.profile.address||!st.profile.district){screen('deliveryAddress');return}
+  confirmedDeliveryReviewKey=null;
+  screen('confirmDetails');return;
+ }
+ checkoutPending=false;
+ void submitPickupRequest();return;
 }
 if(b.dataset.reviewEdit){
  if(activePersonalCheckout())returnToPersonalCheckout();
- else{confirmedDeliveryReviewKey=null;screen(b.dataset.reviewEdit)}
+ else{confirmedDeliveryReviewKey=null;screen(b.dataset.reviewEdit==='phone'?'identity':b.dataset.reviewEdit)}
  return;
 }
 if(b.hasAttribute('data-review-confirm')){
