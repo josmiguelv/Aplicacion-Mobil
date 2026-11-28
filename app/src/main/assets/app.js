@@ -662,13 +662,18 @@ function rememberPreApprovalQuote(entry,selected,address,district,quote){
   quote
  }));
 }
+function interactionItemsSignature(entry){
+ const items=entry?.body?.items;
+ return Array.isArray(items)?JSON.stringify(items.slice().sort((a,b)=>
+  String(a.productId||'').localeCompare(String(b.productId||'')))):null;
+}
 function preApprovalQuoteFor(entry,selected,address,district){
  try{
   const record=JSON.parse(localStorage.getItem(APPROVAL_QUOTE_KEY)||'null');
   if(!record||!entry?.interactionId||record.interactionId!==entry.interactionId||
      record.storeId!==entry.body?.storeId||record.revision!==entry.body?.catalogRevision||
      record.addressKey!==deliveryAddressKey(address,district)||
-     record.cartSignature!==JSON.stringify(entry.body?.items))return null;
+     record.cartSignature!==interactionItemsSignature(entry))return null;
   const quote=record.quote;
   if(!quote||quote.storeId!==entry.body.storeId||quote.revision!==entry.body.catalogRevision||
      quote.distanceSource!=='STRAIGHT_LINE'||
@@ -783,7 +788,7 @@ function interactionMatchesCart(entry,address,district){
   const oldCustomer=entry.body.customer;
   const currentCustomer=deliveryContactReady()?deliveryRequestCustomer(address,district):null;
   return old.address===address&&old.district===district&&
-   JSON.stringify(entry.body.items)===currentCartSignature()&&
+   interactionItemsSignature(entry)===currentCartSignature()&&
    (!oldCustomer||!currentCustomer||JSON.stringify(oldCustomer)===JSON.stringify(currentCustomer));
  }catch(_){return false}
 }
@@ -910,9 +915,15 @@ async function completeAcceptedQuote(entry){
  // geocode, recalculate, or make a new API request.
  deliveryValidationStep='RECUPERANDO_COTIZACION';
  const cached=preApprovalQuoteFor(entry,selected,address,district);
- if(!cached&&!pendingDeliveryQuote?.quote)
-  throw Error('No se conservó la cotización previa de esta solicitud. Reintenta sin crear otro pedido.');
- const quote=cached||await acceptedStoreQuote(entry,selected,address,district);
+ // An in-memory quote is usable only if it belongs to this exact interaction.
+ // Never take a quote left behind by another order.
+ const loc=deliveryLocation;
+ const expectedKey=JSON.stringify([entry.interactionId,selected.id,entry.body.catalogRevision,
+  deliveryAddressKey(address,district),loc?.latitude,loc?.longitude]);
+ const pending=pendingDeliveryQuote?.key===expectedKey?pendingDeliveryQuote.quote:null;
+ if(!cached&&!pending)
+  throw Error('No se conservó la cotización de esta interacción. No se puede cobrar una tarifa sin verificar.');
+ const quote=cached||pending;
  if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==entry.body.catalogRevision)throw Error('La cotización no corresponde a la revisión del pedido aprobado.');
@@ -938,7 +949,7 @@ async function completeAcceptedQuote(entry){
   paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
   routeDistanceKm:Number.isFinite(Number(quote.routeDistanceKm))?Number(quote.routeDistanceKm):null,
   distanceSource:'STRAIGHT_LINE',quoteOrigin:'ANDROID_CATALOG_ACCEPTED',serverValidated:false,
-  provisional:true,quoteRevision:quote.revision,cartSignature:JSON.stringify(entry.body.items),
+  provisional:true,quoteRevision:quote.revision,cartSignature:interactionItemsSignature(entry),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  acceptedQuoteFailures=0;acceptedQuotePaused=false;
  st.pay='';save();
