@@ -2040,12 +2040,39 @@ async function refreshLiveTracking(){
  }
 }
 
+let deliveredCloseRecoveryLast=0;
+function recoverDeliveredCommunicationCloses(){
+ const now=Date.now();
+ if(now-deliveredCloseRecoveryLast<10000)return;
+ deliveredCloseRecoveryLast=now;
+ const api=window.B3OrderAvailability;
+ if(!api?.queueCommunicationClose||!api?.flushCommunicationCloses||
+    !api?.isCommunicationCloseConfirmed)return;
+ let pending=false;
+ for(const order of st.orders||[]){
+  if(order?.demo===true||!orderDelivered(order)||!order.interactionId||
+     api.isCommunicationCloseConfirmed(order.interactionId))continue;
+  const entry=api.readOrderInteraction?.(order.interactionId);
+  if(!entry||entry.interactionId!==order.interactionId)continue;
+  try{
+   api.queueCommunicationClose(entry,'ORDER_DELIVERED');
+   pending=true;
+  }catch(error){
+   console.warn('[B3 order] Unable to queue delivered close',error?.message||'QUEUE_FAILED');
+  }
+ }
+ if(pending)void api.flushCommunicationCloses();
+}
+// Recover delivered orders even when the user does not acknowledge the delivery dialog.
+setInterval(recoverDeliveredCommunicationCloses,30000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')recoverDeliveredCommunicationCloses()});
 const deliveryCloseInFlight=new Set();
 async function closeDeliveredOrderCommunication(order){
  if(!order?.interactionId||order.communicationClosedAt||deliveryCloseInFlight.has(order.interactionId))return;
  const api=window.B3OrderAvailability;
  const entry=api?.readOrderInteraction?.(order.interactionId);
- if(!entry||entry.interactionId!==order.interactionId||!api.closeCommunication)return;
+ if(!entry||entry.interactionId!==order.interactionId||!api.queueCommunicationClose||
+    api.isCommunicationCloseConfirmed?.(order.interactionId))return;
  deliveryCloseInFlight.add(order.interactionId);
  try{
   // The agent's verified DELIVERED message is the delivery notice.
@@ -3707,6 +3734,7 @@ function openPrivacyLaw(){
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){return `<div class="page form">${heading('Continuar con teléfono','login')}<p class="sub">Selecciona tu país e ingresa tu celular. No enviamos SMS ni verificamos que seas titular de este número. Para cada pedido deberás confirmar los datos del destinatario.</p>${phoneFields('signin-value',st.profile.phone||'')}<button class="primary full" data-phone-continue="1">Continuar sin verificación SMS</button><p class="smallprint">Tu número se guarda en este dispositivo como dato de contacto, no como identidad verificada.</p></div>`}
 function render(){
+ recoverDeliveredCommunicationCloses();
  // Resume an acknowledged-delivery notice after app restart without reopening
  // favorites or surveys before the customer accepts the delivery message.
  if(st.stage==='app'&&!deliveredNoticeOrderId&&!favoritePromptOrderId&&!reviewSheetOrderId){
