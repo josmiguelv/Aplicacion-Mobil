@@ -693,23 +693,22 @@ function deliveryContactReady(){
  return st.deliveryContactConfirmed===true&&!!p&&
   typeof p.first==='string'&&p.first.trim().length>=2&&p.first.trim().length<=60&&
   typeof p.last==='string'&&p.last.trim().length>=2&&p.last.trim().length<=60&&
-  typeof p.phone==='string'&&/^9[0-9]{8}$/.test(p.phone);
+  typeof p.phone==='string'&&/^\\+[1-9][0-9]{6,14}$/.test(p.phone);
 }
 function deliveryReviewKey(){
  const c=currentDeliveryOrderContact();
  return JSON.stringify([st.profile.address,st.profile.district,st.profile.reference,
   c.first,c.last,c.phone,c.doc,st.cart.map(i=>[i.id,i.qty])]);
 }
-function fullPeruMobile(value){
- const digits=String(value||'').replace(/[\\s()+-]/g,'');
- const national=digits.startsWith('51')&&digits.length===11?digits.slice(2):digits;
- if(!/^9[0-9]{8}$/.test(national))throw Error('Ingresa un celular peruano válido.');
- return '+51'+national;
+function internationalMobile(value){
+ const raw=String(value||'').trim().replace(/[\\s().-]/g,'');
+ if(!/^\\+[1-9][0-9]{6,14}$/.test(raw))throw Error('Selecciona el código de país e ingresa un teléfono válido.');
+ return raw;
 }
 function deliveryRequestCustomer(address,district){
  if(!deliveryContactReady())throw Error('Confirma nombres, apellidos y celular para este pedido.');
  const person=st.orderContactDraft;
- return {firstName:person.first.trim(),lastName:person.last.trim(),phone:fullPeruMobile(person.phone),
+ return {firstName:person.first.trim(),lastName:person.last.trim(),phone:internationalMobile(person.phone),
   address:String(address||'').trim(),district:String(district||'').trim(),
   reference:String(st.profile.reference||'').trim(),mode:'delivery'};
 }
@@ -2767,7 +2766,17 @@ function identity(){
 }
 function phone(){
  const p=st.mode==='delivery'?currentDeliveryOrderContact():st.profile;
- return `<div class="page form">${heading('Teléfono de este pedido','identity')}<p class="sub">Confirma el celular de la persona que recibirá el pedido. Puedes cambiarlo en cada nueva solicitud.</p><label>Celular de Perú<div class="phone-field"><b>+51</b><input id="phone" inputmode="numeric" maxlength="9" value="${esc(p.phone)}" placeholder="9 dígitos"></div></label><button class="primary full" data-phone-next="1">Continuar</button></div>`;
+ const saved=String(p.phone||'').trim();
+ const choices=[['+51','Perú'],['+57','Colombia'],['+593','Ecuador'],['+56','Chile'],['+54','Argentina'],['+52','México'],['+1','Estados Unidos / Canadá'],['+34','España'],['+55','Brasil'],['+58','Venezuela'],['+591','Bolivia']];
+ const known=choices.slice().sort((a,b)=>b[0].length-a[0].length);
+ const prefix=saved.startsWith('+')?(known.find(x=>saved.startsWith(x[0]))?.[0]||'other'):'+51';
+ const national=saved.startsWith('+')?(prefix==='other'?'':saved.slice(prefix.length)):saved;
+ const other=saved.startsWith('+')&&prefix==='other'?(saved.match(/^\\+[1-9][0-9]{0,2}/)?.[0]||''):'';
+ return `<div class="page form">${heading('Teléfono de este pedido','identity')}<p class="sub">Selecciona el código de país de la persona que recibirá el pedido.</p>
+ <label>País / prefijo telefónico<select id="phone-country">${choices.map(([code,name])=>'<option value="'+code+'" '+(prefix===code?'selected':'')+'>'+name+' ('+code+')</option>').join('')}<option value="other" ${prefix==='other'?'selected':''}>Otro país</option></select></label>
+ <label>Otro prefijo internacional (si corresponde)<input id="phone-custom-code" inputmode="tel" maxlength="4" value="${esc(other)}" placeholder="+XX"></label>
+ <label>Número nacional<input id="phone" inputmode="tel" maxlength="15" value="${esc(national)}" placeholder="Número sin prefijo"></label>
+ <button class="primary full" data-phone-next="1">Continuar</button></div>`;
 }
 function confirmDetails(){
  const p=currentDeliveryOrderContact();
@@ -2776,7 +2785,7 @@ function confirmDetails(){
   <div class="summary-card">
    <h2>Persona que recibirá</h2>
    <p><b>Nombres:</b> ${esc(p.first)} ${esc(p.last)}</p>
-   <p><b>Teléfono:</b> +51 ${esc(p.phone)}</p>
+   <p><b>Teléfono:</b> ${esc(p.phone)}</p>
    <p><b>DNI o CE:</b> ${esc(p.doc||'No indicado (opcional)')}</p>
    <button type="button" class="outline full" data-review-edit="identity">Editar datos personales</button>
    <button type="button" class="outline full" data-review-edit="phone">Editar teléfono</button>
@@ -3142,9 +3151,9 @@ async function submitPickupRequest(){
    throw Error('El local ya no está habilitado para este recojo.');
   await validateCartPromotionsBeforeRequest();
   const items=publishedOrderItems();
-  if(!/^9[0-9]{8}$/.test(String(st.profile.phone||'').trim())||!String(st.profile.first||'').trim()||
+  if(!/^\\+[1-9][0-9]{6,14}$/.test(String(st.profile.phone||'').trim())||!String(st.profile.first||'').trim()||
      !String(st.profile.last||'').trim())throw Error('Confirma tus nombres y celular.');
-  const input={storeName:selected.name,customerName:[st.profile.first,st.profile.last].filter(Boolean).join(' '),customerPhone:fullPeruMobile(st.profile.phone),when:st.scheduleMode==='reservation'?'scheduled':'now',
+  const input={storeName:selected.name,customerName:[st.profile.first,st.profile.last].filter(Boolean).join(' '),customerPhone:internationalMobile(st.profile.phone),when:st.scheduleMode==='reservation'?'scheduled':'now',
    dateTime:st.reservationAt,items:st.cart.map(x=>{const p=product(x.id);return {
     name:p?.name,quantity:x.qty,unitPrice:p?.price};})};
   const form=window.B3PickupOrderContract.approval(input).form;
@@ -4125,9 +4134,9 @@ if(b.hasAttribute('data-review-confirm')){
 if(b.hasAttribute('data-phone-next')){
  if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');
  if(st.mode==='delivery'){
-  currentDeliveryOrderContact().phone=v('phone');
+  currentDeliveryOrderContact().phone=fullPhone;
   st.deliveryContactConfirmed=true;
- }else st.profile.phone=v('phone');
+ }else st.profile.phone=fullPhone;
  save();
  if(st.mode==='delivery'){
   if(!st.profile.address||!st.profile.district){screen('deliveryAddress');return}
