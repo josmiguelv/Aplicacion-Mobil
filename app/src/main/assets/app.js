@@ -2403,6 +2403,33 @@ function login(){return `<div class="login"><div class="login-photo">${products.
 function heading(title,back){return `<div class="screen-heading"><button aria-label="Regresar" data-screen="${back||'app'}">${ic('back')}</button>${title?`<h1>${esc(title)}</h1>`:''}</div>`}
 // Reservation is a request, NOT an automatically accepted commercial order.
 // This UI is isolated until the Administrator publishes a reservation contract.
+function pickupScheduledHoursIssue(dateTime){
+ const candidates=shops.filter(x=>x?.active===true&&x.pickup_enabled===true&&x.reservation_enabled===true);
+ if(!candidates.length)return '';
+ const date=new Date(reservationTimeValue(dateTime));
+ if(!Number.isFinite(date.getTime()))return 'Selecciona una fecha y hora válidas.';
+ const day=(date.getUTCDay()+6)%7;
+ const minute=date.getUTCHours()*60+date.getUTCMinutes();
+ const shortKeys=['mon','tue','wed','thu','fri','sat','sun'];
+ let verified=0,within=false;
+ for(const store of candidates){
+  const raw=store.weeklyHours||store.weekly_hours||store.openingHours||store.opening_hours||store.schedule||store.hours;
+  if(!raw)continue;
+  const item=Array.isArray(raw)?raw[day]:raw[shortKeys[day]]??raw[storeDayKeys[day]]??raw[storeDayNames[day].toLowerCase()]??raw[String((day+1)%7)];
+  if(item===undefined||item===null)continue;
+  if(item===false||item?.closed===true||item?.isClosed===true){verified++;continue}
+  const open=item?.open||item?.opensAt||item?.openTime||item?.open_time;
+  const close=item?.close||item?.closesAt||item?.closeTime||item?.close_time;
+  if(!validStoreTime(open)||!validStoreTime(close))continue;
+  verified++;
+  const [oh,om]=open.split(':').map(Number),[ch,cm]=close.split(':').map(Number);
+  const start=oh*60+om,end=ch*60+cm;
+  if(start===end||start<end&&minute>=start&&minute<=end||
+     start>end&&(minute>=start||minute<=end))within=true;
+ }
+ return verified===candidates.length&&!within?
+  'El horario seleccionado está fuera del horario de atención publicado de las sedes. Elige otra hora.':'';
+}
 function reservationMinLead(store){
  // The inspected Admin contract currently publishes reservationSettings.preparationMinutes,
  // which is preparation duration, NOT a minimum booking lead time.
@@ -2635,7 +2662,7 @@ function reservationPicker(){
    '')+
   (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div><button type="button" class="outline full" data-reservation-retry="1" '+(reservationQuoteBusy?'disabled':'')+'>Reintentar disponibilidad</button>':'')+
   (st.mode==='pickup'&&reservationQuote?.mode==='pickup'&&reservationQuote.dateTime===st.reservationAt?'<div class="summary-card"><b>Sede confirmada:</b> '+esc(shops.find(x=>x.id===reservationQuote.storeId)?.name||'Sede asignada')+'<p>Un agente está disponible para revisar la solicitud. Los productos se confirmarán antes del pago.</p></div>':'')+
-  (st.mode==='pickup'?'<button class="primary full" data-reservation-verify="1" '+(reservationQuoteBusy||!reservationQuote||reservationQuote.dateTime!==st.reservationAt?'disabled':'')+'>'+(reservationQuoteBusy?'Consultando disponibilidad...':'Continuar con recojo programado')+'</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
+  (st.mode==='pickup'?'<button class="primary full" data-reservation-verify="1">Continuar con recojo programado</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Cambiar a pedido inmediato (sin reserva)</button>'+
   '</div>';
 }
@@ -4216,10 +4243,13 @@ if(b.hasAttribute('data-reservation-verify')){
   if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
  }else if(st.mode!=='pickup'){const preview=reservationFormPreview();if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');}
  if(st.mode==='pickup'){
-  const when=window.B3ReservationForms.schedule(st.reservationAt);
+  let when;try{when=window.B3ReservationForms.schedule(st.reservationAt)}catch(error){return toast(error.message,{durationMs:2000})}
+  const hoursIssue=pickupScheduledHoursIssue(st.reservationAt);
+  if(hoursIssue)return toast(hoursIssue,{durationMs:2000});
   if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
   const selected=shops.find(x=>String(x.id)===String(st.store));
-  if(reservationQuoteBusy)return toast('Espera mientras verificamos la disponibilidad de la reserva.');
+  if(reservationQuoteBusy)return toast('Estamos verificando disponibilidad.',{durationMs:2000});
+  if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt){void checkReservationQuote();return toast('Consultando disponibilidad de las sedes. Pulsa continuar nuevamente cuando termine.',{durationMs:2000});}
   if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt||reservationQuote.mode!=='pickup'||
      reservationQuote.storeId!==st.store||reservationQuote.agentAvailable!==true||
      reservationQuote.acceptingRequests!==true)return toast('Primero confirma la disponibilidad de tu recojo programado.');
