@@ -3340,7 +3340,7 @@ async function sendChatTextFromOverlay(){
  if(error)error.textContent='';
  try{
   // New key for each independent customer message. No automatic retry on uncertainty.
-  const key=crypto.randomUUID();
+  const key=window.B3OrderAvailability.newChatMessageKey();
   await window.B3OrderAvailability.sendCustomerChatText(entry,text,key);
   const sent=b3ChatSent.get(id)||[];
   sent.push({id:key,text,at:Date.now()});
