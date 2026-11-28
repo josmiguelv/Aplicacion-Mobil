@@ -48,3 +48,9 @@ const pickupChecks=[
 ];
 for(const message of pickupChecks)assert.ok(app.includes(message),'Missing pickup diagnosis: '+message);
 assert.doesNotMatch(app,/El local de recojo ya no está abierto o no acepta pedidos\./);
+
+assert.match(app,/function chatWritable\(entry\)/);
+assert.match(app,/function sendChatTextFromOverlay\(\)/);
+assert.match(app,/sendCustomerChatText\(entry,text,key\)/);
+assert.match(availability,/operation:'INTERACTION_CHAT_TEXT'/);
+assert.match(availability,/result\.data\?\.delivered!==true/);
