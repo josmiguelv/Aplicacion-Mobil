@@ -2424,17 +2424,20 @@ let reservationQuoteBusy=false;
 let reservationQuoteError='';
 let reservationQuoteGeneration=0;
 let reservationQuoteTimer=null;
+let reservationQuoteController=null;
+let reservationQuoteFailureKind='';
 function scheduleReservationQuoteCheck(){
  if(reservationQuoteTimer!==null)clearTimeout(reservationQuoteTimer);
  reservationQuoteTimer=setTimeout(()=>{reservationQuoteTimer=null;autoCheckReservationQuote()},450);
 }
- function resetReservationQuote(){if(reservationQuoteTimer!==null){clearTimeout(reservationQuoteTimer);reservationQuoteTimer=null}++reservationQuoteGeneration;reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';reservationAddressEditing=false;}
+ function resetReservationQuote(){if(reservationQuoteTimer!==null){clearTimeout(reservationQuoteTimer);reservationQuoteTimer=null}if(reservationQuoteController){reservationQuoteController.abort();reservationQuoteController=null}++reservationQuoteGeneration;reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';reservationAddressEditing=false;}
 // For Delivery the Admin selects the eligible store using the same location and
 // online-agent principle as immediate Delivery; no customer store selection.
 // For pickup the current reservations quote contract requires a storeId, so
 // Android tries eligible published stores until the Admin confirms an online agent.
 async function checkReservationQuote(){
  if(st.scheduleMode!=='reservation'||reservationQuoteBusy)return;
+ reservationQuoteFailureKind='';
  if(!API_BASE){reservationQuoteError='No pudimos consultar las reservas. Intenta nuevamente.';render();return}
  let when;
  try{when=window.B3ReservationForms.schedule(st.reservationAt)}
@@ -2499,6 +2502,7 @@ async function checkReservationQuote(){
    if(generation!==reservationQuoteGeneration)return;
    const query=candidate?{...params,storeId:candidate.id}:params;
    const controller=typeof AbortController==='function'?new AbortController():null;
+   reservationQuoteController=controller;
    const timeout=controller?setTimeout(()=>controller.abort(),12000):null;
    let response;
    try{
@@ -2506,14 +2510,16 @@ async function checkReservationQuote(){
      method:'POST',headers:{'Content-Type':'application/json'},
      body:JSON.stringify(query),cache:'no-store',...(controller?{signal:controller.signal}:{})});
    }catch(networkError){
+    reservationQuoteFailureKind=networkError?.name==='AbortError'?'timeout':'network';
     throw Error(networkError?.name==='AbortError'?
      'La consulta de disponibilidad tardó demasiado. Revisa tu conexión e inténtalo nuevamente.':
      'No se pudo conectar con el servicio de reservas. Revisa tu conexión e inténtalo nuevamente.');
-   }finally{if(timeout!==null)clearTimeout(timeout)}
+   }finally{if(timeout!==null)clearTimeout(timeout);if(reservationQuoteController===controller)reservationQuoteController=null}
    const result=await response.json().catch(()=>({}));
    if(!response.ok){
     if(mode==='pickup'&&response.status===409)continue;
-    if(response.status===404)throw Error('El servicio de reservas programadas no está disponible en este momento.');
+    if(response.status===404){reservationQuoteFailureKind='endpoint';throw Error('El servicio de reservas programadas no está disponible en este momento.');}
+    reservationQuoteFailureKind='http-'+response.status;
     throw Error(response.status===503?'La atención de reservas no está disponible por ahora.':
      'No encontramos una sede que pueda atender la reserva en este momento.');
    }
@@ -2533,8 +2539,10 @@ async function checkReservationQuote(){
   reservationQuote={...selected,dateTime:scheduledAt};
   st.pay='';
   save();
- }catch(error){if(generation===reservationQuoteGeneration)reservationQuoteError=
-   error.message||'No pudimos consultar la reserva.'}
+ }catch(error){if(generation===reservationQuoteGeneration){reservationQuoteError=
+   error.message||'No pudimos consultar la reserva.';
+   if(!reservationQuoteFailureKind)reservationQuoteFailureKind='availability';
+   console.warn('[B3 reservation quote]',reservationQuoteFailureKind,{mode,date:params.date,time:params.time});}}
  finally{if(generation===reservationQuoteGeneration){reservationQuoteBusy=false;render()}}
 }
 function reservationSummary(){
@@ -2625,7 +2633,7 @@ function reservationPicker(){
   (reservationQuoteBusy?'<div class="notice" role="status">Buscando automáticamente una sede disponible...</div>':
    !st.reservationAt?'<div class="notice">Selecciona fecha y hora para consultar disponibilidad.</div>':
    '')+
-  (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div>':'')+
+  (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div><button type="button" class="outline full" data-reservation-retry="1" '+(reservationQuoteBusy?'disabled':'')+'>Reintentar disponibilidad</button>':'')+
   (st.mode==='pickup'&&reservationQuote?.mode==='pickup'&&reservationQuote.dateTime===st.reservationAt?'<div class="summary-card"><b>Sede confirmada:</b> '+esc(shops.find(x=>x.id===reservationQuote.storeId)?.name||'Sede asignada')+'<p>Un agente está disponible para revisar la solicitud. Los productos se confirmarán antes del pago.</p></div>':'')+
   (st.mode==='pickup'?'<button class="primary full" data-reservation-verify="1" '+(reservationQuoteBusy||!reservationQuote||reservationQuote.dateTime!==st.reservationAt?'disabled':'')+'>'+(reservationQuoteBusy?'Consultando disponibilidad...':'Continuar con recojo programado')+'</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Cambiar a pedido inmediato (sin reserva)</button>'+
@@ -4403,7 +4411,8 @@ if(b.hasAttribute('data-pay-next')){
  save();void revalidateCheckout('summary');return;
 }
 if(b.hasAttribute('data-confirm')){toast('Este recorrido no confirma pedidos. Inicia una solicitud con la sede.');screen('cart');return}
-if(b.hasAttribute('data-google-login')){if(googleSignInPending)return;if(!window.AndroidBridge?.signInWithGoogle){toast('El acceso con Google requiere actualizar Android.');return}googleSignInPending=true;render();window.AndroidBridge.signInWithGoogle();return}
+if(b.hasAttribute('data-reservation-retry')){if(reservationQuoteBusy)return;reservationQuoteError='';reservationQuoteFailureKind='';void checkReservationQuote();return}
+ if(b.hasAttribute('data-google-login')){if(googleSignInPending)return;if(!window.AndroidBridge?.signInWithGoogle){toast('El acceso con Google requiere actualizar Android.');return}googleSignInPending=true;render();window.AndroidBridge.signInWithGoogle();return}
 
 if(b.hasAttribute('data-phone-continue')){let phone;try{phone=readPhoneFields('signin-value')}catch(error){return toast(error.message)}if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=true;st.authProvider='local-phone';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';st.profile.phone=phone;save();enterApp();return}
 if(b.hasAttribute('data-logout')){if(st.authProvider==='google'){window.AndroidBridge?.signOutGoogle?.();return}st.registered=false;st.authProvider='';st.authUid='';save();render();return}
@@ -4418,7 +4427,7 @@ if(b.hasAttribute('data-clear')){
 }
 });
 root.addEventListener('change',e=>{
- if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';st.store='';st.pay='';++reservationQuoteGeneration;save();render();scheduleReservationQuoteCheck();return}
+ if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;if(reservationQuoteController){reservationQuoteController.abort();reservationQuoteController=null}reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';st.store='';st.pay='';++reservationQuoteGeneration;save();render();scheduleReservationQuoteCheck();return}
  if(e.target?.id==='b3-reservation-cash-amount'){st.reservationCashAmount=e.target.value;save();render();return}
  if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
