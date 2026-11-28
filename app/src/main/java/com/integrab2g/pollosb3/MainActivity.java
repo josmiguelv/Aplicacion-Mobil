@@ -744,7 +744,7 @@ public class MainActivity extends Activity {
                            payload.optString("text","").chars().anyMatch(c -> c<=9 || (c>=11 && c<=31)))
                             throw new IllegalArgumentException("Invalid chat text request");
                         body=payload.toString();
-                        path="/api/v1/mobile/interactions/"+interactionId+"/messages";
+                        path="/api/v1/mobile/interactions/"+interactionId+"/message";
                     } else if ("INTERACTION_MESSAGE".equals(operation)) {
                         JSONObject payload = request.optJSONObject("body");
                         String interactionId = request.optString("interactionId", "");
