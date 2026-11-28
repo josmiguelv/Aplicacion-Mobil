@@ -2549,7 +2549,10 @@ async function checkReservationQuote(){
     if(generation!==reservationQuoteGeneration)return;
     if(check.available){selected={...quote,date:params.date,time:params.time,revision:publishedRevision,agentAvailable:true,acceptingRequests:true};break;}
    }
-  }else for(const candidate of permitted){
+  }else {
+   // One failing store must not prevent the remaining published stores from being checked.
+   const failures=[];
+   for(const candidate of permitted){
    if(generation!==reservationQuoteGeneration)return;
    const query=candidate?{...params,storeId:candidate.id}:params;
    const controller=typeof AbortController==='function'?new AbortController():null;
@@ -2561,18 +2564,22 @@ async function checkReservationQuote(){
      method:'POST',headers:{'Content-Type':'application/json'},
      body:JSON.stringify(query),cache:'no-store',...(controller?{signal:controller.signal}:{})});
    }catch(networkError){
-    reservationQuoteFailureKind=networkError?.name==='AbortError'?'timeout':'network';
-    throw Error(networkError?.name==='AbortError'?
-     'La consulta de disponibilidad tardó demasiado. Revisa tu conexión e inténtalo nuevamente.':
-     'No se pudo conectar con el servicio de reservas. Revisa tu conexión e inténtalo nuevamente.');
+    const kind=networkError?.name==='AbortError'?'timeout':'network';
+    reservationQuoteFailureKind=kind;
+    failures.push(kind);
+    console.warn('[B3 reservation quote]',kind,{mode,storeId:String(candidate.id)});
+    continue;
    }finally{if(timeout!==null)clearTimeout(timeout);if(reservationQuoteController===controller)reservationQuoteController=null}
-   const result=await response.json().catch(()=>({}));
+   if(generation!==reservationQuoteGeneration)return;
+   const result=await response.json().catch(()=>null);
    if(!response.ok){
-    if(mode==='pickup'&&response.status===409)continue;
-    if(response.status===404){reservationQuoteFailureKind='endpoint';throw Error('El servicio de reservas programadas no está disponible en este momento.');}
-    reservationQuoteFailureKind='http-'+response.status;
-    throw Error(response.status===503?'La atención de reservas no está disponible por ahora.':
-     'No encontramos una sede que pueda atender la reserva en este momento.');
+    const kind='http-'+response.status;
+    failures.push(kind);
+    reservationQuoteFailureKind=kind;
+    console.warn('[B3 reservation quote]',kind,{mode,storeId:String(candidate.id)});
+    // 409 means this particular store cannot serve the requested slot.
+    // Other failures are reported if no store is eventually confirmed.
+    continue;
    }
    const matching=permitted.find(x=>x.id===result.storeId);
    if(!matching||candidate&&result.storeId!==candidate.id||
@@ -2581,9 +2588,28 @@ async function checkReservationQuote(){
       !Array.isArray(result.paymentMethods)||
       !Number.isFinite(result.deliveryFeePen)||result.deliveryFeePen<0||
       result.agentAvailable!==true||result.acceptingRequests!==true)
-     throw Error('No pudimos confirmar la disponibilidad. Vuelve a consultar.');
+   {
+    failures.push('invalid-response');
+    reservationQuoteFailureKind='invalid-response';
+    console.warn('[B3 reservation quote] invalid-response',{mode,storeId:String(candidate.id)});
+    continue;
+   }
    if(mode==='pickup'){pickupReservationQuotes.push({...result,dateTime:scheduledAt});continue}
    selected=result;break;
+   }
+   if(mode==='pickup'&&!pickupReservationQuotes.length){
+    const kind=failures.find(x=>x==='network'||x==='timeout'||x==='http-503'||x==='http-404'||x==='invalid-response')||'availability';
+    reservationQuoteFailureKind=kind;
+    reservationQuoteError=kind==='timeout'?'La consulta de disponibilidad tardó demasiado. Reintenta.':
+     kind==='network'?'No se pudo conectar con el servicio de reservas. Reintenta.':
+     kind==='http-503'?'El servicio de reservas no está disponible temporalmente.':
+     kind==='http-404'?'El servicio de reservas no está disponible en esta versión del servidor.':
+     kind==='invalid-response'?'El servidor devolvió una confirmación incompleta. Reintenta.':
+     'Ninguna sede confirmó un agente y horario disponible para este recojo.';
+   }else if(mode==='pickup'&&failures.length){
+    // Valid stores remain selectable; failures must not mark other stores as closed.
+    reservationQuoteFailureKind='partial';
+   }
   }
   if(mode==='pickup')selected=pickupReservationQuotes.find(q=>String(q.storeId)===String(st.store))||null;
   if(!selected&&mode!=='pickup')throw Error('Ninguna sede tiene un agente disponible para confirmar esta reserva.');
