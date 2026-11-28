@@ -1664,6 +1664,19 @@ function showOrderAcceptedOnce(entry){
  toast('¡Tu pedido fue aceptado!',{durationMs:2000});
 }
 // Contextual order status belongs in the Orders area, not over payment forms.
+const rejectedBannerSeen=new Set();
+let rejectedBannerTimer=null;
+function showRejectedBannerBriefly(entry){
+ const id=String(entry?.interactionId||'');
+ if(!id||rejectedBannerSeen.has(id))return false;
+ rejectedBannerSeen.add(id);
+ if(rejectedBannerTimer!==null)clearTimeout(rejectedBannerTimer);
+ rejectedBannerTimer=setTimeout(()=>{
+  rejectedBannerTimer=null;
+  if(st.stage==='app'&&st.tab==='inicio')render();
+ },2500);
+ return true;
+}
 function personalCheckoutBanner(){
  // The payment/checkout screens already show the same status in context.
  if(st.stage!=='app'||st.tab!=='inicio')return '';
@@ -1679,6 +1692,7 @@ function personalCheckoutBanner(){
  }else if(payment==='ACCEPTED'){
   title='Pago confirmado';detail='Toca para ver el resultado.';symbol='check';
  }else if(entry.status==='REJECTED'){
+  if(!showRejectedBannerBriefly(entry))return '';
   title='Productos no confirmados';detail='Toca para revisar la respuesta.';symbol='info';
  }else if(entry.status==='ACCEPTED'){
   title='Tu pedido fue aceptado';detail='Continúa con el pago.';symbol='check';
