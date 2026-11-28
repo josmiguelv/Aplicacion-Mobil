@@ -456,7 +456,7 @@
     let safeCustomer;
     if(customer!==undefined){
       const field=(value,min,max)=>typeof value==='string'&&value.trim().length>=min&&
-        value.length<=max&&!/[\\x00-\\x1f]/.test(value);
+        value.length<=max&&!/[\x00-\x1f]/.test(value);
       const mode=customer?.mode;
       const allowed=mode==='delivery'
         ?['firstName','lastName','phone','address','district','reference','mode']
@@ -465,7 +465,7 @@
         !['delivery','pickup'].includes(mode)||
         Object.keys(customer).some(k=>!allowed.includes(k))||
         !field(customer.firstName,2,60)||!field(customer.lastName,2,60)||
-        typeof customer.phone!=='string'||!/^\\+[1-9][0-9]{6,14}$/.test(customer.phone))
+        typeof customer.phone!=='string'||!/^\+[1-9][0-9]{6,14}$/.test(customer.phone))
         throw Error('Completa nombres, apellidos y celular internacional antes de enviar el pedido.');
       safeCustomer={firstName:customer.firstName.trim(),lastName:customer.lastName.trim(),
         phone:customer.phone,mode};
@@ -473,7 +473,7 @@
         if(!field(customer.address,6,180)||!field(customer.district,2,80)||
           (customer.reference!==undefined&&
            (typeof customer.reference!=='string'||customer.reference.length>180||
-            /[\\x00-\\x1f]/.test(customer.reference))))
+            /[\x00-\x1f]/.test(customer.reference))))
           throw Error('Completa la dirección de entrega.');
         safeCustomer.address=customer.address.trim();
         safeCustomer.district=customer.district.trim();
