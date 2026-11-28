@@ -18,7 +18,7 @@
  function approval(input){
   const total=validate(input);
   const lines=input.items.map(x=>x.name+' × '+x.quantity+' ('+money(x.unitPrice*x.quantity)+')');
-  if(!safe(input.customerName,120)||!/^\+519[0-9]{8}$/.test(String(input.customerPhone||'')))throw Error('Confirma nombre y celular para el recojo');
+  if(!safe(input.customerName,120)||!/^\+[1-9][0-9]{6,14}$/.test(String(input.customerPhone||'')))throw Error('Confirma nombre y celular para el recojo');
   const fields=[
    {variable:'Cliente',value:input.customerName},
    {variable:'Celular',value:input.customerPhone},
