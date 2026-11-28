@@ -868,7 +868,12 @@ async function completeAcceptedQuote(entry){
  render();
  // The signed-in agent accepted the exact request. Use its previously
  // calculated delivery price; geocode again only to recover a missing quote.
- if(!preApprovalQuoteFor(entry,selected,address,district)&&!hasDeliveryDestination(address,district)){
+ if(!preApprovalQuoteFor(entry,selected,address,district)&&
+    (!Number.isFinite(deliveryLocation?.latitude)||
+     !Number.isFinite(deliveryLocation?.longitude)||
+     deliveryLocation.key!==deliveryAddressKey(address,district))){
+  if(!hasDeliveryDestination(address,district))
+   throw Error('Confirma la dirección de entrega antes de calcular el delivery.');
   const geocoded=await geocodeDeliveryDestination(address,district);
   if(st.stage!=='availability')return false;
   deliveryLocation={...geocoded,key:deliveryAddressKey(address,district)};
