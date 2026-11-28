@@ -708,6 +708,7 @@
     // is a rejection, not an endlessly pending interaction. Require a readable
     // agent-message snapshot: a transient history outage cannot reject an order.
     const canonicalClosed=['RESOLVED','CLOSED'].includes(data.operationalConversationStatus);
+    if(typeof data.operationalConversationStatus==='string')entry.operationalConversationStatus=data.operationalConversationStatus;
     // Closure is an authoritative S2S fact even if message history is down.
     // Preserve any previously verified ACEPTADO; never infer one from an outage.
     const verifiedMessages=data.messagesAvailable===true?data.agentMessages:
@@ -1214,6 +1215,27 @@
     recordActivity(entry,'communication_closed');
     return response.data;
   }
+  const chatSendInFlight=new Set();
+  async function sendCustomerChatText(entry,text,idempotencyKey){
+    if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
+       !UUID.test(idempotencyKey)||idempotencyKey===entry.idempotencyKey||
+       typeof text!=='string'||!text.trim()||text.length>8000||
+       /[\\x00-\\x09\\x0b-\\x1f]/.test(text))
+      throw Error('Mensaje de chat inválido.');
+    if(chatSendInFlight.has(entry.interactionId))throw Error('Espera a que termine el envío anterior.');
+    if(entry.agentDecision!=='ACCEPTED'||entry.status!=='ACCEPTED'||
+       ['CLOSED','RESOLVED'].includes(entry.operationalConversationStatus))
+      throw Error('La conversación no está disponible para enviar mensajes.');
+    chatSendInFlight.add(entry.interactionId);
+    try{
+      const result=await nativeRequest({operation:'INTERACTION_CHAT_TEXT',
+        interactionId:entry.interactionId,accessKey:entry.idempotencyKey,idempotencyKey,
+        body:{appId:entry.body.appId,storeId:entry.body.storeId,type:'TEXT',text:text.trim()}});
+      if(![200,201].includes(Number(result.status)))
+        throw responseError(result,'No se pudo enviar el mensaje');
+      return result.data||{};
+    }finally{chatSendInFlight.delete(entry.interactionId)}
+  }
   async function cancelInteraction(entry,{reason='MODIFY'}={}){
     if(!entry||!UUID.test(entry.idempotencyKey))throw Error('No hay solicitud que cancelar.');
     if(entry.status==='CANCELLED')return {status:'CANCELLED'};
@@ -1262,7 +1284,7 @@
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,readOrderInteraction,archiveConfirmedInteraction,
-    pollInteraction,cancelInteraction,closeCommunication,queueCommunicationClose,flushCommunicationCloses,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
+    pollInteraction,sendCustomerChatText,cancelInteraction,closeCommunication,queueCommunicationClose,flushCommunicationCloses,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
     submitOrderSurvey,readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
