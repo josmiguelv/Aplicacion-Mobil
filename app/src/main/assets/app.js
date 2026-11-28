@@ -949,9 +949,22 @@ async function completeAcceptedQuote(entry){
  const expectedKey=JSON.stringify([entry.interactionId,selected.id,entry.body.catalogRevision,
   deliveryAddressKey(address,district),loc?.latitude,loc?.longitude]);
  const pending=pendingDeliveryQuote?.key===expectedKey?pendingDeliveryQuote.quote:null;
- if(!cached&&!pending)
-  throw Error('No se conservó la cotización de esta interacción. No se puede cobrar una tarifa sin verificar.');
- const quote=cached||pending;
+ let recovered=null;
+ if(!cached&&!pending){
+  try{
+   const snapshot=JSON.parse(localStorage.getItem(DELIVERY_QUOTES_CACHE_KEY)||'null');
+   const saved=snapshot?.quotes?.[selected.id];
+   if(snapshot?.destination===deliveryAddressKey(address,district)&&
+      saved?.storeId===selected.id&&saved.revision===entry.body.catalogRevision&&
+      saved.distanceSource==='STRAIGHT_LINE'&&saved.deliveryFeePen!=null&&
+      Number.isFinite(Number(saved.deliveryFeePen))&&Number(saved.deliveryFeePen)>=0&&
+      Array.isArray(saved.paymentMethods)&&saved.paymentMethods.length&&
+      interactionMatchesCart(entry,address,district))recovered=saved;
+  }catch(error){console.warn('[B3 checkout] Stored quote recovery failed',error?.message)}
+ }
+ if(!cached&&!pending&&!recovered)
+  throw Error('No se encontró la tarifa guardada para esta sede y solicitud. No se recalculó el delivery.');
+ const quote=cached||pending||recovered;
  if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==entry.body.catalogRevision)throw Error('La cotización no corresponde a la revisión del pedido aprobado.');
@@ -2992,8 +3005,13 @@ function availability(){
   const responded=request?.agentDecision==='ACCEPTED';
   const relayDone=!request?.body?.customer||request.messageDelivered===true;
   const selectedStore=shops.find(s=>s.id===request?.body?.storeId);
-  const storedFee=responded&&relayDone&&selectedStore?
-   preApprovalQuoteFor(request,selectedStore,st.profile.address,st.profile.district):null;
+  const storedFee=selectedStore?
+   (preApprovalQuoteFor(request,selectedStore,st.profile.address,st.profile.district)||
+    (()=>{try{
+     const snapshot=JSON.parse(localStorage.getItem(DELIVERY_QUOTES_CACHE_KEY)||'null');
+     return snapshot?.destination===deliveryAddressKey(st.profile.address,st.profile.district)?
+      snapshot.quotes?.[selectedStore.id]||null:null;
+    }catch{return null}})()):null;
   const title=request?.cancelRequested?'Cancelando tu solicitud':responded?'La sede respondió a tu solicitud':
    confirmed&&!relayDone?'Estamos confirmando tu pedido':
    status==='CREATE_UNCERTAIN'?'Estamos registrando tu solicitud':'Esperando confirmación de la sede';
