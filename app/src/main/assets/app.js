@@ -2599,7 +2599,7 @@ function autoCheckReservationQuote(){
   reservationQuoteError='Primero completa la dirección y distrito de entrega.';
   render();return;
  }
- scheduleReservationQuoteCheck();
+ void checkReservationQuote();
 }
 function reservationPicker(){
  const selected=reservationQuote?shops.find(x=>x.id===reservationQuote.storeId):null;
