@@ -1231,9 +1231,12 @@
       const result=await nativeRequest({operation:'INTERACTION_CHAT_TEXT',
         interactionId:entry.interactionId,accessKey:entry.idempotencyKey,idempotencyKey,
         body:{appId:entry.body.appId,storeId:entry.body.storeId,type:'TEXT',text:text.trim()}});
-      if(![200,201].includes(Number(result.status)))
-        throw responseError(result,'No se pudo enviar el mensaje');
-      return result.data||{};
+      if(![200,201].includes(Number(result.status))||
+         result.data?.interactionId!==entry.interactionId||
+         result.data?.delivered!==true||result.data?.type!=='TEXT'||
+         !UUID.test(result.data?.messageId||''))
+        throw responseError(result,'No se confirmó la entrega del mensaje');
+      return result.data;
     }finally{chatSendInFlight.delete(entry.interactionId)}
   }
   async function cancelInteraction(entry,{reason='MODIFY'}={}){
