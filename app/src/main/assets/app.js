@@ -2961,8 +2961,7 @@ function availability(){
   ['REJECTED','CANCELLED'].includes(rejectedEntry?.status)?rejectedEntry.status:deliveryAvailability.status;
  const checking=status==='CHECKING'||status==='CHECKING_STORES';
  const acceptedQuote=activeEntry?.status==='ACCEPTED'&&
-  activeEntry.agentDecision==='ACCEPTED'&&
-  (!activeEntry.body?.customer||activeEntry.messageDelivered===true);
+  activeEntry.agentDecision==='ACCEPTED';
  const waiting=status==='WAITING_APPROVAL'||status==='CREATE_UNCERTAIN'||
   acceptedQuote&&['QUOTE_UNAVAILABLE','CHECKING_STORES'].includes(status);
  const provisionalFee=waiting&&st.quote?.quoteOrigin==='ADMIN_API_PRE_APPROVAL'&&
@@ -2999,7 +2998,7 @@ function availability(){
    </div>
   </div>`;
  }
- if(waiting){
+ if(waiting||checking){
   const request=window.B3OrderAvailability?.readInteraction?.();
   const confirmed=!!request?.interactionId;
   const responded=request?.agentDecision==='ACCEPTED';
@@ -3012,12 +3011,12 @@ function availability(){
      return snapshot?.destination===deliveryAddressKey(st.profile.address,st.profile.district)?
       snapshot.quotes?.[selectedStore.id]||null:null;
     }catch{return null}})()):null;
-  const title=request?.cancelRequested?'Cancelando tu solicitud':responded?'La sede respondió a tu solicitud':
+  const title=checking?'Buscando una sede para ti':request?.cancelRequested?'Cancelando tu solicitud':responded?'La sede respondió a tu solicitud':
    confirmed&&!relayDone?'Estamos confirmando tu pedido':
    status==='CREATE_UNCERTAIN'?'Estamos registrando tu solicitud':'Esperando confirmación de la sede';
   const detail=deliveryAvailability.message||
-   'Tu solicitud sigue activa y se actualizará automáticamente.';
-  const store=deliveryAvailability.storeName||'Sede asignada';
+   (checking?'Consultando disponibilidad de las sedes. La tarifa de delivery ya fue calculada.':'Tu solicitud sigue activa y se actualizará automáticamente.');
+  const store=deliveryAvailability.storeName||(checking?'Consultando sedes':'Sede asignada');
   return `<div class="page b3-single-wait">
    ${heading('Estado de tu solicitud','app')}
    <section class="b3-single-wait-main" aria-live="polite">
