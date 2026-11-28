@@ -1537,10 +1537,9 @@ async function confirmStore(mode,id,{showDetails=false}={}){
    if(issue){checkoutReviewNote=issue;screen('cart');return false}
    screen('identity');return true;
   }
-  if(showDetails){screen('localDetail');return true}
+  // The customer already chose a store; continue shopping without repeating its details.
   fulfillmentModal=null;
-  // Store selection closes the selector and persists the pickup store.
-  st.stage='app';st.tab='inicio';render();
+  st.stage='app';st.tab='carta';render();
   return true;
  }catch(err){
   checkoutReviewNote=err?.message||'No se pudo actualizar el horario del local. Intenta nuevamente.';
