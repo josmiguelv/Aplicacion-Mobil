@@ -1497,8 +1497,9 @@ async function confirmStore(mode,id,{showDetails=false}={}){
   }
   if(showDetails){screen('localDetail');return true}
   fulfillmentModal=null;
+  // Keep the user in the pickup journey after choosing a store.
   if(st.cart.length)screen('cart');
-  else nav('carta');
+  else screen('localDetail');
   return true;
  }catch(err){
   checkoutReviewNote=err?.message||'No se pudo actualizar el horario del local. Intenta nuevamente.';
@@ -2406,10 +2407,14 @@ function heading(title,back){return `<div class="screen-heading"><button aria-la
 function pickupScheduledHoursIssue(dateTime){
  const candidates=shops.filter(x=>x?.active===true&&x.pickup_enabled===true&&x.reservation_enabled===true);
  if(!candidates.length)return '';
- const date=new Date(reservationTimeValue(dateTime));
- if(!Number.isFinite(date.getTime()))return 'Selecciona una fecha y hora válidas.';
- const day=(date.getUTCDay()+6)%7;
- const minute=date.getUTCHours()*60+date.getUTCMinutes();
+ const timestamp=reservationTimeValue(dateTime);
+ if(!Number.isFinite(timestamp))return 'Selecciona una fecha y hora válidas.';
+ // Compare the selected Lima local date/time rather than its UTC equivalent.
+ const [localDate,localTime]=dateTime.split('T');
+ const [year,month,dayOfMonth]=localDate.split('-').map(Number);
+ const [hour,minutes]=localTime.split(':').map(Number);
+ const day=(new Date(Date.UTC(year,month-1,dayOfMonth)).getUTCDay()+6)%7;
+ const minute=hour*60+minutes;
  const shortKeys=['mon','tue','wed','thu','fri','sat','sun'];
  let verified=0,within=false;
  for(const store of candidates){
