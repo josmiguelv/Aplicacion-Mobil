@@ -4336,7 +4336,8 @@ if(b.dataset.pickupScheduledStore){
  const quote=pickupReservationQuotes.find(q=>String(q.storeId)===String(b.dataset.pickupScheduledStore)&&q.dateTime===st.reservationAt);
  if(!quote)return toast('Esta sede no tiene disponibilidad confirmada.',{durationMs:2000});
  st.store=quote.storeId;reservationQuote=quote;st.fulfillment='pickup';st.pickupScheduleSelected=true;save();
- st.stage='app';st.tab='inicio';fulfillmentModal=null;render();toast('Recojo programado guardado.',{durationMs:2000});return;
+ // Keep the selected provisional quote and continue through the existing reservation verification screen.
+ screen('reservationPicker');return;
 }
 if(b.hasAttribute('data-reservation-verify')){
  st.reservationAt=document.getElementById('b3-reservation-at')?.value||st.reservationAt;
