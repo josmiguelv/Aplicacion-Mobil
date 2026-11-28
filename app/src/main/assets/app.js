@@ -3899,7 +3899,11 @@ function refreshChatTimeline(){
  if(status)status.textContent=chatStatusLine();
  const writable=chatWritable(chatEntry());
  const composer=chatOverlay.querySelector('#b3-chat-composer');
- if(composer)composer.hidden=!writable;
+ if(composer)composer.hidden=false;
+ const input=chatOverlay.querySelector('#b3-chat-input');
+ if(input)input.disabled=!writable;
+ const send=chatOverlay.querySelector('[data-chat-send]');
+ if(send)send.disabled=!writable||b3ChatBusy;
  const locked=chatOverlay.querySelector('#b3-chat-locked');
  if(locked)locked.hidden=writable;
 }
@@ -3963,8 +3967,8 @@ function chat(){
   '<div class="chat-info b3-chat-info">'+ic('chat',20)+'<span id="b3-chat-status">'+esc(chatStatusLine())+'</span></div>'+
   '<div id="b3-chat-history" class="chat-messages b3-chat-history" role="log" aria-label="Historial de la solicitud">'+chatTranscript()+'</div>'+
   (open?'<button type="button" class="outline full b3-chat-return" data-checkout-return="1">Ver estado de mi solicitud</button>':'')+
-  '<form id="b3-chat-composer" '+(chatWritable(entry)?'':'hidden')+'><label for="b3-chat-input">Escribe al asesor</label><div class="b3-chat-compose-row"><input id="b3-chat-input" maxlength="2000" autocomplete="off" placeholder="Escribe tu mensaje" aria-label="Mensaje para el asesor"><button type="submit" data-chat-send="1">Enviar</button></div><small id="b3-chat-error" role="alert"></small></form>'+
-  '<div id="b3-chat-locked" class="b3-chat-readonly" '+(chatWritable(entry)?'hidden':'')+'>'+ic('info',17)+' <span>'+(entry?.agentDecision==='ACCEPTED'?'La comunicación está cerrada o el pedido terminó.':'Podrás escribir cuando la sede acepte tu solicitud.')+'</span></div>'+
+  '<form id="b3-chat-composer"><label for="b3-chat-input">Escribe al asesor</label><div class="b3-chat-compose-row"><input id="b3-chat-input" maxlength="2000" autocomplete="off" placeholder="Escribe tu mensaje" aria-label="Mensaje para el asesor" '+(chatWritable(entry)?'':'disabled')+'><button type="submit" data-chat-send="1" '+(chatWritable(entry)?'':'disabled')+'>Enviar</button></div><small id="b3-chat-error" role="alert"></small></form>'+
+  '<div id="b3-chat-locked" class="b3-chat-readonly" '+(chatWritable(entry)?'hidden':'')+'>'+ic('info',17)+' <span>'+(entry?.agentDecision==='ACCEPTED'?'La comunicación está cerrada o el pedido terminó.':'Solo puedes consultar el historial. Podrás enviar mensajes cuando la sede acepte el pedido.')+'</span></div>'+
  '</div>';
 }
 function about(){return `<div class="page about b3-about-new">${heading('Sobre la app','app')}
