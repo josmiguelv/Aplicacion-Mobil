@@ -2771,9 +2771,15 @@ function phoneFields(id,value){
  const prefix=saved.startsWith('+')?(known.find(x=>saved.startsWith(x[0]))?.[0]||'other'):'+51';
  const other=saved.startsWith('+')&&prefix==='other'?(saved.match(/^\+[1-9][0-9]{0,2}/)?.[0]||''):'';
  const national=saved.startsWith('+')?saved.slice((prefix==='other'?other:prefix).length):saved;
- return `<label>País / prefijo telefónico<select id="${id}-country">${PHONE_COUNTRIES.map(([code,name])=>'<option value="'+code+'" '+(prefix===code?'selected':'')+'>'+name+' ('+code+')</option>').join('')}<option value="other" ${prefix==='other'?'selected':''}>Otro país</option></select></label>
- <label>Prefijo de otro país (si corresponde)<input id="${id}-custom-code" inputmode="tel" maxlength="4" value="${esc(other)}" placeholder="+XX"></label>
- <label>Número nacional<input id="${id}" inputmode="tel" maxlength="15" value="${esc(national)}" placeholder="Número sin prefijo"></label>`;
+ return `<label>Celular<div class="phone-field b3-phone-inline">
+ <select id="${id}-country" aria-label="Código de país">${PHONE_COUNTRIES.map(([code,name])=>'<option value="'+code+'" '+(prefix===code?'selected':'')+'>'+name+' ('+code+')</option>').join('')}<option value="other" ${prefix==='other'?'selected':''}>Otro (+)</option></select>
+ <input id="${id}" inputmode="tel" type="tel" maxlength="15" value="${esc(national)}" placeholder="Número de celular" autocomplete="tel-national"></div></label>
+ <label class="b3-phone-other" id="${id}-other-wrap" ${prefix==='other'?'':'hidden'}>Prefijo internacional<input id="${id}-custom-code" inputmode="tel" maxlength="4" value="${esc(other)}" placeholder="+XX"></label>`;
+}
+function toggleOtherPhonePrefix(id){
+ const select=document.getElementById(id+'-country');
+ const wrap=document.getElementById(id+'-other-wrap');
+ if(wrap&&select)wrap.hidden=select.value!=='other';
 }
 function readPhoneFields(id){
  const country=v(id+'-country');
