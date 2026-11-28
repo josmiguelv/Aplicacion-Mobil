@@ -700,10 +700,16 @@ function deliveryReviewKey(){
  return JSON.stringify([st.profile.address,st.profile.district,st.profile.reference,
   c.first,c.last,c.phone,c.doc,st.cart.map(i=>[i.id,i.qty])]);
 }
+function fullPeruMobile(value){
+ const digits=String(value||'').replace(/[\\s()+-]/g,'');
+ const national=digits.startsWith('51')&&digits.length===11?digits.slice(2):digits;
+ if(!/^9[0-9]{8}$/.test(national))throw Error('Ingresa un celular peruano válido.');
+ return '+51'+national;
+}
 function deliveryRequestCustomer(address,district){
  if(!deliveryContactReady())throw Error('Confirma nombres, apellidos y celular para este pedido.');
  const person=st.orderContactDraft;
- return {firstName:person.first.trim(),lastName:person.last.trim(),phone:person.phone,
+ return {firstName:person.first.trim(),lastName:person.last.trim(),phone:fullPeruMobile(person.phone),
   address:String(address||'').trim(),district:String(district||'').trim(),
   reference:String(st.profile.reference||'').trim(),mode:'delivery'};
 }
@@ -2608,9 +2614,9 @@ function cart(){
    <p class="grand"><b>Total estimado</b><strong>${draft?'Pendiente de validar':st.mode==='delivery'&&!deliveryQuoteValid()?'Por cotizar':cash(orderTotal())}</strong></p>
   </div>${st.mode==='delivery'&&deliveryQuoteValid()? `<p class="smallprint">Desde ${esc(st.quote.storeName||'sede disponible')} · ${st.quote.serverValidated?'Cotización del servidor':Number(st.quote.straightDistanceKm).toFixed(2)+' km aproximados en línea recta · '+(st.quote.deliveryPricingMode==='FIXED'?'tarifa fija':'tarifa por km')}.</p>`:''}
   ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
-  <p class="smallprint">No se enviarán pedidos reales ni se harán cobros en esta versión de prueba.</p>
+  <p class="smallprint">Tu pedido se enviará a Pollos B3 para confirmar su disponibilidad. El pago se realizará según la modalidad seleccionada.</p>
   <button class="outline full" data-tab="carta">Seguir pidiendo</button>
-  ${draft?'<div class="notice">Este es un carrito nuevo, separado del pedido en validación. Podrás enviarlo cuando finalice la solicitud activa.</div><button class="outline full" data-checkout-return="1">Ver pedido en validación</button>':`<button class="primary full" data-screen="identity" ${checkoutRefreshPending?"disabled":""}>${checkoutRefreshPending?"Actualizando disponibilidad...":"Continuar con pedido de prueba"}</button>`}`}
+  ${draft?'<div class="notice">Este es un carrito nuevo, separado del pedido en validación. Podrás enviarlo cuando finalice la solicitud activa.</div><button class="outline full" data-checkout-return="1">Ver pedido en validación</button>':`<button class="primary full" data-screen="identity" ${checkoutRefreshPending?"disabled":""}>${checkoutRefreshPending?"Actualizando disponibilidad...":"Continuar con mi pedido"}</button>`}`}
  </div>`;
 }
 function availability(){
@@ -3138,7 +3144,7 @@ async function submitPickupRequest(){
   const items=publishedOrderItems();
   if(!/^9[0-9]{8}$/.test(String(st.profile.phone||'').trim())||!String(st.profile.first||'').trim()||
      !String(st.profile.last||'').trim())throw Error('Confirma tus nombres y celular.');
-  const input={storeName:selected.name,customerName:[st.profile.first,st.profile.last].filter(Boolean).join(' '),customerPhone:st.profile.phone,when:st.scheduleMode==='reservation'?'scheduled':'now',
+  const input={storeName:selected.name,customerName:[st.profile.first,st.profile.last].filter(Boolean).join(' '),customerPhone:fullPeruMobile(st.profile.phone),when:st.scheduleMode==='reservation'?'scheduled':'now',
    dateTime:st.reservationAt,items:st.cart.map(x=>{const p=product(x.id);return {
     name:p?.name,quantity:x.qty,unitPrice:p?.price};})};
   const form=window.B3PickupOrderContract.approval(input).form;
