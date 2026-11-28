@@ -4332,24 +4332,7 @@ if(b.hasAttribute('data-reservation-next')){
  save();screen('pickupScheduledLocations');
  if(!reservationQuoteBusy&&(!pickupReservationQuotes.length||pickupReservationQuotes[0].dateTime!==st.reservationAt))void checkReservationQuote();return;
 }
-if(b.dataset.pickupScheduledStore){
- const quote=pickupReservationQuotes.find(q=>String(q.storeId)===String(b.dataset.pickupScheduledStore)&&q.dateTime===st.reservationAt);
- if(!quote)return toast('Esta sede no tiene disponibilidad confirmada.',{durationMs:2000});
- st.store=quote.storeId;reservationQuote=quote;st.fulfillment='pickup';st.pickupScheduleSelected=true;save();
- // Keep the selected provisional quote and continue through the existing reservation verification screen.
- screen('reservationPicker');return;
-}
-if(b.hasAttribute('data-reservation-verify')){
- st.reservationAt=document.getElementById('b3-reservation-at')?.value||st.reservationAt;
- if(!st.reservationCashExact)
-  st.reservationCashAmount=document.getElementById('b3-reservation-cash-amount')?.value||st.reservationCashAmount;
- save();
- if(st.mode==='delivery'){
-  if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt||reservationQuote.mode!=='delivery')return toast('Consulta primero la disponibilidad de tu reserva.');
-  const when=window.B3ReservationForms.schedule(st.reservationAt);
-  if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
- }else if(st.mode!=='pickup'){const preview=reservationFormPreview();if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');}
- if(st.mode==='pickup'){
+function continueScheduledPickupReservation(){
   let when;try{when=window.B3ReservationForms.schedule(st.reservationAt)}catch(error){return toast(error.message,{durationMs:2000})}
   const hoursIssue=pickupScheduledHoursIssue(st.reservationAt);
   if(hoursIssue)return toast(hoursIssue,{durationMs:2000});
@@ -4367,7 +4350,25 @@ if(b.hasAttribute('data-reservation-verify')){
   if(!Array.isArray(reservationQuote.paymentMethods)||!reservationQuote.paymentMethods.length)
    return toast('La tienda no tiene métodos de pago habilitados para esta reserva.');
   checkoutPending=true;screen('identity');return;
- }
+}
+if(b.dataset.pickupScheduledStore){
+ const quote=pickupReservationQuotes.find(q=>String(q.storeId)===String(b.dataset.pickupScheduledStore)&&q.dateTime===st.reservationAt);
+ if(!quote)return toast('Esta sede no tiene disponibilidad confirmada.',{durationMs:2000});
+ st.store=quote.storeId;reservationQuote=quote;st.fulfillment='pickup';st.pickupScheduleSelected=true;save();
+ // Use the same existing validation as the reservation continue action.
+ continueScheduledPickupReservation();return;
+}
+if(b.hasAttribute('data-reservation-verify')){
+ st.reservationAt=document.getElementById('b3-reservation-at')?.value||st.reservationAt;
+ if(!st.reservationCashExact)
+  st.reservationCashAmount=document.getElementById('b3-reservation-cash-amount')?.value||st.reservationCashAmount;
+ save();
+ if(st.mode==='delivery'){
+  if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt||reservationQuote.mode!=='delivery')return toast('Consulta primero la disponibilidad de tu reserva.');
+  const when=window.B3ReservationForms.schedule(st.reservationAt);
+  if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.');
+ }else if(st.mode!=='pickup'){const preview=reservationFormPreview();if(!preview.form)return toast(preview.error||'No se pudo preparar esta reserva.');}
+ if(st.mode==='pickup')return continueScheduledPickupReservation();
  resetDeliveryOrderContact();checkoutPending=true;confirmedDeliveryReviewKey=null;screen('identity');
  return;
 }
