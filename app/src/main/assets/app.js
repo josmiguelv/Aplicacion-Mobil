@@ -2781,6 +2781,10 @@ function toggleOtherPhonePrefix(id){
  const wrap=document.getElementById(id+'-other-wrap');
  if(wrap&&select)wrap.hidden=select.value!=='other';
 }
+document.addEventListener('change',event=>{
+ const id=event.target?.id||'';
+ if(id.endsWith('-country'))toggleOtherPhonePrefix(id.slice(0,-8));
+});
 function readPhoneFields(id){
  const country=v(id+'-country');
  const code=country==='other'?v(id+'-custom-code').trim():country;
