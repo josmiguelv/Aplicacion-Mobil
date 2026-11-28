@@ -1685,6 +1685,8 @@ function screen(n){
     activePersonalCheckout()?.status==='ACCEPTED'&&deliveryQuoteValid()){
   nav('inicio');return;
  }
+ // Store-selection screen is not an error screen: do not carry old checkout warnings.
+ if(n==='locations'&&!checkoutRefreshPending)checkoutReviewNote='';
  selectedHomeStore=null;if(n!=='vacancyDetail')selectedVacancyId=null;if(n==='choice'){st.stage='app';st.tab='inicio';fulfillmentModal='choose';render();return}if(n==='login' && st.stage==='app')loginFromAccount=true;fulfillmentModal=null;st.stage=n;window.scrollTo({top:0});render();if(n==='notifications')void fetchNotifications();if(n==='reservationPicker'&&st.mode==='delivery')autoCheckReservationQuote()}
 // Returning Home after a confirmed rejection is a NEW order, not a resume.
 // Preserve profile/address/favorites but discard rejected checkout and old cart.
@@ -3687,9 +3689,16 @@ async function revalidateCheckout(next){
     if(st.stage!=='availability')screen('availability');return false
    }
   }else if(st.mode==='pickup'){
-   if(pickupAvailabilityIssue(shops.find(x=>String(x.id)===String(st.store)),{scheduled:st.scheduleMode==='reservation'})){
-    checkoutReviewNote=pickupAvailabilityIssue(shops.find(x=>String(x.id)===String(st.store)),{scheduled:st.scheduleMode==='reservation'})||'No pudimos confirmar la disponibilidad de recojo.';
-    screen('locations');return false
+   const chosenPickup=shops.find(x=>String(x.id)===String(st.store));
+   const pickupIssue=pickupAvailabilityIssue(chosenPickup,{scheduled:st.scheduleMode==='reservation'});
+   if(pickupIssue){
+    // The previously selected store can disappear after a config refresh.
+    // Preserve pickup mode and cart; let the user select from current stores.
+    if(!chosenPickup){st.store='';st.pay='';save()}
+    screen('locations');
+    checkoutReviewNote=chosenPickup?pickupIssue:'';
+    render();
+    return false
    }
    // Pickup has no delivery fee. Fresh GET already checked this store's
    // published pickup flag and opening hours; no fulfillment POST is required.
