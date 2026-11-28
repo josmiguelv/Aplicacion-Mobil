@@ -4132,7 +4132,14 @@ if(b.hasAttribute('data-review-confirm')){
  return;
 }
 if(b.hasAttribute('data-phone-next')){
- if(!/^9\d{8}$/.test(v('phone')))return toast('Ingresa un celular peruano válido de 9 dígitos');
+ let fullPhone;
+ try{
+  const country=v('phone-country');
+  const code=country==='other'?v('phone-custom-code').trim():country;
+  if(!/^\\+[1-9][0-9]{0,2}$/.test(code)||!/^[0-9]{4,14}$/.test(v('phone').trim()))
+   throw Error('Revisa el prefijo de país y el número nacional.');
+  fullPhone=internationalMobile(code+v('phone').trim());
+ }catch(error){return toast(error.message)}
  if(st.mode==='delivery'){
   currentDeliveryOrderContact().phone=fullPhone;
   st.deliveryContactConfirmed=true;
