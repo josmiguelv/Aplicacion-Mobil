@@ -38,3 +38,13 @@ assert.equal(form.fields.find(f=>f.variable==='Celular').value,'+51987654321');
 assert.equal(ctx.window.B3PickupOrderContract.approval({...input,customerPhone:'+573001234567'}).form.fields.find(f=>f.variable==='Celular').value,'+573001234567');
 assert.throws(()=>ctx.window.B3PickupOrderContract.approval({...input,customerPhone:'987654321'}));
 console.log('PASS: Delivery E.164 payload guard, pickup E.164 FORM, legacy test labels removed');
+
+const pickupChecks=[
+ 'Este local no está aceptando pedidos para recojo.',
+ 'El local se encuentra fuera de su horario de atención.',
+ 'El local aún no tiene un horario de atención publicado.',
+ 'No pudimos verificar la disponibilidad del local.',
+ 'La fecha y hora programadas necesitan una nueva confirmación'
+];
+for(const message of pickupChecks)assert.ok(app.includes(message),'Missing pickup diagnosis: '+message);
+assert.doesNotMatch(app,/El local de recojo ya no está abierto o no acepta pedidos\./);
