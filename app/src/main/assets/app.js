@@ -798,13 +798,19 @@ window.addEventListener('b3-order-status-event',event=>{
     !['INTERACTION_UPDATED','INTERACTION_SYNC_REQUIRED'].includes(payload.type)||
     payload.interactionId!==entry.interactionId||
     !['PENDING','ACCEPTED'].includes(entry.status)||
-    b3OrderEventWakeQueued||agentDecisionPolling)return;
+    b3OrderEventWakeQueued)return;
  b3OrderEventWakeQueued=true;
  // Coalesce duplicate notifications. Never treat a push event as approval.
  setTimeout(()=>{
   b3OrderEventWakeQueued=false;
   const current=window.B3OrderAvailability?.readInteraction?.();
   if(current?.interactionId!==payload.interactionId)return;
+  if(agentDecisionPolling){
+   // An event received during an in-flight GET must be checked again once
+   // that GET settles; never silently discard a newer notification.
+   b3OrderEventWakeQueued=true;
+   return;
+  }
   stopAgentDecisionPoll();
   void pollAgentDecision();
  },150);
@@ -1129,6 +1135,13 @@ async function pollAgentDecision(){
   refreshChatTimeline();
   const current=api?.readInteraction?.();
   syncOrderSocket(current);
+  if(b3OrderEventWakeQueued){
+   b3OrderEventWakeQueued=false;
+   if(current?.interactionId&&['PENDING','ACCEPTED'].includes(current.status)){
+    scheduleAgentDecisionPoll(100);
+    return;
+   }
+  }
   retryMs=agentStatusPollDelay(retryMs);
   if(['PENDING','SUBMITTING'].includes(current?.status)||
      current?.status==='ACCEPTED'&&(current.agentDecision!=='ACCEPTED'||
