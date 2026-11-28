@@ -7,9 +7,13 @@ const availability=readFileSync('app/src/main/assets/order-availability.js','utf
 const pickup=readFileSync('app/src/main/assets/pickup-order-contract.js','utf8');
 assert.match(app,/phone:internationalMobile\(person\.phone\)/);
 assert.match(app,/customerPhone:internationalMobile\(st\.profile\.phone\)/);
-assert.match(availability,/customer\.phone.*\\\+\[1-9\]/);
-assert.match(pickup,/customerPhone.*\\\+\[1-9\]/);
+assert.ok(availability.includes(String.raw`/^\+[1-9][0-9]{6,14}$/`));
+assert.ok(pickup.includes(String.raw`/^\+[1-9][0-9]{6,14}$/`));
 assert.doesNotMatch(app,/Continuar con pedido de prueba|No se enviarán pedidos reales/);
+assert.match(app,/function phoneFields\(/);
+assert.match(app,/readPhoneFields\('phone'\)/);
+assert.match(app,/readPhoneFields\('signin-value'\)/);
+assert.match(app,/readPhoneFields\('profile-phone'\)/);
 const ctx={window:{}};
 runInNewContext(pickup,ctx);
 assert.ok(ctx.window.B3PickupOrderContract,'Pickup contract must be exposed');
