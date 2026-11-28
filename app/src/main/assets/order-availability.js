@@ -1220,7 +1220,7 @@
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
        !UUID.test(idempotencyKey)||idempotencyKey===entry.idempotencyKey||
        typeof text!=='string'||!text.trim()||text.length>8000||
-       /[\\x00-\\x09\\x0b-\\x1f]/.test(text))
+       /[\x00-\x09\x0b-\x1f]/.test(text))
       throw Error('Mensaje de chat inválido.');
     if(chatSendInFlight.has(entry.interactionId))throw Error('Espera a que termine el envío anterior.');
     if(entry.agentDecision!=='ACCEPTED'||entry.status!=='ACCEPTED'||
