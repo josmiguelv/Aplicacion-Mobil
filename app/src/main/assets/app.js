@@ -3770,8 +3770,10 @@ async function sendChatTextFromOverlay(){
  if(error)error.textContent='';
  try{
   if(!await verifyChatStillOpen(entry)){
-   if(error)error.textContent='No se pudo verificar que la conversación siga abierta. Intenta nuevamente.';
-   refreshChatTimeline();return;
+   if(chatEntry()?.interactionId===id&&error?.isConnected)
+    error.textContent='No se pudo verificar que la conversación siga abierta. Intenta nuevamente.';
+   if(chatEntry()?.interactionId===id)refreshChatTimeline();
+   return;
   }
   // New key for each independent customer message. No automatic retry on uncertainty.
   const key=window.B3OrderAvailability.newChatMessageKey();
@@ -3780,13 +3782,16 @@ async function sendChatTextFromOverlay(){
   sent.push({id:key,text,at:Date.now()});
   b3ChatSent.set(id,sent.slice(-40));
   saveConfirmedChatMessage(id,sent[sent.length-1]);
-  if(input)input.value='';
-  refreshChatTimeline();
+  if(chatEntry()?.interactionId===id&&input?.isConnected){
+   input.value='';
+   refreshChatTimeline();
+  }
  }catch(e){
-  if(error)error.textContent='No se confirmó el envío. Verifica el chat antes de reintentar.';
+  if(chatEntry()?.interactionId===id&&error?.isConnected)
+   error.textContent='No se confirmó el envío. Verifica el chat antes de reintentar.';
  }finally{
   b3ChatBusy=false;
-  if(send)send.disabled=!chatWritable(chatEntry());
+  if(send?.isConnected&&chatEntry()?.interactionId===id)send.disabled=!chatWritable(chatEntry());
  }
 }
 function chatTranscript(){
@@ -3838,6 +3843,9 @@ function chatStatusLine(){
  if(entry.status==='CANCELLED')return 'Solicitud cancelada';
  if(entry.status==='REJECTED'||entry.agentDecision==='REJECTED')return 'Productos del pedido no confirmados';
  if(entry.agentDecision==='ACCEPTED'){
+  const associated=st.orders?.find(o=>o?.interactionId===entry.interactionId);
+  if(associated?.status==='DELIVERED')return 'Pedido entregado · Historial de conversación';
+  if(entry.paymentConfirmation?.status==='ACCEPTED')return 'Pedido confirmado · Atención de la sede';
   if(entry.paymentExpiresAt)return 'Solicitud aceptada · Revisa tu pedido';
   if(entry.body?.customer&&entry.messageDelivered!==true)
    return 'Solicitud aceptada · Confirmando el detalle';
@@ -3908,7 +3916,7 @@ function closeChatOverlay(){
 }
 function chat(){
  const entry=chatEntry();
- const open=!!entry&&['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(entry.status);
+ const open=!b3ChatInteractionId&&!!entry&&['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(entry.status);
  return '<div class="chat-screen b3-order-chat">'+
   '<div class="b3-chat-modal-header"><div><small>POLLOS B3 · ATENCIÓN</small><strong>'+esc(entry?.interactionId?'Pedido '+orderPublicCode(entry):'Seguimiento del pedido')+'</strong></div><button type="button" data-chat-close="1" aria-label="Cerrar chat y continuar donde estaba">'+ic('close',20)+'</button></div>'+
   '<div class="chat-info b3-chat-info">'+ic('chat',20)+'<span id="b3-chat-status">'+esc(chatStatusLine())+'</span></div>'+
