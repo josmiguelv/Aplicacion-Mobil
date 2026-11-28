@@ -362,6 +362,18 @@ public class MainActivity extends Activity {
                     }catch(Exception ignored){}
                 }
                 @Override public void onFailure(okhttp3.WebSocket ws,Throwable error,okhttp3.Response response){
+                    // The Admin WSS endpoint may not be deployed or authorized yet.
+                    // Do not retry a permanent handshake rejection indefinitely.
+                    final int status=response==null?0:response.code();
+                    if(status==400||status==401||status==403||status==404||status==426){
+                        runOnUiThread(()->{
+                            if(generation!=orderSocketGeneration)return;
+                            if(orderSocket==ws)orderSocket=null;
+                            if(orderSocketReconnect!=null)orderWsHandler.removeCallbacks(orderSocketReconnect);
+                            orderSocketReconnect=null;
+                        });
+                        return;
+                    }
                     scheduleOrderSocketReconnect(generation,ws);
                 }
                 @Override public void onClosed(okhttp3.WebSocket ws,int code,String reason){
