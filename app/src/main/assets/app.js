@@ -268,7 +268,7 @@ function pickupAvailabilityIssue(s,{scheduled=false}={}){
   // A verified dated quote is authoritative for scheduled pickup; do not use a current-time flag here.
   if(!reservationQuote||reservationQuote.storeId!==s.id||
     reservationQuote.dateTime!==st.reservationAt||
-    reservationQuote.agentAvailable!==true||reservationQuote.acceptingRequests!==true)
+    reservationQuote.agentAvailable!==true)
    return 'La fecha y hora programadas necesitan una nueva confirmación de disponibilidad.';
   return '';
  }
@@ -409,7 +409,7 @@ async function fetchConfig({strict=false}={}){
   publishedPaymentImages=c.paymentImages&&typeof c.paymentImages==='object'?c.paymentImages:{};
   publishedPaymentWaitMinutes=Number.isInteger(c.paymentWaitMinutes)&&c.paymentWaitMinutes>0?c.paymentWaitMinutes:10;
   publishedReminderCount=Number.isInteger(c.reminderCount)&&c.reminderCount>=0?c.reminderCount:2;
-  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null,reservation_enabled:x.reservationSettings?.enabled===true,reservationAcceptingRequests:x.reservationSettings?.acceptingRequests===true})));
+  shops.splice(0,shops.length,...c.stores.map(x=>({...x,addr:x.address,radiusKm:x.radiusKm==null&&x.radius_km==null?null:Number(x.radiusKm??x.radius_km),deliveryFeePen:x.deliveryFeePen,consultOrderAvailability:typeof (x.consultOrderAvailability??x.consult_order_availability)==='boolean'?(x.consultOrderAvailability??x.consult_order_availability):null,reservation_enabled:x.reservationSettings?.enabled===true,reservationPreparationMinutes:x.reservationSettings?.preparationMinutes??null})));
   // Productos: mostrar exclusivamente el catálogo publicado por la API.
   // La lista se reconstruye, no se concatena incrementalmente, para evitar duplicados.
   products.splice(0,products.length,...productsFromApi(c.products));
@@ -2519,10 +2519,9 @@ async function checkReservationQuote(){
  if(when.from<=Date.now()){
   reservationQuoteError='Selecciona una fecha y hora futuras.';render();return;
  }
- // The dated quote, not a current acceptingRequests snapshot, decides future pickup availability.
+ // The dated quote confirms future availability; per-store enabled is the only reservation configuration flag.
  const permitted=shops.filter(x=>x?.active===true&&x.reservation_enabled===true&&
-   x[st.mode+'_enabled']===true&&
-   (st.mode==='pickup'||x.reservationAcceptingRequests===true));
+   x[st.mode+'_enabled']===true);
  if(st.mode!=='delivery'&&!permitted.length){
   // A missing published reservation setting is not proof that every store is unavailable.
   const pickupEnabled=shops.filter(x=>x?.active===true&&x.pickup_enabled===true);
@@ -2609,7 +2608,7 @@ async function checkReservationQuote(){
       result.mode!==mode||result.revision!==publishedRevision||
       !Array.isArray(result.paymentMethods)||
       !Number.isFinite(result.deliveryFeePen)||result.deliveryFeePen<0||
-      result.agentAvailable!==true||result.acceptingRequests!==true)
+      result.agentAvailable!==true)
    {
     failures.push('invalid-response');
     reservationQuoteFailureKind='invalid-response';
@@ -4358,8 +4357,7 @@ if(b.hasAttribute('data-reservation-verify')){
   if(reservationQuoteBusy)return toast('Estamos verificando disponibilidad.',{durationMs:2000});
   if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt){void checkReservationQuote();return toast('Consultando disponibilidad de las sedes. Pulsa continuar nuevamente cuando termine.',{durationMs:2000});}
   if(!reservationQuote||reservationQuote.dateTime!==st.reservationAt||reservationQuote.mode!=='pickup'||
-     reservationQuote.storeId!==st.store||reservationQuote.agentAvailable!==true||
-     reservationQuote.acceptingRequests!==true)return toast('Primero confirma la disponibilidad de tu recojo programado.');
+     reservationQuote.storeId!==st.store||reservationQuote.agentAvailable!==true)return toast('Primero confirma la disponibilidad de tu recojo programado.');
   if(!selected||selected.active!==true||selected.reservation_enabled!==true||
      selected.pickup_enabled!==true)
    return toast('La tienda ya no está habilitada para recojo programado. Vuelve a consultar.');
