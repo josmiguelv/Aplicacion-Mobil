@@ -1135,6 +1135,22 @@
   function saveCloseOutbox(items){
     root.localStorage.setItem(CLOSE_OUTBOX_KEY,JSON.stringify(items));
   }
+  const CLOSE_CONFIRMED_KEY='b3-communication-close-confirmed-v1';
+  function confirmedCommunicationCloses(){
+    try{
+      const data=JSON.parse(root.localStorage.getItem(CLOSE_CONFIRMED_KEY)||'{}');
+      return data&&typeof data==='object'&&!Array.isArray(data)?data:{};
+    }catch{return {}}
+  }
+  function isCommunicationCloseConfirmed(interactionId){
+    return UUID.test(interactionId||'')&&Boolean(confirmedCommunicationCloses()[interactionId]);
+  }
+  function markCommunicationCloseConfirmed(interactionId){
+    const data=confirmedCommunicationCloses();
+    data[interactionId]=Date.now();
+    const recent=Object.entries(data).sort((a,b)=>b[1]-a[1]).slice(0,100);
+    root.localStorage.setItem(CLOSE_CONFIRMED_KEY,JSON.stringify(Object.fromEntries(recent)));
+  }
   function queueCommunicationClose(entry,reason){
     if(!entry||!UUID.test(entry.interactionId||'')||
        !UUID.test(entry.idempotencyKey||'')||!UUID.test(entry.body?.storeId||'')||
@@ -1142,6 +1158,7 @@
        !['CLIENT_CANCELLED','ORDER_DELIVERED'].includes(reason))
       throw Error('No se puede registrar el cierre sin identificadores válidos.');
     const items=readCloseOutbox(),key=entry.interactionId;
+    if(isCommunicationCloseConfirmed(key))return null;
     if(!items[key]){
       items[key]={interactionId:key,idempotencyKey:entry.idempotencyKey,
         appId:entry.body.appId,storeId:entry.body.storeId,reason,
@@ -1173,6 +1190,7 @@
         if(current[key]?.idempotencyKey===item.idempotencyKey){
           delete current[key];saveCloseOutbox(current);
         }
+        markCommunicationCloseConfirmed(key);
         console.info('[B3 order] communication close confirmed',item.reason);
       }catch(error){
         const current=readCloseOutbox();
@@ -1212,6 +1230,7 @@
     }
     const outbox=readCloseOutbox();
     if(outbox[entry.interactionId]){delete outbox[entry.interactionId];saveCloseOutbox(outbox)}
+    markCommunicationCloseConfirmed(entry.interactionId);
     recordActivity(entry,'communication_closed');
     return response.data;
   }
@@ -1283,11 +1302,12 @@
     root.localStorage.removeItem(SERIES_KEY);
     root.localStorage.removeItem(PAID_ARCHIVE_KEY);
     root.localStorage.removeItem(CLOSE_OUTBOX_KEY);
+    root.localStorage.removeItem(CLOSE_CONFIRMED_KEY);
   }
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,readOrderInteraction,archiveConfirmedInteraction,
-    pollInteraction,newChatMessageKey:uuid,sendCustomerChatText,cancelInteraction,closeCommunication,queueCommunicationClose,flushCommunicationCloses,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
+    pollInteraction,newChatMessageKey:uuid,sendCustomerChatText,cancelInteraction,closeCommunication,queueCommunicationClose,flushCommunicationCloses,isCommunicationCloseConfirmed,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
     submitOrderSurvey,readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
