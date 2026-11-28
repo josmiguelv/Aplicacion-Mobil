@@ -1537,10 +1537,11 @@ async function confirmStore(mode,id,{showDetails=false}={}){
    if(issue){checkoutReviewNote=issue;screen('cart');return false}
    screen('identity');return true;
   }
-  // The customer already chose a store; continue shopping without repeating its details.
+  // Resume the existing checkout: identity when there are items, cart otherwise.
   fulfillmentModal=null;
-  st.stage='app';st.tab='carta';render();
-  return true;
+  const issue=checkoutCartIssue();
+  if(issue){checkoutReviewNote=issue;screen('cart');return false}
+  screen('identity');return true;
  }catch(err){
   checkoutReviewNote=err?.message||'No se pudo actualizar el horario del local. Intenta nuevamente.';
   if(fulfillmentModal){fulfillmentModal='pickup';render()}
