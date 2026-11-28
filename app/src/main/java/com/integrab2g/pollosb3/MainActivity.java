@@ -980,7 +980,7 @@ public class MainActivity extends Activity {
                             "AGENT_AVAILABILITY".equals(operation) || "INTERACTION_STATUS".equals(operation) ||
                             "INTERACTION_PAYMENT_STATUS".equals(operation) ? "GET" :
                             "DELIVERY_QUOTE".equals(operation) || "INTERACTION_CREATE".equals(operation) ||
-                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_PAYMENT_FORM".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
+                            "INTERACTION_MESSAGE".equals(operation) || "INTERACTION_CHAT_TEXT".equals(operation) || "INTERACTION_PAYMENT_FORM".equals(operation) || "INTERACTION_CANCEL".equals(operation) ||
                             "INTERACTION_COMMUNICATION_CLOSE".equals(operation) ||
                             "INTERACTION_DEVICE".equals(operation) || "INTERACTION_PAYMENT".equals(operation) ||
                             "INTERACTION_RECEIPT_UPLOAD".equals(operation) || "ORDER_SURVEY".equals(operation) ? "POST" : operation;
