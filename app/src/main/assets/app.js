@@ -794,9 +794,9 @@ let b3OrderEventWakeQueued=false;
 window.addEventListener('b3-order-status-event',event=>{
  const payload=event?.detail;
  const entry=window.B3OrderAvailability?.readInteraction?.();
- if(!entry?.interactionId||!payload||payload.type!=='ORDER_STATUS_CHANGED'||
+ if(!entry?.interactionId||!payload||
+    !['INTERACTION_UPDATED','INTERACTION_SYNC_REQUIRED'].includes(payload.type)||
     payload.interactionId!==entry.interactionId||
-    !['ACCEPTED','REJECTED','CLOSED'].includes(payload.status)||
     !['PENDING','ACCEPTED'].includes(entry.status)||
     b3OrderEventWakeQueued||agentDecisionPolling)return;
  b3OrderEventWakeQueued=true;
@@ -809,6 +809,20 @@ window.addEventListener('b3-order-status-event',event=>{
   void pollAgentDecision();
  },150);
 });
+let b3OrderSocketSubscription='';
+function syncOrderSocket(entry){
+ const bridge=window.AndroidBridge;
+ if(!bridge?.subscribeOrderEvents)return;
+ const eligible=entry?.interactionId&&entry?.idempotencyKey&&entry?.body?.appId&&
+  entry?.body?.storeId&&['PENDING','ACCEPTED'].includes(entry.status)&&
+  entry.agentDecision!=='ACCEPTED'&&entry.agentDecision!=='REJECTED';
+ const identity=eligible?[entry.interactionId,entry.idempotencyKey,entry.body.storeId].join(':'):'';
+ if(identity===b3OrderSocketSubscription)return;
+ b3OrderSocketSubscription=identity;
+ if(!eligible){bridge.unsubscribeOrderEvents?.();return;}
+ bridge.subscribeOrderEvents(JSON.stringify({interactionId:entry.interactionId,
+  appId:entry.body.appId,storeId:entry.body.storeId,accessKey:entry.idempotencyKey}));
+}
 function stopAgentDecisionPoll(){
  if(agentDecisionTimer!==null)clearTimeout(agentDecisionTimer);
  agentDecisionTimer=null;
@@ -866,6 +880,7 @@ function scheduleAgentDecisionPoll(delay=2000){
  stopAgentDecisionPoll();
  if(agentDecisionPolling||acceptedQuotePaused)return;
  const entry=window.B3OrderAvailability?.readInteraction?.();
+ syncOrderSocket(entry);
  if(entry?.status==='ACCEPTED'&&entry.agentDecision==='ACCEPTED'&&
     st.stage!=='availability'&&(st.stage!=='chat'||!!entry.paymentExpiresAt))return;
  if(!['PENDING','ACCEPTED','SUBMITTING'].includes(entry?.status))return;
@@ -1100,6 +1115,7 @@ async function pollAgentDecision(){
   agentDecisionPolling=false;
   refreshChatTimeline();
   const current=api?.readInteraction?.();
+  syncOrderSocket(current);
   retryMs=agentStatusPollDelay(retryMs);
   if(['PENDING','SUBMITTING'].includes(current?.status)||
      current?.status==='ACCEPTED'&&(current.agentDecision!=='ACCEPTED'||
@@ -1211,7 +1227,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
   }
   throw error;
  }
- if(entry.interactionId)window.AndroidBridge?.requestPersonalPushToken?.();
+ if(entry.interactionId){window.AndroidBridge?.requestPersonalPushToken?.();syncOrderSocket(entry);}
  if(!active())return false;
  if(response.status!=='PENDING')throw Error('No se confirmó la solicitud pendiente.');
  // The interactionId was saved before attempting the second HTTP request.
