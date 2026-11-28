@@ -1284,7 +1284,7 @@
   root.b3OrderAvailabilityNativeResponse = onNativeReply;
   root.B3OrderAvailability = Object.freeze({prepare,execute,clear,read,checkConnection,
     checkAgentAvailability,quoteDelivery,prepareInteraction,createInteraction,sendInteractionMessage,readInteraction,readOrderInteraction,archiveConfirmedInteraction,
-    pollInteraction,sendCustomerChatText,cancelInteraction,closeCommunication,queueCommunicationClose,flushCommunicationCloses,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
+    pollInteraction,newChatMessageKey:uuid,sendCustomerChatText,cancelInteraction,closeCommunication,queueCommunicationClose,flushCommunicationCloses,requestCancelWhenRecovered,registerPersonalDevice,startLocalPaymentWindow,beginPaymentWait,readPaymentWait,
     submitOrderSurvey,readTrackingMessages,uploadPaymentReceipt,preparePaymentConfirmation,sendPaymentConfirmation,pollPaymentConfirmation,
     rejectedStores,markRejectedStore,dismissRejectedInteraction,eraseLocalIdentity});
 })(window);
