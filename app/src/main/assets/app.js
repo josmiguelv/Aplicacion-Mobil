@@ -1593,7 +1593,7 @@ function queueNotice(t,options={}){
   requestAnimationFrame(()=>{if(noticeNode===node)node.classList.add('b3-toast-visible')});
  }
  if(critical)node.querySelector('.b3-toast-close')?.addEventListener('click',dismissNotice,{once:true});
- else noticeTimer=setTimeout(dismissNotice,Number.isFinite(options.durationMs)?Math.max(500,Math.min(10000,options.durationMs)):(kind==='cart'?1800:kind==='warning'?4500:2600));
+ else noticeTimer=setTimeout(dismissNotice,Number.isFinite(options.durationMs)?Math.max(500,Math.min(4000,options.durationMs)):(kind==='cart'?1800:kind==='warning'?4000:3000));
 }
 function toast(t,options={}){queueNotice(t,options)}
 // Draft for a second purchase: never mutate the items of the in-flight interaction.
@@ -1621,7 +1621,10 @@ function showOrderAcceptedOnce(entry){
  localStorage.setItem(key,entry.interactionId);
  toast('¡Tu pedido fue aceptado!',{durationMs:2000});
 }
+// Contextual order status belongs in the Orders area, not over payment forms.
 function personalCheckoutBanner(){
+ // The payment/checkout screens already show the same status in context.
+ if(st.stage!=='app'||st.tab!=='inicio')return '';
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry?.interactionId||entry.paymentConfirmation?.status==='ACCEPTED'&&
    st.orders?.some(o=>o?.interactionId===entry.interactionId&&o.paymentStatus==='ACCEPTED'))return '';
