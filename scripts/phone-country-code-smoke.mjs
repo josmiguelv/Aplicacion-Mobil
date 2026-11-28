@@ -8,6 +8,13 @@ const pickup=readFileSync('app/src/main/assets/pickup-order-contract.js','utf8')
 assert.match(app,/phone:internationalMobile\(person\.phone\)/);
 assert.match(app,/customerPhone:internationalMobile\(st\.profile\.phone\)/);
 assert.ok(availability.includes(String.raw`/^\+[1-9][0-9]{6,14}$/`));
+assert.ok(!availability.includes(String.raw`/^\\+[1-9][0-9]{6,14}$/`),'No double-escaped phone regex');
+const customerPhonePattern=availability.match(/typeof customer\.phone!=='string'\|\|!(\/\^.*?\.test\(customer\.phone\))/)?.[1];
+assert.ok(customerPhonePattern,'Find customer phone validation');
+const checkPhone=runInNewContext('value => '+customerPhonePattern.replace('.test(customer.phone)','.test(value)'),{});
+assert.equal(checkPhone('+51968435553'),true);
+assert.equal(checkPhone('+573001234567'),true);
+assert.equal(checkPhone('968435553'),false);
 assert.ok(pickup.includes(String.raw`/^\+[1-9][0-9]{6,14}$/`));
 assert.doesNotMatch(app,/Continuar con pedido de prueba|No se enviarán pedidos reales/);
 assert.match(app,/function phoneFields\(/);
