@@ -1841,7 +1841,8 @@ function storeDailyHours(s){
  const raw=s.weeklyHours||s.weekly_hours||s.openingHours||s.opening_hours||s.schedule||s.hours;
  return storeDayNames.map((day,i)=>{
   if(!raw)return {day,description:'Horario no publicado'};
-  const item=Array.isArray(raw)?raw[i]:raw[storeDayKeys[i]]??raw[day.toLowerCase()]??raw[String((i+1)%7)];
+  const shortKeys=['mon','tue','wed','thu','fri','sat','sun'];
+  const item=Array.isArray(raw)?raw[i]:raw[shortKeys[i]]??raw[storeDayKeys[i]]??raw[day.toLowerCase()]??raw[String((i+1)%7)];
   if(item===false||item?.closed===true||item?.isClosed===true)return {day,description:'Cerrado'};
   if(typeof item==='string')return {day,description:item.slice(0,90)};
   const open=item?.open||item?.opensAt||item?.openTime||item?.open_time;
