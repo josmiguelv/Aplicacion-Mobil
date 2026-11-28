@@ -862,23 +862,13 @@ async function completeAcceptedQuote(entry){
  if(entry.body.catalogRevision!==publishedRevision)throw Error('El catálogo cambió después de la aceptación. Debes cancelar y solicitar una nueva confirmación.');
  const selected=shops.find(s=>s.id===entry.body.storeId);
  if(!selected)throw Error('La sede que aceptó ya no aparece en el catálogo publicado.');
- deliveryValidationStep='COTIZANDO_DELIVERY';
- deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
-  message:'Solicitud aceptada. Calculando delivery desde '+selected.name+'.'};
- render();
- // The signed-in agent accepted the exact request. Use its previously
- // calculated delivery price; geocode again only to recover a missing quote.
- if(!preApprovalQuoteFor(entry,selected,address,district)&&
-    (!Number.isFinite(deliveryLocation?.latitude)||
-     !Number.isFinite(deliveryLocation?.longitude)||
-     deliveryLocation.key!==deliveryAddressKey(address,district))){
-  if(String(address||'').trim().length<6||String(district||'').trim().length<2)
-   throw Error('Confirma la dirección de entrega antes de calcular el delivery.');
-  const geocoded=await geocodeDeliveryDestination(address,district);
-  if(st.stage!=='availability')return false;
-  deliveryLocation={...geocoded,key:deliveryAddressKey(address,district)};
- }
- const quote=await acceptedStoreQuote(entry,selected,address,district);
+ // Pricing was calculated before sending the interaction. Acceptance must not
+ // geocode, recalculate, or make a new API request.
+ deliveryValidationStep='RECUPERANDO_COTIZACION';
+ const cached=preApprovalQuoteFor(entry,selected,address,district);
+ if(!cached&&!pendingDeliveryQuote?.quote)
+  throw Error('No se conservó la cotización previa de esta solicitud. Reintenta sin crear otro pedido.');
+ const quote=cached||await acceptedStoreQuote(entry,selected,address,district);
  if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
