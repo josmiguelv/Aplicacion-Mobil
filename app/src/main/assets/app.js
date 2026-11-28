@@ -687,15 +687,36 @@ function deliveryQuoteKey(storeId,address,district,loc){
  return JSON.stringify([storeId,publishedRevision,deliveryAddressKey(address,district),
   loc?.latitude,loc?.longitude]);
 }
+const DELIVERY_QUOTES_CACHE_KEY='b3-delivery-quotes-by-destination-v1';
 function prepareDeliveryQuotes(candidates,address,district,loc){
+ const destination=deliveryAddressKey(address,district);
+ let saved=null;
+ try{saved=JSON.parse(localStorage.getItem(DELIVERY_QUOTES_CACHE_KEY)||'null')}catch{}
+ const sameDestination=saved?.destination===destination&&
+  Number(saved.latitude)===Number(loc?.latitude)&&
+  Number(saved.longitude)===Number(loc?.longitude);
+ const stored=sameDestination&&saved?.quotes&&typeof saved.quotes==='object'?saved.quotes:{};
+ const next={...stored};
  precomputedDeliveryQuotes.clear();
  for(const candidate of candidates){
-  const local=quoteForDeliveryCandidate(candidate);
+  const storeId=candidate.store.id;
+  const existing=stored[storeId];
+  const valid=existing&&existing.storeId===storeId&&
+   existing.distanceSource==='STRAIGHT_LINE'&&
+   Number.isFinite(Number(existing.deliveryFeePen))&&Number(existing.deliveryFeePen)>=0&&
+   Array.isArray(existing.paymentMethods)&&existing.paymentMethods.length>0;
+  // One calculation per destination/store. Never silently recalculate on
+  // retries, agent search, app resume or a catalog revision refresh.
+  const local=valid?existing:quoteForDeliveryCandidate(candidate);
   if(!Array.isArray(local.paymentMethods)||!local.paymentMethods.length)continue;
-  const key=deliveryQuoteKey(candidate.store.id,address,district,loc);
-  precomputedDeliveryQuotes.set(key,{...local,revision:publishedRevision,
-   quoteOrigin:'ANDROID_CATALOG_ACCEPTED'});
+  const quote={...local,revision:valid?existing.revision:publishedRevision,
+   quoteOrigin:'ANDROID_CATALOG_ACCEPTED'};
+  next[storeId]=quote;
+  precomputedDeliveryQuotes.set(deliveryQuoteKey(storeId,address,district,loc),quote);
  }
+ try{localStorage.setItem(DELIVERY_QUOTES_CACHE_KEY,JSON.stringify({
+  destination,latitude:loc?.latitude,longitude:loc?.longitude,quotes:next
+ }))}catch(error){console.warn('[B3 delivery] Quote cache unavailable',error?.message)}
  console.info('[B3 order timing] delivery_quotes_prepared',precomputedDeliveryQuotes.size);
 }
 // All pricing inputs come from the published catalog loaded at splash.
@@ -707,14 +728,19 @@ function acceptedCatalogQuote(selected,address,district){
  const key=deliveryQuoteKey(selected.id,address,district,loc);
  const precomputed=precomputedDeliveryQuotes.get(key);
  if(precomputed)return precomputed;
- // Recovery only (e.g. the app was restarted while the agent was deciding):
- // normal checkout already calculated every candidate before sending the FORM.
- const candidate=eligibleDeliveryCandidates(loc).find(x=>x.store.id===selected.id);
- if(!candidate)throw Error('La sede que aceptó no cumple la cobertura y tarifa publicadas.');
- const local=quoteForDeliveryCandidate(candidate);
- if(!Array.isArray(local.paymentMethods)||!local.paymentMethods.length)
-  throw Error('La sede no tiene medios de pago habilitados para delivery.');
- return {...local,revision:publishedRevision,quoteOrigin:'ANDROID_CATALOG_ACCEPTED'};
+ // A previously calculated delivery fee must never be recomputed here.
+ // Recovery after restart reads the destination-scoped persistent snapshot.
+ let snapshot=null;
+ try{snapshot=JSON.parse(localStorage.getItem(DELIVERY_QUOTES_CACHE_KEY)||'null')}catch{}
+ const quote=snapshot?.destination===deliveryAddressKey(address,district)&&
+  Number(snapshot.latitude)===Number(loc.latitude)&&
+  Number(snapshot.longitude)===Number(loc.longitude)?
+  snapshot.quotes?.[selected.id]:null;
+ if(!quote||quote.storeId!==selected.id||!Number.isFinite(Number(quote.deliveryFeePen))||
+    Number(quote.deliveryFeePen)<0||!Array.isArray(quote.paymentMethods)||
+    !quote.paymentMethods.length)
+  throw Error('La tarifa de esta dirección no está guardada. No se recalculará después de la aceptación.');
+ return quote;
 }
 function warmAcceptedStoreQuote(entry,selected,address,district){
  if(!entry?.interactionId)return;
