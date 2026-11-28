@@ -3733,8 +3733,31 @@ function openPrivacyLaw(){
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
 function signin(){return `<div class="page form">${heading('Continuar con teléfono','login')}<p class="sub">Selecciona tu país e ingresa tu celular. No enviamos SMS ni verificamos que seas titular de este número. Para cada pedido deberás confirmar los datos del destinatario.</p>${phoneFields('signin-value',st.profile.phone||'')}<button class="primary full" data-phone-continue="1">Continuar sin verificación SMS</button><p class="smallprint">Tu número se guarda en este dispositivo como dato de contacto, no como identidad verificada.</p></div>`}
+let paymentOutcomeAutoTimer=null;
+let paymentOutcomeAutoKey='';
+function syncPaymentOutcomeAutoNavigation(){
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ const accepted=st.stage==='paymentOutcome'&&entry?.paymentConfirmation?.status==='ACCEPTED';
+ const key=accepted?entry.interactionId:'';
+ if(!key){
+  if(paymentOutcomeAutoTimer!==null)clearTimeout(paymentOutcomeAutoTimer);
+  paymentOutcomeAutoTimer=null;paymentOutcomeAutoKey='';
+  return;
+ }
+ if(paymentOutcomeAutoKey===key)return;
+ if(paymentOutcomeAutoTimer!==null)clearTimeout(paymentOutcomeAutoTimer);
+ paymentOutcomeAutoKey=key;
+ paymentOutcomeAutoTimer=setTimeout(()=>{
+  paymentOutcomeAutoTimer=null;
+  const current=window.B3OrderAvailability?.readInteraction?.();
+  if(st.stage!=='paymentOutcome'||current?.interactionId!==key||
+     current?.paymentConfirmation?.status!=='ACCEPTED')return;
+  nav('pedidos');
+ },5000);
+}
 function render(){
  recoverDeliveredCommunicationCloses();
+ syncPaymentOutcomeAutoNavigation();
  // Resume an acknowledged-delivery notice after app restart without reopening
  // favorites or surveys before the customer accepts the delivery message.
  if(st.stage==='app'&&!deliveredNoticeOrderId&&!favoritePromptOrderId&&!reviewSheetOrderId){
