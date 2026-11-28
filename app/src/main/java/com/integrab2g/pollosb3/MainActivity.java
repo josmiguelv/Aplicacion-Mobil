@@ -46,6 +46,16 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import org.json.JSONArray;
 import java.util.List;
 import java.util.Locale;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URI;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 
 /** Android V10: navigation and optional foreground GPS for delivery. No background tracking. */
 public class MainActivity extends Activity {
@@ -62,6 +72,7 @@ public class MainActivity extends Activity {
     static final String PREFS = "b3_push_settings";
     private boolean pendingNotificationsScreen = false;
     private String pendingNotificationId = "";
+    private final ExecutorService reservationHttpExecutor = Executors.newSingleThreadExecutor();
     private WebView web;
     private WebViewAssetLoader assetLoader;
     private LocationManager locationManager;
@@ -305,6 +316,65 @@ public class MainActivity extends Activity {
                 );
             });
         }
+
+        /** Dedicated native HTTPS transport for the reservation quote only; no WebView CORS bypass. */
+        @JavascriptInterface public void requestReservationQuote(String requestId,String payload) {
+            if(requestId==null||!requestId.matches("[a-zA-Z0-9_-]{1,64}")||
+               payload==null||payload.length()>16384)return;
+            reservationHttpExecutor.execute(()->{
+                int status=0;String body="";String error="";
+                HttpURLConnection connection=null;
+                try {
+                    String configured=getString(R.string.b3_api_base).trim();
+                    URI base=new URI(configured);
+                    if(!"https".equalsIgnoreCase(base.getScheme())||base.getHost()==null||
+                       base.getUserInfo()!=null||base.getQuery()!=null||base.getFragment()!=null)
+                        throw new IllegalStateException("invalid-api-base");
+                    JSONObject request=new JSONObject(payload);
+                    if(!"com.integrab2g.pollosb3".equals(request.optString("appId"))||
+                       !"pickup".equals(request.optString("mode")))
+                        throw new IllegalArgumentException("invalid-quote-request");
+                    URL endpoint=new URL(base.getScheme(),base.getHost(),
+                        base.getPort(),"/api/v1/mobile/reservations/quote");
+                    connection=(HttpURLConnection)endpoint.openConnection();
+                    connection.setRequestMethod("POST");
+                    connection.setConnectTimeout(12000);
+                    connection.setReadTimeout(12000);
+                    connection.setInstanceFollowRedirects(false);
+                    connection.setDoOutput(true);
+                    connection.setRequestProperty("Content-Type","application/json; charset=utf-8");
+                    connection.setRequestProperty("Accept","application/json");
+                    byte[] bytes=payload.getBytes(StandardCharsets.UTF_8);
+                    connection.setFixedLengthStreamingMode(bytes.length);
+                    try(OutputStream out=connection.getOutputStream()){out.write(bytes);}
+                    status=connection.getResponseCode();
+                    if(status>=300&&status<400)throw new java.io.IOException("redirect-rejected");
+                    InputStream stream=status>=400?connection.getErrorStream():connection.getInputStream();
+                    if(stream!=null){
+                        try(InputStream in=stream;ByteArrayOutputStream buffer=new ByteArrayOutputStream()){
+                            byte[] chunk=new byte[4096];int n;
+                            while((n=in.read(chunk))!=-1){
+                                if(buffer.size()+n>65536)throw new java.io.IOException("response-too-large");
+                                buffer.write(chunk,0,n);
+                            }
+                            body=buffer.toString("UTF-8");
+                        }
+                    }
+                }catch(java.net.SocketTimeoutException ex){error="timeout";}
+                catch(Exception ex){error="network";}
+                finally{if(connection!=null)connection.disconnect();}
+                JSONObject result=new JSONObject();
+                try{result.put("id",requestId);result.put("status",status);
+                    result.put("body",body);result.put("error",error);}catch(Exception ignored){}
+                final String resultJson=result.toString();
+                runOnUiThread(()->{
+                    if(web!=null)web.evaluateJavascript(
+                        "window.b3NativeReservationQuoteResult&&window.b3NativeReservationQuoteResult("+
+                        resultJson+")",null);
+                });
+            });
+        }
+
         /** Public HTTPS base URL only, never secrets or API tokens in Android. */
         @JavascriptInterface public String getApiBase() {
             String configured = getString(R.string.b3_api_base).trim();
@@ -1265,6 +1335,7 @@ public class MainActivity extends Activity {
         });
     }
     @Override protected void onDestroy() {
+        reservationHttpExecutor.shutdownNow();
         appLinkPageReady = false;
         pendingOpenHome = false;
         pendingNotificationsScreen = false;
