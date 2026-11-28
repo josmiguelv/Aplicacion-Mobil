@@ -3318,6 +3318,42 @@ const B3_CHAT_ACTIVITY=Object.freeze({
  cancelled_before_send:'Se descartó la solicitud local sin confirmación de creación.',
  payment_window:'La sede aceptó y se habilitó el plazo para elegir cómo pagar.'
 });
+const b3ChatSent=new Map();
+let b3ChatBusy=false;
+function chatWritable(entry){
+ if(!entry||entry.agentDecision!=='ACCEPTED'||entry.status!=='ACCEPTED'||
+    !entry.interactionId||['CLOSED','RESOLVED'].includes(entry.operationalConversationStatus))return false;
+ const order=st.orders?.find(o=>o?.interactionId===entry.interactionId);
+ return order?.status!=='DELIVERED'&&order?.status!=='CANCELLED';
+}
+async function sendChatTextFromOverlay(){
+ if(b3ChatBusy||!chatOverlay)return;
+ const input=chatOverlay.querySelector('#b3-chat-input');
+ const error=chatOverlay.querySelector('#b3-chat-error');
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ const text=input?.value.trim()||'';
+ if(!chatWritable(entry)||!text||text.length>2000)return;
+ const id=entry.interactionId;
+ b3ChatBusy=true;
+ const send=chatOverlay.querySelector('[data-chat-send]');
+ if(send)send.disabled=true;
+ if(error)error.textContent='';
+ try{
+  // New key for each independent customer message. No automatic retry on uncertainty.
+  const key=crypto.randomUUID();
+  await window.B3OrderAvailability.sendCustomerChatText(entry,text,key);
+  const sent=b3ChatSent.get(id)||[];
+  sent.push({id:key,text,at:Date.now()});
+  b3ChatSent.set(id,sent.slice(-40));
+  if(input)input.value='';
+  refreshChatTimeline();
+ }catch(e){
+  if(error)error.textContent='No se confirmó el envío. Verifica el chat antes de reintentar.';
+ }finally{
+  b3ChatBusy=false;
+  if(send)send.disabled=!chatWritable(window.B3OrderAvailability?.readInteraction?.());
+ }
+}
 function chatTranscript(){
  const entry=window.B3OrderAvailability?.readInteraction?.();
  if(!entry)return '<div class="b3-chat-empty">Aún no tienes una solicitud registrada. Cuando envíes un pedido, aquí aparecerá su seguimiento.</div>';
@@ -3343,12 +3379,14 @@ function chatTranscript(){
    seen.add(msg.id);
    lines.push({kind:'advisor',text:msg.text,time:date,order:50});
  }
+ for(const msg of b3ChatSent.get(entry.interactionId)||[])
+  lines.push({kind:'customer',text:msg.text,time:msg.at,order:60});
  lines.sort((a,b)=>a.time-b.time||a.order-b.order);
  return lines.slice(-65).map(line=>{
    const date=new Date(line.time);
    const clock=Number.isFinite(date.getTime())?date.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}):'';
-   const who=line.kind==='advisor'?'Asesor de la sede':line.kind==='live'?'En proceso':'Pollos B3 · Sistema';
-   return '<div class="b3-chat-line '+(line.kind==='advisor'?'advisor':line.kind==='live'?'live':'system')+'">'+
+   const who=line.kind==='customer'?'Tú':line.kind==='advisor'?'Asesor de la sede':line.kind==='live'?'En proceso':'Pollos B3 · Sistema';
+   return '<div class="b3-chat-line '+(line.kind==='customer'?'customer':line.kind==='advisor'?'advisor':line.kind==='live'?'live':'system')+'">'+
     '<div class="b3-chat-author">'+esc(who)+'<time>'+esc(clock)+'</time></div>'+
     '<p>'+esc(line.text)+'</p></div>';
  }).join('');
@@ -3382,6 +3420,11 @@ function refreshChatTimeline(){
  }
  const status=chatOverlay.querySelector('#b3-chat-status');
  if(status)status.textContent=chatStatusLine();
+ const writable=chatWritable(window.B3OrderAvailability?.readInteraction?.());
+ const composer=chatOverlay.querySelector('#b3-chat-composer');
+ if(composer)composer.hidden=!writable;
+ const locked=chatOverlay.querySelector('#b3-chat-locked');
+ if(locked)locked.hidden=writable;
 }
 // The overlay lives outside #app so its opening/closing never rebuilds forms.
 let chatOverlay=null,chatRestoreFocus=null;
@@ -3399,6 +3442,10 @@ function openChatOverlay(){
   if(action.hasAttribute('data-chat-close')){closeChatOverlay();return}
   closeChatOverlay();
   returnToPersonalCheckout(); // Only on intentional "Ver estado".
+ });
+ layer.addEventListener('submit',event=>{
+  if(event.target.id!=='b3-chat-composer')return;
+  event.preventDefault();void sendChatTextFromOverlay();
  });
  document.body.appendChild(layer);
  chatOverlay=layer;
@@ -3423,7 +3470,8 @@ function chat(){
   '<div class="chat-info b3-chat-info">'+ic('chat',20)+'<span id="b3-chat-status">'+esc(chatStatusLine())+'</span></div>'+
   '<div id="b3-chat-history" class="chat-messages b3-chat-history" role="log" aria-label="Historial de la solicitud">'+chatTranscript()+'</div>'+
   (open?'<button type="button" class="outline full b3-chat-return" data-checkout-return="1">Ver estado de mi solicitud</button>':'')+
-  '<div class="b3-chat-readonly">'+ic('info',17)+' <span>Seguimiento de solo lectura. Solo se muestran eventos confirmados y mensajes reales del asesor.</span></div>'+
+  '<form id="b3-chat-composer" '+(chatWritable(entry)?'':'hidden')+'><label for="b3-chat-input">Escribe al asesor</label><div class="b3-chat-compose-row"><input id="b3-chat-input" maxlength="2000" autocomplete="off" placeholder="Escribe tu mensaje" aria-label="Mensaje para el asesor"><button type="submit" data-chat-send="1">Enviar</button></div><small id="b3-chat-error" role="alert"></small></form>'+
+  '<div id="b3-chat-locked" class="b3-chat-readonly" '+(chatWritable(entry)?'hidden':'')+'>'+ic('info',17)+' <span>'+(entry?.agentDecision==='ACCEPTED'?'La comunicación está cerrada o el pedido terminó.':'Podrás escribir cuando la sede acepte tu solicitud.')+'</span></div>'+
  '</div>';
 }
 function about(){return `<div class="page about b3-about-new">${heading('Sobre la app','app')}
