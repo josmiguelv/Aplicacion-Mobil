@@ -232,6 +232,28 @@ let selectedVacancyId=null;
 const storeAllowed=(s,m)=>!!s&&s.active!==false&&(m==='delivery'?s.delivery_enabled!==false:m==='pickup'?s.pickup_enabled!==false:s.dine_in_enabled===true);
 function availableStores(m){return shops.filter(s=>s.active!==false)}
 
+function pickupAvailabilityIssue(s,{scheduled=false}={}){
+ if(!st.configReady)return 'No pudimos verificar la disponibilidad del local. Inténtalo nuevamente.';
+ if(!s)return 'El local seleccionado ya no figura en la configuración publicada. Elige otro local.';
+ if(s.active===false)return 'Este local está deshabilitado temporalmente.';
+ if(s.active!==true)return 'No pudimos confirmar si este local está habilitado. Inténtalo nuevamente.';
+ if(s.pickup_enabled===false)return 'Este local no está aceptando pedidos para recojo.';
+ if(s.pickup_enabled!==true)return 'No pudimos confirmar si este local acepta recojo. Inténtalo nuevamente.';
+ if(scheduled){
+  if(s.reservation_enabled===false)return 'Este local no tiene habilitado el recojo programado.';
+  if(s.reservation_enabled!==true)return 'No pudimos confirmar si el recojo programado está habilitado.';
+  if(s.reservationAcceptingRequests!==true)return 'No hay disponibilidad confirmada para programar el recojo en este local.';
+  if(!reservationQuote||reservationQuote.storeId!==s.id||
+    reservationQuote.dateTime!==st.reservationAt||
+    reservationQuote.agentAvailable!==true||reservationQuote.acceptingRequests!==true)
+   return 'La fecha y hora programadas necesitan una nueva confirmación de disponibilidad.';
+  return '';
+ }
+ if(s.hoursConfigured!==true)return 'El local aún no tiene un horario de atención publicado.';
+ if(s.isOpen===false)return 'El local se encuentra fuera de su horario de atención.';
+ if(s.isOpen!==true)return 'No pudimos verificar si el local está abierto. Inténtalo nuevamente.';
+ return '';
+}
 function eligibleForPickup(s){return !!s&&s.active!==false&&s.pickup_enabled===true&&
  (s.hoursConfigured===true&&s.isOpen===true)}
 function pickupPaymentConfigured(s){
@@ -3165,12 +3187,8 @@ async function submitPickupRequest(){
    throw Error('Actualiza la aplicación para solicitar el recojo.');
   await fetchConfig({strict:true});
   const selected=shops.find(x=>String(x.id)===String(st.store));
-  if(!selected||(st.scheduleMode==='reservation'?
-     !(selected.active===true&&selected.pickup_enabled===true&&selected.reservation_enabled===true&&
-       selected.reservationAcceptingRequests===true&&reservationQuote?.storeId===selected.id&&
-       reservationQuote?.dateTime===st.reservationAt&&reservationQuote?.agentAvailable===true&&
-       reservationQuote?.acceptingRequests===true):!eligibleForPickup(selected)))
-   throw Error('El local ya no está habilitado para este recojo.');
+  const pickupIssue=pickupAvailabilityIssue(selected,{scheduled:st.scheduleMode==='reservation'});
+  if(pickupIssue)throw Error(pickupIssue);
   await validateCartPromotionsBeforeRequest();
   const items=publishedOrderItems();
   if(!/^\+[1-9][0-9]{6,14}$/.test(String(st.profile.phone||'').trim())||!String(st.profile.first||'').trim()||
@@ -3669,8 +3687,8 @@ async function revalidateCheckout(next){
     if(st.stage!=='availability')screen('availability');return false
    }
   }else if(st.mode==='pickup'){
-   if(!eligibleForPickup(shops.find(x=>String(x.id)===String(st.store)))){
-    checkoutReviewNote='El local de recojo ya no está abierto o no acepta pedidos.';
+   if(pickupAvailabilityIssue(shops.find(x=>String(x.id)===String(st.store)),{scheduled:st.scheduleMode==='reservation'})){
+    checkoutReviewNote=pickupAvailabilityIssue(shops.find(x=>String(x.id)===String(st.store)),{scheduled:st.scheduleMode==='reservation'})||'No pudimos confirmar la disponibilidad de recojo.';
     screen('locations');return false
    }
    // Pickup has no delivery fee. Fresh GET already checked this store's
