@@ -266,7 +266,7 @@ function pickupPaymentWarning(s){
   :'';
 }
 function storeStatusHtml(s){
- if(s.hoursConfigured!==true)return '';
+ if(s.hoursConfigured!==true)return '<span class="pickup-status closed">Horario no confirmado</span>';
  const state=s.isOpen===true?'Abierto':'Cerrado';
  const until=s.isOpen===true&&/^([01]\d|2[0-3]):[0-5]\d$/.test(s.closesAt||'')?' · Hasta las '+esc(s.closesAt):'';
  return '<span class="pickup-status '+(s.isOpen===true?'open':'closed')+'">'+state+until+'</span>';
@@ -1497,9 +1497,8 @@ async function confirmStore(mode,id,{showDetails=false}={}){
   }
   if(showDetails){screen('localDetail');return true}
   fulfillmentModal=null;
-  // Keep the user in the pickup journey after choosing a store.
-  if(st.cart.length)screen('cart');
-  else screen('localDetail');
+  // Store selection closes the selector and persists the pickup store.
+  st.stage='app';st.tab='inicio';render();
   return true;
  }catch(err){
   checkoutReviewNote=err?.message||'No se pudo actualizar el horario del local. Intenta nuevamente.';
@@ -2695,7 +2694,7 @@ function locations(){
      ${pickupPaymentWarning(s)}
      <div class="pickup-actions">
       ${(s.address||s.addr)?`<button type="button" class="outline" data-openmaps="${esc('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(s.address||s.addr))}">${ic('map',17)} Cómo llegar</button>`:''}
-      ${eligibleForPickup(s)?`<button class="primary" data-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'}</button>`:'<span class="smallprint">No disponible para recojo inmediato</span>'}
+      ${eligibleForPickup(s)?`<button class="primary" data-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'}</button>` :'<span class="pickup-status closed">Cerrado</span>'}
      </div>
    </div>`).join(''):'<div class="notice">No hay locales publicados por la administración. Consulta más adelante.</div>'}
  </div></div>`;
