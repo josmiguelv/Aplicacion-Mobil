@@ -878,26 +878,34 @@ function interactionMatchesCart(entry,address,district){
 // only a hint: the existing authenticated HTTP status endpoint remains authoritative.
 // Do not open a socket or send credentials until Admin publishes its WSS contract.
 let b3OrderEventWakeQueued=false;
+const b3ChatEventTimers=new Map();
 window.addEventListener('b3-order-status-event',event=>{
  const payload=event?.detail;
+ if(!payload||!['INTERACTION_UPDATED','INTERACTION_SYNC_REQUIRED'].includes(payload.type)||
+    typeof payload.interactionId!=='string')return;
+ // WSS is a notification, not message content. Fetch verified history
+ // for exactly the currently opened order's interaction.
+ if(chatOverlay&&chatEntry()?.interactionId===payload.interactionId){
+  const id=payload.interactionId;
+  if(!b3ChatEventTimers.has(id)){
+   b3ChatEventTimers.set(id,setTimeout(()=>{
+    b3ChatEventTimers.delete(id);
+    if(chatOverlay&&chatEntry()?.interactionId===id)void fetchOrderChatMessages(id);
+   },300));
+  }
+ }
  const entry=window.B3OrderAvailability?.readInteraction?.();
- if(!entry?.interactionId||!payload||
-    !['INTERACTION_UPDATED','INTERACTION_SYNC_REQUIRED'].includes(payload.type)||
-    payload.interactionId!==entry.interactionId||
+ if(!entry?.interactionId||payload.interactionId!==entry.interactionId||
     !['PENDING','ACCEPTED'].includes(entry.status)||
+    entry.agentDecision==='ACCEPTED'||entry.agentDecision==='REJECTED'||
     b3OrderEventWakeQueued)return;
  b3OrderEventWakeQueued=true;
- // Coalesce duplicate notifications. Never treat a push event as approval.
  setTimeout(()=>{
   b3OrderEventWakeQueued=false;
   const current=window.B3OrderAvailability?.readInteraction?.();
-  if(current?.interactionId!==payload.interactionId)return;
-  if(agentDecisionPolling){
-   // An event received during an in-flight GET must be checked again once
-   // that GET settles; never silently discard a newer notification.
-   b3OrderEventWakeQueued=true;
-   return;
-  }
+  if(current?.interactionId!==payload.interactionId||
+     current.agentDecision==='ACCEPTED'||current.agentDecision==='REJECTED')return;
+  if(agentDecisionPolling){b3OrderEventWakeQueued=true;return}
   stopAgentDecisionPoll();
   void pollAgentDecision();
  },150);
@@ -906,15 +914,28 @@ let b3OrderSocketSubscription='';
 function syncOrderSocket(entry){
  const bridge=window.AndroidBridge;
  if(!bridge?.subscribeOrderEvents)return;
- const eligible=entry?.interactionId&&entry?.idempotencyKey&&entry?.body?.appId&&
-  entry?.body?.storeId&&['PENDING','ACCEPTED'].includes(entry.status)&&
-  entry.agentDecision!=='ACCEPTED'&&entry.agentDecision!=='REJECTED';
- const identity=eligible?[entry.interactionId,entry.idempotencyKey,entry.body.storeId].join(':'):'';
+ // One native WSS connection: give the currently opened order conversation
+ // priority. Other orders continue independent background HTTP tracking.
+ const opened=chatOverlay?chatEntry():null;
+ const openedEligible=opened?.interactionId&&opened?.idempotencyKey&&
+  opened.body?.appId&&opened.body?.storeId&&
+  ['PENDING','ACCEPTED'].includes(opened.status)&&
+  !['CLOSED','RESOLVED'].includes(opened.operationalConversationStatus)&&
+  !b3ChatClosedByServer.has(opened.interactionId)&&
+  !window.B3OrderAvailability?.isCommunicationCloseConfirmed?.(opened.interactionId)&&
+  !st.orders?.some(o=>o?.interactionId===opened.interactionId&&
+   ['DELIVERED','CANCELLED'].includes(o.status));
+ const selected=openedEligible?opened:entry;
+ const eligible=selected?.interactionId&&selected?.idempotencyKey&&
+  selected?.body?.appId&&selected?.body?.storeId&&
+  ['PENDING','ACCEPTED'].includes(selected.status)&&
+  (openedEligible||selected.agentDecision!=='ACCEPTED'&&selected.agentDecision!=='REJECTED');
+ const identity=eligible?[selected.interactionId,selected.idempotencyKey,selected.body.storeId].join(':'):'';
  if(identity===b3OrderSocketSubscription)return;
  b3OrderSocketSubscription=identity;
  if(!eligible){bridge.unsubscribeOrderEvents?.();return;}
- bridge.subscribeOrderEvents(JSON.stringify({interactionId:entry.interactionId,
-  appId:entry.body.appId,storeId:entry.body.storeId,accessKey:entry.idempotencyKey}));
+ bridge.subscribeOrderEvents(JSON.stringify({interactionId:selected.interactionId,
+  appId:selected.body.appId,storeId:selected.body.storeId,accessKey:selected.idempotencyKey}));
 }
 function stopAgentDecisionPoll(){
  if(agentDecisionTimer!==null)clearTimeout(agentDecisionTimer);
