@@ -787,6 +787,28 @@ function interactionMatchesCart(entry,address,district){
    (!oldCustomer||!currentCustomer||JSON.stringify(oldCustomer)===JSON.stringify(currentCustomer));
  }catch(_){return false}
 }
+// Event-driven wake-up for a future authenticated WSS transport. The event is
+// only a hint: the existing authenticated HTTP status endpoint remains authoritative.
+// Do not open a socket or send credentials until Admin publishes its WSS contract.
+let b3OrderEventWakeQueued=false;
+window.addEventListener('b3-order-status-event',event=>{
+ const payload=event?.detail;
+ const entry=window.B3OrderAvailability?.readInteraction?.();
+ if(!entry?.interactionId||!payload||payload.type!=='ORDER_STATUS_CHANGED'||
+    payload.interactionId!==entry.interactionId||
+    !['ACCEPTED','REJECTED','CLOSED'].includes(payload.status)||
+    !['PENDING','ACCEPTED'].includes(entry.status)||
+    b3OrderEventWakeQueued||agentDecisionPolling)return;
+ b3OrderEventWakeQueued=true;
+ // Coalesce duplicate notifications. Never treat a push event as approval.
+ setTimeout(()=>{
+  b3OrderEventWakeQueued=false;
+  const current=window.B3OrderAvailability?.readInteraction?.();
+  if(current?.interactionId!==payload.interactionId)return;
+  stopAgentDecisionPoll();
+  void pollAgentDecision();
+ },150);
+});
 function stopAgentDecisionPoll(){
  if(agentDecisionTimer!==null)clearTimeout(agentDecisionTimer);
  agentDecisionTimer=null;
