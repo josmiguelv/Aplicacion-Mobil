@@ -929,8 +929,9 @@ async function completeAcceptedQuote(entry){
  const api=window.B3OrderAvailability;
  if(acceptedQuoteInteractionId!==entry.interactionId){acceptedQuoteInteractionId=entry.interactionId;acceptedQuoteFailures=0;acceptedQuotePaused=false;}
  const address=st.profile.address,district=st.profile.district;
+ deliveryValidationStep='VALIDANDO_PEDIDO_ORIGINAL';
  if(!interactionMatchesCart(entry,address,district))
-  throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
+  throw Error('La identidad del pedido original no coincide con el carrito o los datos actuales.');
  if(entry.status!=='ACCEPTED')throw Error('Todavía no existe una aceptación válida del agente.');
  // A verified agent ACCEPTED decision proves the interaction reached the agent.
  // FORM delivery acknowledgement may arrive later and must not block checkout.
@@ -1164,10 +1165,10 @@ async function pollAgentDecision(){
        'La sede aceptó la solicitud, pero no se pudo validar el plazo de pago: '+String(error?.message||'Error de validación')+'. No se realizó ningún cobro.'):
      deliveryValidationStep==='HABILITANDO_PAGO'?
       'La tarifa se obtuvo, pero no se pudo habilitar el plazo de pago. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.':
-      'La sede confirmó los productos, pero no fue posible verificar la tarifa de Delivery. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.'):
+      'La sede aceptó el pedido, pero Android bloqueó el paso al pago en '+deliveryValidationStep+': '+String(error?.message||'Error desconocido')+'. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.'):
      (deliveryValidationStep==='HABILITANDO_PAGO'?
       'La tarifa está confirmada. Estamos reintentando habilitar el pago sin generar otro pedido.':
-      'La sede aceptó los productos. Estamos reintentando obtener la tarifa de delivery sin crear otro pedido.')):
+      'La sede aceptó el pedido. Reintentando la transición a pagos ('+deliveryValidationStep+'). No se enviará otro pedido.')):
     recovering?'Estamos comprobando que tu solicitud haya quedado registrada. No la enviaremos dos veces.':
     sending?formWaitingMessage(latest):
     pending?'Tu solicitud está registrada. Estamos verificando la respuesta de la sede.':
