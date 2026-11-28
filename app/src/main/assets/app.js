@@ -3699,6 +3699,8 @@ const B3_CHAT_ACTIVITY=Object.freeze({
 });
 const b3ChatSent=new Map();
 const b3ChatReceived=new Map();
+const b3ChatPendingRefresh=new Set();
+let b3ChatFallbackTimer=null;
 const B3_CONFIRMED_CHAT_KEY='b3-confirmed-customer-chat-v1';
 let b3ChatInteractionId=null;
 function chatEntry(){
@@ -3731,7 +3733,8 @@ function openOrderConversation(id){
 async function fetchOrderChatMessages(id){
  const api=window.B3OrderAvailability;
  const entry=chatEntry();
- if(entry?.interactionId!==id||!api?.readTrackingMessages||b3ChatStatusInFlight.has(id))return;
+ if(entry?.interactionId!==id||!api?.readTrackingMessages)return;
+ if(b3ChatStatusInFlight.has(id)){b3ChatPendingRefresh.add(id);return}
  b3ChatStatusInFlight.add(id);
  try{
   const result=await api.readTrackingMessages(entry);
@@ -3741,6 +3744,8 @@ async function fetchOrderChatMessages(id){
  finally{
   b3ChatStatusInFlight.delete(id);
   if(chatEntry()?.interactionId===id)refreshChatTimeline();
+  if(b3ChatPendingRefresh.delete(id)&&chatOverlay&&chatEntry()?.interactionId===id)
+   void fetchOrderChatMessages(id);
  }
 }
 
@@ -3759,7 +3764,10 @@ function observeChatConversationState(interactionId,state){
   (state&&typeof state==='object'?(state.communicationStatus||state.status||''):'');
  if(['CLOSED','RESOLVED'].includes(String(status).toUpperCase())){
   b3ChatClosedByServer.add(interactionId);
-  if(chatOverlay)refreshChatTimeline();
+  if(chatOverlay&&chatEntry()?.interactionId===interactionId){
+   refreshChatTimeline();
+   syncOrderSocket(window.B3OrderAvailability?.readInteraction?.());
+  }
  }
 }
 const b3ChatStatusInFlight=new Set();
@@ -3924,13 +3932,25 @@ function openChatOverlay(id=null){
  const list=layer.querySelector('#b3-chat-history');
  if(list)list.scrollTop=list.scrollHeight;
  const entry=chatEntry();
+ syncOrderSocket(window.B3OrderAvailability?.readInteraction?.());
  if(entry?.interactionId)void fetchOrderChatMessages(entry.interactionId);
+ // HTTP fallback while chat is visible, never one poll per order.
+ if(b3ChatFallbackTimer!==null)clearInterval(b3ChatFallbackTimer);
+ b3ChatFallbackTimer=setInterval(()=>{
+  const active=chatOverlay?chatEntry():null;
+  if(active?.interactionId&&document.visibilityState==='visible')
+   void fetchOrderChatMessages(active.interactionId);
+ },25000);
 }
 function closeChatOverlay(){
  if(!chatOverlay)return;
  chatOverlay.remove();
  chatOverlay=null;
  b3ChatInteractionId=null;
+ if(b3ChatFallbackTimer!==null){clearInterval(b3ChatFallbackTimer);b3ChatFallbackTimer=null}
+ for(const [id,timer] of b3ChatEventTimers){clearTimeout(timer);b3ChatEventTimers.delete(id)}
+ b3ChatPendingRefresh.clear();
+ syncOrderSocket(window.B3OrderAvailability?.readInteraction?.());
  const focus=chatRestoreFocus;
  chatRestoreFocus=null;
  if(focus?.isConnected)focus.focus({preventScroll:true});
