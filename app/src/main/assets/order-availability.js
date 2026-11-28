@@ -459,7 +459,7 @@
       if(!customer||typeof customer!=='object'||Array.isArray(customer)||
         Object.keys(customer).some(k=>!['firstName','lastName','phone','address','district','reference','mode'].includes(k))||
         customer.mode!=='delivery'||!field(customer.firstName,2,60)||!field(customer.lastName,2,60)||
-        typeof customer.phone!=='string'||!/^\\+[1-9][0-9]{6,14}$/.test(customer.phone)||
+        typeof customer.phone!=='string'||!/^\+[1-9][0-9]{6,14}$/.test(customer.phone)||
         !field(customer.address,6,180)||!field(customer.district,2,80)||
         (customer.reference!==undefined&&
          (typeof customer.reference!=='string'||customer.reference.length>180||
