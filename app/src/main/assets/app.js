@@ -2652,7 +2652,7 @@ function scheduleChoice(){
 // Query reservations automatically after a user change, never during rendering.
 function autoCheckReservationQuote(){
  if(st.stage!=='reservationPicker'||st.scheduleMode!=='reservation'||
-    !st.reservationAt||reservationQuoteBusy||reservationQuote?.dateTime===st.reservationAt)return;
+    st.mode==='pickup'||!st.reservationAt||reservationQuoteBusy||reservationQuote?.dateTime===st.reservationAt)return;
  if(st.mode==='delivery'&&
     (String(st.profile.address||'').trim().length<6||
      String(st.profile.district||'').trim().length<2)){
@@ -2667,7 +2667,7 @@ function reservationPicker(){
  const preview=reservationQuote?reservationFormPreview():null;
  return '<div class="page">'+heading('Programar reserva','scheduleChoice')+
   '<p class="sub">Elige cuándo deseas '+(st.mode==='delivery'?'recibir tu Delivery.':'recoger tu pedido.')+
-  ' Buscaremos automáticamente una sede disponible.</p>'+
+  (st.mode==='pickup'?' Selecciona la fecha y pulsa Siguiente para consultar sedes.</p>':' Buscaremos automáticamente una sede disponible.</p>')+
   '<label>Fecha y hora de la reserva<input id="b3-reservation-at" type="datetime-local" value="'+esc(st.reservationAt)+'"></label>'+
   (reservationSummary()?'<div class="summary-card"><b>'+esc(reservationSummary())+'</b></div>':'')+
   '<p class="smallprint">Horario aproximado: 15 minutos antes y 15 después de la hora seleccionada.</p>'+
@@ -2685,7 +2685,7 @@ function reservationPicker(){
   (reservationQuoteBusy?'<div class="notice" role="status">Buscando automáticamente una sede disponible...</div>':
    !st.reservationAt?'<div class="notice">Selecciona fecha y hora para consultar disponibilidad.</div>':
    '')+
-  (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div><button type="button" class="outline full" data-reservation-retry="1" '+(reservationQuoteBusy?'disabled':'')+'>Reintentar disponibilidad</button>':'')+
+  (st.mode==='pickup'?'':reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div><button type="button" class="outline full" data-reservation-retry="1" '+(reservationQuoteBusy?'disabled':'')+'>Reintentar disponibilidad</button>':'')+
   (st.mode==='pickup'&&reservationQuote?.mode==='pickup'&&reservationQuote.dateTime===st.reservationAt?'<div class="summary-card"><b>Sede confirmada:</b> '+esc(shops.find(x=>x.id===reservationQuote.storeId)?.name||'Sede asignada')+'<p>Un agente está disponible para revisar la solicitud. Los productos se confirmarán antes del pago.</p></div>':'')+
   (st.mode==='pickup'?'<button class="primary full" data-reservation-next="1">Siguiente · Ver sedes</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Cambiar a pedido inmediato (sin reserva)</button>'+
@@ -4510,7 +4510,7 @@ if(b.hasAttribute('data-clear')){
 }
 });
 root.addEventListener('change',e=>{
- if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;if(reservationQuoteController){reservationQuoteController.abort();reservationQuoteController=null}reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';st.store='';st.pay='';++reservationQuoteGeneration;save();render();scheduleReservationQuoteCheck();return}
+ if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;if(reservationQuoteController){reservationQuoteController.abort();reservationQuoteController=null}reservationQuote=null;pickupReservationQuotes=[];reservationQuoteBusy=false;reservationQuoteError='';if(st.mode==='delivery'){st.store='';st.pay=''}++reservationQuoteGeneration;save();render();if(st.mode==='delivery')scheduleReservationQuoteCheck();return}
  if(e.target?.id==='b3-reservation-cash-amount'){st.reservationCashAmount=e.target.value;save();render();return}
  if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
