@@ -2569,7 +2569,7 @@ async function checkReservationQuote(){
     if(!quote.paymentMethods.length)continue;
     const check=await api.checkAgentAvailability({appId:APP_ID,storeId:candidate.store.id});
     if(generation!==reservationQuoteGeneration)return;
-    if(check.available){selected={...quote,date:params.date,time:params.time,revision:publishedRevision,agentAvailable:true,acceptingRequests:true};break;}
+    if(check.available){selected={...quote,date:params.date,time:params.time,revision:publishedRevision,agentAvailable:true};break;}
    }
   }else {
    // One failing store must not prevent the remaining published stores from being checked.
