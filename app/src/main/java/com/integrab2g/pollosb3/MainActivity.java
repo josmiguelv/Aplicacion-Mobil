@@ -725,6 +725,26 @@ public class MainActivity extends Activity {
                         approvalFormFields=required.length;
                         body=payload.toString();
                         path="/api/v1/mobile/interactions/"+interactionId+"/payment-receipt";
+                    } else if ("INTERACTION_CHAT_TEXT".equals(operation)) {
+                        JSONObject payload=request.optJSONObject("body");
+                        String interactionId=request.optString("interactionId","");
+                        accessKey=request.optString("accessKey","");
+                        key=request.optString("idempotencyKey","");
+                        if(payload==null||payload.length()!=4||
+                           !"TEXT".equals(payload.optString("type",""))||
+                           !payload.optString("appId","").matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}")||
+                           !payload.optString("storeId","").matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                           !interactionId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                           !accessKey.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                           !key.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")||
+                           key.equalsIgnoreCase(accessKey)||
+                           !(payload.opt("text") instanceof String)||
+                           payload.optString("text","").trim().isEmpty()||
+                           payload.optString("text","").length()>8000||
+                           java.util.regex.Pattern.compile("[\\\\x00-\\\\x09\\\\x0B-\\\\x1F]").matcher(payload.optString("text","")).find())
+                            throw new IllegalArgumentException("Invalid chat text request");
+                        body=payload.toString();
+                        path="/api/v1/mobile/interactions/"+interactionId+"/messages";
                     } else if ("INTERACTION_MESSAGE".equals(operation)) {
                         JSONObject payload = request.optJSONObject("body");
                         String interactionId = request.optString("interactionId", "");
