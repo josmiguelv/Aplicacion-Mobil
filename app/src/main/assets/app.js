@@ -537,8 +537,8 @@ function deliveryQuoteValid(){
  }
  if(st.quote.quoteOrigin==='ANDROID_CATALOG_ACCEPTED'){
   const entry=window.B3OrderAvailability?.readInteraction?.();
-  return entry?.status==='ACCEPTED'&&entry.body?.storeId===st.store&&entry.body?.catalogRevision===publishedRevision&&
-    st.quote.storeId===st.store&&st.quote.quoteRevision===publishedRevision&&
+  return entry?.status==='ACCEPTED'&&entry.body?.storeId===st.store&&
+    st.quote.storeId===st.store&&st.quote.quoteRevision===entry.body?.catalogRevision&&
     st.quote.distanceSource==='STRAIGHT_LINE'&&
     st.quote.cartSignature===currentCartSignature()&&
     shops.some(x=>x.id===st.store&&x.active===true&&x.delivery_enabled===true);
@@ -666,11 +666,11 @@ function preApprovalQuoteFor(entry,selected,address,district){
  try{
   const record=JSON.parse(localStorage.getItem(APPROVAL_QUOTE_KEY)||'null');
   if(!record||!entry?.interactionId||record.interactionId!==entry.interactionId||
-     record.storeId!==selected?.id||record.revision!==publishedRevision||
+     record.storeId!==entry.body?.storeId||record.revision!==entry.body?.catalogRevision||
      record.addressKey!==deliveryAddressKey(address,district)||
-     record.cartSignature!==currentCartSignature())return null;
+     record.cartSignature!==JSON.stringify(entry.body?.items))return null;
   const quote=record.quote;
-  if(!quote||quote.storeId!==selected.id||quote.revision!==publishedRevision||
+  if(!quote||quote.storeId!==entry.body.storeId||quote.revision!==entry.body.catalogRevision||
      quote.distanceSource!=='STRAIGHT_LINE'||
      quote.deliveryFeePen==null||!Number.isFinite(Number(quote.deliveryFeePen))||
      Number(quote.deliveryFeePen)<0||!Array.isArray(quote.paymentMethods)||
@@ -902,7 +902,8 @@ async function completeAcceptedQuote(entry){
   throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
  if(entry.status!=='ACCEPTED')throw Error('Todavía no existe una aceptación válida del agente.');
  if(entry.body?.customer&&entry.messageDelivered!==true)throw Error('El formulario de aprobación todavía no tiene entrega confirmada.');
- if(entry.body.catalogRevision!==publishedRevision)throw Error('El catálogo cambió después de la aceptación. Debes cancelar y solicitar una nueva confirmación.');
+ // An already approved order keeps its original catalog revision and price.
+ // New catalog publications must not invalidate a frozen interaction quote.
  const selected=shops.find(s=>s.id===entry.body.storeId);
  if(!selected)throw Error('La sede que aceptó ya no aparece en el catálogo publicado.');
  // Pricing was calculated before sending the interaction. Acceptance must not
@@ -914,7 +915,7 @@ async function completeAcceptedQuote(entry){
  const quote=cached||await acceptedStoreQuote(entry,selected,address,district);
  if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
- if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
+ if(quote.revision!==entry.body.catalogRevision)throw Error('La cotización no corresponde a la revisión del pedido aprobado.');
  const fee=Number(quote.deliveryFeePen);
  if(!Number.isFinite(fee)||fee<0)throw Error('No se pudo determinar el costo del delivery.');
  // Android starts the payment clock from the verified agent acceptance.
@@ -937,7 +938,7 @@ async function completeAcceptedQuote(entry){
   paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
   routeDistanceKm:Number.isFinite(Number(quote.routeDistanceKm))?Number(quote.routeDistanceKm):null,
   distanceSource:'STRAIGHT_LINE',quoteOrigin:'ANDROID_CATALOG_ACCEPTED',serverValidated:false,
-  provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
+  provisional:true,quoteRevision:quote.revision,cartSignature:JSON.stringify(entry.body.items),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  acceptedQuoteFailures=0;acceptedQuotePaused=false;
  st.pay='';save();
