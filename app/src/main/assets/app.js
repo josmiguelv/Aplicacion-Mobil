@@ -3175,7 +3175,10 @@ async function submitPickupRequest(){
    screen('availability');scheduleAgentDecisionPoll(1000);return;
   }
   const entry=api.prepareInteraction({appId:APP_ID,storeId:selected.id,
-   catalogRevision:publishedRevision,items,orderForm:form});
+   catalogRevision:publishedRevision,items,customer:{
+    firstName:String(st.profile.first||'').trim(),lastName:String(st.profile.last||'').trim(),
+    phone:internationalMobile(st.profile.phone),mode:'pickup'
+   },orderForm:form});
   await api.createInteraction(entry);
   const current=api.readInteraction?.()||entry;
   if(current.interactionId&&current.messageDelivered!==true)ensureFormDelivery(current);
