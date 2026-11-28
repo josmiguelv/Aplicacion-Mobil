@@ -125,6 +125,29 @@ const API_BASE=(()=>{
  return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):'';
 })();
 // El catálogo y las vacantes se obtienen de la API del Administrador.
+// Scoped native HTTPS bridge for scheduled pickup quotes (WebView fetch is subject to CORS).
+const pendingNativeReservationQuotes=new Map();
+let nativeReservationSequence=0;
+window.b3NativeReservationQuoteResult=function(message){
+ const id=String(message?.id||'');
+ const pending=pendingNativeReservationQuotes.get(id);
+ if(!pending)return;
+ pendingNativeReservationQuotes.delete(id);
+ clearTimeout(pending.timer);
+ pending.resolve(message);
+};
+function nativePickupReservationQuote(payload){
+ return new Promise((resolve,reject)=>{
+  if(typeof window.AndroidBridge?.requestReservationQuote!=='function'){
+   reject(new Error('native-bridge-unavailable'));return;
+  }
+  const id='pickup_'+(++nativeReservationSequence);
+  const timer=setTimeout(()=>{pendingNativeReservationQuotes.delete(id);reject(new Error('native-timeout'))},27000);
+  pendingNativeReservationQuotes.set(id,{resolve,timer});
+  try{window.AndroidBridge.requestReservationQuote(id,JSON.stringify(payload))}
+  catch(error){clearTimeout(timer);pendingNativeReservationQuotes.delete(id);reject(error)}
+ });
+}
 let catalogPublished=false;
 const NOTIFICATIONS_API_BASE=(()=>{const raw=window.AndroidBridge?.getNotificationsApiBase?.()||'';return /^https:\/\//.test(raw)?raw.replace(/\/+$/,''):''})();
 let commercialNotifications=[],notificationsLoading=false,notificationsError='',notificationsRequestId=0;
@@ -2555,25 +2578,24 @@ async function checkReservationQuote(){
    for(const candidate of permitted){
    if(generation!==reservationQuoteGeneration)return;
    const query=candidate?{...params,storeId:candidate.id}:params;
-   const controller=typeof AbortController==='function'?new AbortController():null;
-   reservationQuoteController=controller;
-   const timeout=controller?setTimeout(()=>controller.abort(),12000):null;
-   let response;
+   let status=0,result=null,transportError='';
    try{
-    response=await fetch(API_BASE+'/api/v1/mobile/reservations/quote',{
-     method:'POST',headers:{'Content-Type':'application/json'},
-     body:JSON.stringify(query),cache:'no-store',...(controller?{signal:controller.signal}:{})});
+    const native=await nativePickupReservationQuote(query);
+    status=Number(native.status)||0;
+    transportError=String(native.error||'');
+    try{result=JSON.parse(native.body||'null')}catch{}
    }catch(networkError){
-    const kind=networkError?.name==='AbortError'?'timeout':'network';
-    reservationQuoteFailureKind=kind;
-    failures.push(kind);
+    transportError=networkError?.message==='native-timeout'?'timeout':'network';
+   }
+   if(generation!==reservationQuoteGeneration)return;
+   if(transportError){
+    const kind=transportError==='timeout'?'timeout':'network';
+    failures.push(kind);reservationQuoteFailureKind=kind;
     console.warn('[B3 reservation quote]',kind,{mode,storeId:String(candidate.id)});
     continue;
-   }finally{if(timeout!==null)clearTimeout(timeout);if(reservationQuoteController===controller)reservationQuoteController=null}
-   if(generation!==reservationQuoteGeneration)return;
-   const result=await response.json().catch(()=>null);
-   if(!response.ok){
-    const kind='http-'+response.status;
+   }
+   if(status<200||status>=300){
+    const kind='http-'+status;
     failures.push(kind);
     reservationQuoteFailureKind=kind;
     console.warn('[B3 reservation quote]',kind,{mode,storeId:String(candidate.id)});
