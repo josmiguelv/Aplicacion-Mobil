@@ -3730,14 +3730,28 @@ function openOrderConversation(id){
  if(!entry){toast('El chat de este pedido no está disponible en el dispositivo.');return}
  openChatOverlay(id);
 }
+// Both the transcript and the send preflight share one authenticated status
+// read per order, avoiding a false "closed" while the initial history loads.
+const b3ChatReadPromises=new Map();
+function readVerifiedChatState(entry){
+ const id=entry?.interactionId,api=window.B3OrderAvailability;
+ if(!id||!api?.readTrackingMessages)
+  return Promise.reject(Error('No se puede verificar esta conversación.'));
+ if(b3ChatReadPromises.has(id))return b3ChatReadPromises.get(id);
+ const operation=Promise.resolve().then(()=>api.readTrackingMessages(entry));
+ const shared=operation.finally(()=>{
+  if(b3ChatReadPromises.get(id)===shared)b3ChatReadPromises.delete(id);
+ });
+ b3ChatReadPromises.set(id,shared);
+ return shared;
+}
 async function fetchOrderChatMessages(id){
- const api=window.B3OrderAvailability;
  const entry=chatEntry();
- if(entry?.interactionId!==id||!api?.readTrackingMessages)return;
+ if(entry?.interactionId!==id)return;
  if(b3ChatStatusInFlight.has(id)){b3ChatPendingRefresh.add(id);return}
  b3ChatStatusInFlight.add(id);
  try{
-  const result=await api.readTrackingMessages(entry);
+  const result=await readVerifiedChatState(entry);
   if(result.available===true)b3ChatReceived.set(id,result.messages);
   observeChatConversationState(id,result.conversationState);
  }catch(error){console.warn('[B3 chat] Read failed',error?.message||'UNAVAILABLE')}
@@ -3773,17 +3787,17 @@ function observeChatConversationState(interactionId,state){
 const b3ChatStatusInFlight=new Set();
 async function verifyChatStillOpen(entry){
  if(!chatWritable(entry))return false;
- const api=window.B3OrderAvailability;
- if(!api?.readTrackingMessages||b3ChatStatusInFlight.has(entry.interactionId))return false;
- b3ChatStatusInFlight.add(entry.interactionId);
  try{
-  const result=await api.readTrackingMessages(entry);
+  const result=await readVerifiedChatState(entry);
   observeChatConversationState(entry.interactionId,result.conversationState);
-  return chatWritable(entry);
+  // A closed or resolved state is terminal, and accepting a request alone
+  // never overrides that decision. A missing state is still protected by
+  // the authoritative server-side send endpoint.
+  return chatEntry()?.interactionId===entry.interactionId&&chatWritable(entry);
  }catch(error){
   console.warn('[B3 chat] Could not verify conversation state',error?.message||'STATUS_UNAVAILABLE');
   return false;
- }finally{b3ChatStatusInFlight.delete(entry.interactionId)}
+ }
 }
 async function sendChatTextFromOverlay(){
  if(b3ChatBusy||!chatOverlay)return;
