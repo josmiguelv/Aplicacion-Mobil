@@ -2440,7 +2440,14 @@ async function checkReservationQuote(){
  const permitted=shops.filter(x=>x?.active===true&&x.reservation_enabled===true&&
    x.reservationAcceptingRequests===true&&x[st.mode+'_enabled']===true);
  if(st.mode!=='delivery'&&!permitted.length){
-  reservationQuoteError='En este momento no hay sedes disponibles para recibir reservas.';render();return;
+  // A missing published reservation setting is not proof that every store is unavailable.
+  const pickupEnabled=shops.filter(x=>x?.active===true&&x.pickup_enabled===true);
+  reservationQuoteError=!pickupEnabled.length?
+   'No hay sedes con recojo habilitado en la configuración recibida.':
+   pickupEnabled.some(x=>x.reservation_enabled!==true)?
+    'No hay sedes con recojo programado habilitado en la configuración recibida.':
+    'Las sedes no confirman disponibilidad para reservas en este momento.';
+  render();return;
  }
  const generation=++reservationQuoteGeneration;
  const scheduledAt=st.reservationAt;
@@ -4137,7 +4144,14 @@ if(b.hasAttribute('data-guest')){if(st.authProvider==='google')window.AndroidBri
 if(b.dataset.scheduleChoice){
  const choice=b.dataset.scheduleChoice;
  if(choice==='reservation'){
-   if(activePersonalCheckout()||['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(window.B3OrderAvailability?.readInteraction?.()?.status))return toast('Finaliza o cancela tu solicitud activa antes de programar una reserva.');
+   // Release only a verified, locally recorded paid order. Delivery does not block another purchase.
+   beginNewOrderAfterPayment();
+   const reservationEntry=window.B3OrderAvailability?.readInteraction?.();
+   if(activePersonalCheckout()||['PREPARED','SUBMITTING','PENDING','ACCEPTED'].includes(reservationEntry?.status)&&
+      reservationEntry?.paymentConfirmation?.status!=='ACCEPTED')
+     return toast('Finaliza o cancela tu solicitud activa antes de programar una reserva.');
+   if(reservationEntry?.paymentConfirmation?.status==='ACCEPTED')
+     return toast('No se pudo guardar el pedido anterior. Reintenta desde Mis pedidos.');
    ++deliveryValidationGeneration;deliveryRequestPending=false;resetReservationQuote();st.scheduleMode='reservation';if(st.mode==='pickup')st.pickupScheduleSelected=true;save();screen('reservationPicker');return}
  if(choice==='now'){resetReservationQuote();st.scheduleMode='now';st.reservationAt='';if(st.mode==='pickup')st.pickupScheduleSelected=true;save();
    if(scheduleReturnToModal){scheduleReturnToModal=false;st.stage='app';st.tab='inicio';fulfillmentModal=st.mode;render();if(st.mode==='pickup'&&API_BASE)void fetchConfig();return}
