@@ -2830,6 +2830,7 @@ function cart(){
   ${checkoutReviewNote?`<div class="notice" role="alert">${esc(checkoutReviewNote)}</div>`:''}
   <p class="smallprint">Tu pedido se enviará a Pollos B3 para confirmar su disponibilidad. El pago se realizará según la modalidad seleccionada.</p>
   <button class="outline full" data-tab="carta">Seguir pidiendo</button>
+  ${!draft&&st.mode==='pickup'?'<button type="button" class="outline full" data-mode="delivery">Cambiar a Delivery</button>':''}
   ${draft?'<div class="notice">Este es un carrito nuevo, separado del pedido en validación. Podrás enviarlo cuando finalice la solicitud activa.</div><button class="outline full" data-checkout-return="1">Ver pedido en validación</button>':`<button class="primary full" data-screen="identity" ${checkoutRefreshPending?"disabled":""}>${checkoutRefreshPending?"Actualizando disponibilidad...":"Continuar con mi pedido"}</button>`}`}
  </div>`;
 }
