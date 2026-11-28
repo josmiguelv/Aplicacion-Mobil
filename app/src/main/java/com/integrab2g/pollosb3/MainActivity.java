@@ -297,7 +297,114 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {}
     }
 
+
+    // Native WSS: the individual order access key never appears in URLs or JS events.
+    private final okhttp3.OkHttpClient orderWsHttp = new okhttp3.OkHttpClient.Builder()
+        .pingInterval(25, java.util.concurrent.TimeUnit.SECONDS)
+        .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build();
+    private okhttp3.WebSocket orderSocket;
+    private String orderSocketIdentity = "";
+    private int orderSocketGeneration = 0;
+    private boolean orderSocketForeground = true;
+    private final android.os.Handler orderWsHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private Runnable orderSocketReconnect;
+    private int orderSocketFailures = 0;
+    private String orderWsInteraction = "", orderWsApp = "", orderWsStore = "", orderWsKey = "";
+    private static final String ORDER_UUID = "(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+    private void emitOrderSocketEvent(String type,String interactionId,String eventId){
+        if(web==null)return;
+        try{
+            JSONObject data=new JSONObject();
+            data.put("type",type);data.put("interactionId",interactionId);
+            if(eventId!=null)data.put("eventId",eventId);
+            final String payload=data.toString();
+            runOnUiThread(()->{if(web!=null)web.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('b3-order-status-event',{detail:"+payload+"}))",null);});
+        }catch(Exception ignored){}
+    }
+    private void stopOrderSocket(){
+        orderSocketGeneration++;
+        if(orderSocketReconnect!=null)orderWsHandler.removeCallbacks(orderSocketReconnect);
+        orderSocketReconnect=null;
+        if(orderSocket!=null){orderSocket.close(1000,"Done");orderSocket=null;}
+        orderSocketIdentity="";
+    }
+    private void openOrderSocket(){
+        if(!orderSocketForeground||orderWsInteraction.isEmpty()||orderSocket!=null)return;
+        final int generation=++orderSocketGeneration;
+        final String id=orderWsInteraction;
+        final String identity=orderWsInteraction+":"+orderWsStore+":"+orderWsApp;
+        try{
+            java.net.URI origin=new java.net.URI(getString(R.string.b3_api_base));
+            if(!"https".equalsIgnoreCase(origin.getScheme())||origin.getHost()==null||
+                origin.getRawUserInfo()!=null||origin.getRawQuery()!=null||origin.getRawFragment()!=null)return;
+            String host=origin.getRawAuthority();
+            String url="wss://"+host+"/api/v1/mobile/interactions/"+id+
+                "/events/ws?appId="+java.net.URLEncoder.encode(orderWsApp,"UTF-8")+
+                "&storeId="+java.net.URLEncoder.encode(orderWsStore,"UTF-8");
+            okhttp3.Request request=new okhttp3.Request.Builder().url(url)
+                .header("X-Order-Access-Key",orderWsKey).build();
+            orderSocketIdentity=identity;
+            orderSocket=orderWsHttp.newWebSocket(request,new okhttp3.WebSocketListener(){
+                @Override public void onOpen(okhttp3.WebSocket ws,okhttp3.Response response){
+                    runOnUiThread(()->{if(generation==orderSocketGeneration)orderSocketFailures=0;});
+                }
+                @Override public void onMessage(okhttp3.WebSocket ws,String message){
+                    if(generation!=orderSocketGeneration||message.length()>1024)return;
+                    try{
+                        JSONObject event=new JSONObject(message);
+                        String type=event.optString("type","");
+                        String eventId=event.optString("eventId","");
+                        if(!id.equals(event.optString("interactionId","")))return;
+                        if("INTERACTION_SYNC_REQUIRED".equals(type)||
+                           ("INTERACTION_UPDATED".equals(type)&&eventId.matches(ORDER_UUID)))
+                            emitOrderSocketEvent(type,id,eventId.isEmpty()?null:eventId);
+                    }catch(Exception ignored){}
+                }
+                @Override public void onFailure(okhttp3.WebSocket ws,Throwable error,okhttp3.Response response){
+                    scheduleOrderSocketReconnect(generation,ws);
+                }
+                @Override public void onClosed(okhttp3.WebSocket ws,int code,String reason){
+                    scheduleOrderSocketReconnect(generation,ws);
+                }
+            });
+        }catch(Exception ignored){scheduleOrderSocketReconnect(generation,null);}
+    }
+    private void scheduleOrderSocketReconnect(int generation,okhttp3.WebSocket ws){
+        runOnUiThread(()->{
+            if(generation!=orderSocketGeneration)return;
+            if(orderSocket==ws||ws==null)orderSocket=null;
+            if(!orderSocketForeground||orderWsInteraction.isEmpty())return;
+            // Authorization/configuration failures must not create a retry storm.
+            int delay=Math.min(60000,2000*(1<<Math.min(5,orderSocketFailures++)));
+            orderSocketReconnect=()->{orderSocketReconnect=null;openOrderSocket();};
+            orderWsHandler.postDelayed(orderSocketReconnect,delay);
+        });
+    }
+    private void configureOrderSocket(String json){
+        runOnUiThread(()->{
+            try{
+                JSONObject request=new JSONObject(json);
+                String id=request.optString("interactionId","");
+                String app=request.optString("appId","");
+                String store=request.optString("storeId","");
+                String key=request.optString("accessKey","");
+                if(!id.matches(ORDER_UUID)||!store.matches(ORDER_UUID)||
+                    !key.matches(ORDER_UUID)||!app.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,149}")){
+                    stopOrderSocket();orderWsInteraction="";orderWsKey="";return;
+                }
+                if(id.equals(orderWsInteraction)&&app.equals(orderWsApp)&&
+                    store.equals(orderWsStore)&&key.equals(orderWsKey))return;
+                stopOrderSocket();orderSocketFailures=0;
+                orderWsInteraction=id;orderWsApp=app;orderWsStore=store;orderWsKey=key;
+                openOrderSocket();
+            }catch(Exception ignored){stopOrderSocket();orderWsInteraction="";orderWsKey="";}
+        });
+    }
+
     private final class Bridge {
+        @JavascriptInterface public void subscribeOrderEvents(String json){configureOrderSocket(json);}
+        @JavascriptInterface public void unsubscribeOrderEvents(){runOnUiThread(()->{stopOrderSocket();orderWsInteraction="";orderWsKey="";});}
         @JavascriptInterface public void signInWithGoogle() {
             runOnUiThread(() -> startGoogleSignIn());
         }
@@ -1178,6 +1285,8 @@ public class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
+        orderSocketForeground=true;
+        openOrderSocket();
         if (!resumeLocationAfterSettings || web == null) return;
         resumeLocationAfterSettings = false;
         web.postDelayed(() -> {
@@ -1334,7 +1443,15 @@ public class MainActivity extends Activity {
             if (!"true".equals(result)) { if (web.canGoBack()) web.goBack(); else finish(); }
         });
     }
+    @Override protected void onPause(){
+        orderSocketForeground=false;
+        stopOrderSocket();
+        super.onPause();
+    }
     @Override protected void onDestroy() {
+        stopOrderSocket();
+        orderWsHttp.dispatcher().executorService().shutdown();
+        orderWsHttp.connectionPool().evictAll();
         reservationHttpExecutor.shutdownNow();
         appLinkPageReady = false;
         pendingOpenHome = false;
