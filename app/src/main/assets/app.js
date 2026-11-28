@@ -872,7 +872,7 @@ async function completeAcceptedQuote(entry){
     (!Number.isFinite(deliveryLocation?.latitude)||
      !Number.isFinite(deliveryLocation?.longitude)||
      deliveryLocation.key!==deliveryAddressKey(address,district))){
-  if(!hasDeliveryDestination(address,district))
+  if(String(address||'').trim().length<6||String(district||'').trim().length<2)
    throw Error('Confirma la dirección de entrega antes de calcular el delivery.');
   const geocoded=await geocodeDeliveryDestination(address,district);
   if(st.stage!=='availability')return false;
