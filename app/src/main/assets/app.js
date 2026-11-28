@@ -242,7 +242,7 @@ function pickupAvailabilityIssue(s,{scheduled=false}={}){
  if(scheduled){
   if(s.reservation_enabled===false)return 'Este local no tiene habilitado el recojo programado.';
   if(s.reservation_enabled!==true)return 'No pudimos confirmar si el recojo programado está habilitado.';
-  if(s.reservationAcceptingRequests!==true)return 'No hay disponibilidad confirmada para programar el recojo en este local.';
+  // A verified dated quote is authoritative for scheduled pickup; do not use a current-time flag here.
   if(!reservationQuote||reservationQuote.storeId!==s.id||
     reservationQuote.dateTime!==st.reservationAt||
     reservationQuote.agentAvailable!==true||reservationQuote.acceptingRequests!==true)
@@ -2437,8 +2437,10 @@ async function checkReservationQuote(){
  if(when.from<=Date.now()){
   reservationQuoteError='Selecciona una fecha y hora futuras.';render();return;
  }
+ // The dated quote, not a current acceptingRequests snapshot, decides future pickup availability.
  const permitted=shops.filter(x=>x?.active===true&&x.reservation_enabled===true&&
-   x.reservationAcceptingRequests===true&&x[st.mode+'_enabled']===true);
+   x[st.mode+'_enabled']===true&&
+   (st.mode==='pickup'||x.reservationAcceptingRequests===true));
  if(st.mode!=='delivery'&&!permitted.length){
   // A missing published reservation setting is not proof that every store is unavailable.
   const pickupEnabled=shops.filter(x=>x?.active===true&&x.pickup_enabled===true);
@@ -4199,7 +4201,7 @@ if(b.hasAttribute('data-reservation-verify')){
      reservationQuote.storeId!==st.store||reservationQuote.agentAvailable!==true||
      reservationQuote.acceptingRequests!==true)return toast('Primero confirma la disponibilidad de tu recojo programado.');
   if(!selected||selected.active!==true||selected.reservation_enabled!==true||
-     selected.pickup_enabled!==true||selected.reservationAcceptingRequests!==true)
+     selected.pickup_enabled!==true)
    return toast('La tienda ya no está habilitada para recojo programado. Vuelve a consultar.');
   const lead=reservationMinLead(selected);
   if(lead!==null&&when.from<Date.now()+lead*60000)return toast('El horario no cumple la anticipación mínima publicada.');
