@@ -254,8 +254,23 @@ function pickupAvailabilityIssue(s,{scheduled=false}={}){
  if(s.isOpen!==true)return 'No pudimos verificar si el local está abierto. Inténtalo nuevamente.';
  return '';
 }
-function eligibleForPickup(s){return !!s&&s.active!==false&&s.pickup_enabled===true&&
- (s.hoursConfigured===true&&s.isOpen===true)}
+const pickupAgentStatus=new Map();
+let pickupAgentCheckGeneration=0;
+async function refreshPickupAgentStatus(){
+ const generation=++pickupAgentCheckGeneration;
+ const api=window.B3OrderAvailability;
+ const candidates=shops.filter(s=>s.active===true&&s.pickup_enabled===true&&s.hoursConfigured===true&&s.isOpen===true);
+ pickupAgentStatus.clear();
+ if(!api?.checkAgentAvailability){render();return}
+ await Promise.all(candidates.map(async store=>{
+  let available=false;
+  try{const result=await api.checkAgentAvailability({appId:APP_ID,storeId:store.id});available=result?.available===true}catch(error){console.warn('[B3 pickup agent check]',String(store.id),error?.name||'error')}
+  if(generation===pickupAgentCheckGeneration)pickupAgentStatus.set(String(store.id),available);
+ }));
+ if(generation===pickupAgentCheckGeneration)render();
+}
+function eligibleForPickup(s){return !!s&&s.active===true&&s.pickup_enabled===true&&
+ s.hoursConfigured===true&&s.isOpen===true&&pickupAgentStatus.get(String(s.id))===true}
 function pickupPaymentConfigured(s){
  return Array.isArray(s?.paymentMethods?.pickup)&&
   s.paymentMethods.pickup.some(m=>['yape','plin','card','cash'].includes(m));
@@ -267,9 +282,9 @@ function pickupPaymentWarning(s){
 }
 function storeStatusHtml(s){
  if(s.hoursConfigured!==true)return '<span class="pickup-status closed">Horario no confirmado</span>';
- const state=s.isOpen===true?'Abierto':'Cerrado';
+ const state=s.isOpen===true&&pickupAgentStatus.get(String(s.id))!==true?'No disponible':s.isOpen===true?'Abierto':'Cerrado';
  const until=s.isOpen===true&&/^([01]\d|2[0-3]):[0-5]\d$/.test(s.closesAt||'')?' · Hasta las '+esc(s.closesAt):'';
- return '<span class="pickup-status '+(s.isOpen===true?'open':'closed')+'">'+state+until+'</span>';
+ return '<span class="pickup-status '+(state==='Abierto'?'open':'closed')+'">'+state+(state==='Abierto'?until:'')+'</span>';
 }
 function straightDistanceKm(s){
  if(!st.coords||!Number.isFinite(st.coords.lat)||!Number.isFinite(st.coords.lng)||
@@ -1474,6 +1489,10 @@ async function confirmStore(mode,id,{showDetails=false}={}){
   // Do not accept a pickup store from a stale home card or cached location list.
   await fetchConfig({strict:true});
   const selected=shops.find(x=>String(x.id)===String(id));
+  const agentApi=window.B3OrderAvailability;
+  let agentAvailable=false;
+  try{if(agentApi?.checkAgentAvailability){const result=await agentApi.checkAgentAvailability({appId:APP_ID,storeId:selected?.id});agentAvailable=result?.available===true}}catch(error){console.warn('[B3 pickup selection availability]',error?.name||'error')}
+  pickupAgentStatus.set(String(id),agentAvailable);
   if(!eligibleForPickup(selected)){
    checkoutReviewNote='Este local está cerrado o dejó de aceptar recojos. Selecciona otro local disponible.';
    if(String(st.store)===String(id)){st.store='';st.pay='';save()}
@@ -4134,7 +4153,7 @@ if(b.hasAttribute('data-home-store-close')){if(b.classList.contains('b3-store-de
 if(b.dataset.homeStore){selectedHomeStore=b.dataset.homeStore;render();return}
 if(b.dataset.homeLocal!==undefined){carouselMotion.pauseUntil=Date.now()+6000;animateCarousel('local',Number(b.dataset.homeLocal));return}
 if(b.dataset.homeStoreMode){const mode=b.dataset.homeStoreMode,s=shops.find(x=>String(x.id)===String(selectedHomeStore));if(!storeAllowed(s,mode)||(mode==='pickup'&&!eligibleForPickup(s)))return;selectedHomeStore=null;if(mode==='pickup'){st.mode='pickup';save();void confirmStore('pickup',s.id)}else{st.mode='delivery';st.store='';st.quote=null;save();fulfillmentModal='delivery';render()}return}
-if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig();render();return}
+if(b.hasAttribute('data-open-fulfillment')){fulfillmentModal='choose';if(API_BASE)void fetchConfig().then(()=>refreshPickupAgentStatus()).catch(()=>{});render();return}
 if(b.hasAttribute('data-modal-close')){if(b.classList.contains('b3-modal-backdrop')&&e.target!==b)return;checkoutPending=false;fulfillmentModal=null;fulfillmentOutcomeNote='';render();return}
 if(b.hasAttribute('data-modal-back')){fulfillmentModal='choose';render();return}
 if(b.dataset.modalMode){
@@ -4228,7 +4247,7 @@ if(b.dataset.scheduleChoice){
  if(choice==='now'){resetReservationQuote();st.scheduleMode='now';st.reservationAt='';if(st.mode==='pickup')st.pickupScheduleSelected=true;save();
    if(scheduleReturnToModal){scheduleReturnToModal=false;st.stage='app';st.tab='inicio';fulfillmentModal=st.mode;render();if(st.mode==='pickup'&&API_BASE)void fetchConfig();return}
    if(st.mode==='delivery')screen('deliveryAddress');
-   else {screen('locations');if(API_BASE)void fetchConfig()}
+   else {screen('locations');if(API_BASE)void fetchConfig().then(()=>refreshPickupAgentStatus()).catch(()=>{})}
    return}
 }
 if(b.hasAttribute('data-reservation-address')){
