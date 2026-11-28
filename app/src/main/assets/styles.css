@@ -1094,3 +1094,14 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-phone-inline input{flex:1 1 0;min-width:0;margin:0;border:0;border-radius:0;background:#fff;padding:12px;font-size:17px}
 .b3-phone-inline input:focus,.b3-phone-inline select:focus{outline:2px solid #d10018;outline-offset:-2px}
 .b3-phone-other[hidden]{display:none!important}
+
+/* Customer-to-adviser messages, enabled only for accepted and open orders. */
+#b3-chat-composer{padding:12px 4px 4px;border-top:1px solid #eee}
+#b3-chat-composer[hidden],#b3-chat-locked[hidden]{display:none!important}
+#b3-chat-composer label{display:block;font-size:13px;font-weight:700;margin-bottom:7px}
+.b3-chat-compose-row{display:flex;gap:8px;align-items:stretch}
+.b3-chat-compose-row input{flex:1;min-width:0;border:1px solid #ddd;border-radius:12px;padding:12px;font-size:16px}
+.b3-chat-compose-row button{flex:none;border:0;border-radius:12px;background:#e60020;color:white;padding:0 16px;font-weight:700}
+.b3-chat-compose-row button:disabled{opacity:.55}
+#b3-chat-error{display:block;color:#9f1730;margin-top:6px}
+.b3-chat-line.customer{margin-left:12%;background:#fff1f3;border-radius:14px;padding:10px}
