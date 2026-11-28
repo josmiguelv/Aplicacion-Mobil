@@ -2776,7 +2776,7 @@ function locations(){
      ${pickupPaymentWarning(s)}
      <div class="pickup-actions">
       ${(s.address||s.addr)?`<button type="button" class="outline" data-openmaps="${esc('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(s.address||s.addr))}">${ic('map',17)} Cómo llegar</button>`:''}
-      ${eligibleForPickup(s)?`<button class="primary" data-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'}</button>` :'<span class="pickup-status closed">Cerrado</span>'}
+      ${eligibleForPickup(s)?`<button class="primary" data-pickstore="${esc(s.id)}" ${checkoutRefreshPending?'disabled':''}>${checkoutRefreshPending?'Verificando...':'Elegir local'}</button>` :''}
      </div>
    </div>`).join(''):'<div class="notice">No hay locales publicados por la administración. Consulta más adelante.</div>'}
  </div></div>`;
