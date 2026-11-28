@@ -914,7 +914,16 @@ async function completeAcceptedQuote(entry){
  // Android starts the payment clock from the verified agent acceptance.
  // No payment POST, extra TU VERSO read or fee recalculation is necessary here.
  deliveryValidationStep='HABILITANDO_PAGO';
- const wait=api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);
+ // The agent may have accepted while the app was in the background.
+ // Preserve the original acceptance timestamp; never restart an expired clock.
+ // Surface the real validation failure rather than mislabeling it as an API outage.
+ let wait;
+ try{
+  wait=api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);
+ }catch(error){
+  deliveryValidationStep='PLAZO_PAGO_NO_DISPONIBLE';
+  throw error;
+ }
  if(wait.status!=='PAYMENT_PENDING')throw Error('No se pudo iniciar el plazo local de pago.');
  if(st.stage!=='availability')return false;
  st.store=selected.id;
@@ -1098,7 +1107,11 @@ async function pollAgentDecision(){
    storeName:acceptedStore?.name||'',candidateNames:[],
    message:quotePending?
     (acceptedQuotePaused?
-     (deliveryValidationStep==='HABILITANDO_PAGO'?
+     (deliveryValidationStep==='PLAZO_PAGO_NO_DISPONIBLE'?
+      (String(error?.message||'').includes('plazo para pagar ya terminó')?
+       'La sede aceptó la solicitud, pero el plazo de pago ya venció. No se realizó ningún cobro. No se reiniciará el tiempo automáticamente.':
+       'La sede aceptó la solicitud, pero no se pudo validar el plazo de pago: '+String(error?.message||'Error de validación')+'. No se realizó ningún cobro.'):
+     deliveryValidationStep==='HABILITANDO_PAGO'?
       'La tarifa se obtuvo, pero no se pudo habilitar el plazo de pago. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.':
       'La sede confirmó los productos, pero no fue posible verificar la tarifa de Delivery. No se realizó ningún cobro. Puedes reintentar sin enviar otro pedido.'):
      (deliveryValidationStep==='HABILITANDO_PAGO'?
