@@ -693,7 +693,7 @@ function deliveryContactReady(){
  return st.deliveryContactConfirmed===true&&!!p&&
   typeof p.first==='string'&&p.first.trim().length>=2&&p.first.trim().length<=60&&
   typeof p.last==='string'&&p.last.trim().length>=2&&p.last.trim().length<=60&&
-  typeof p.phone==='string'&&/^\\+[1-9][0-9]{6,14}$/.test(p.phone);
+  typeof p.phone==='string'&&/^\+[1-9][0-9]{6,14}$/.test(p.phone);
 }
 function deliveryReviewKey(){
  const c=currentDeliveryOrderContact();
@@ -701,8 +701,8 @@ function deliveryReviewKey(){
   c.first,c.last,c.phone,c.doc,st.cart.map(i=>[i.id,i.qty])]);
 }
 function internationalMobile(value){
- const raw=String(value||'').trim().replace(/[\\s().-]/g,'');
- if(!/^\\+[1-9][0-9]{6,14}$/.test(raw))throw Error('Selecciona el código de país e ingresa un teléfono válido.');
+ const raw=String(value||'').trim().replace(/[\s().-]/g,'');
+ if(!/^\+[1-9][0-9]{6,14}$/.test(raw))throw Error('Selecciona el código de país e ingresa un teléfono válido.');
  return raw;
 }
 function deliveryRequestCustomer(address,district){
@@ -2769,7 +2769,7 @@ function phoneFields(id,value){
  const saved=String(value||'').trim();
  const known=PHONE_COUNTRIES.slice().sort((a,b)=>b[0].length-a[0].length);
  const prefix=saved.startsWith('+')?(known.find(x=>saved.startsWith(x[0]))?.[0]||'other'):'+51';
- const other=saved.startsWith('+')&&prefix==='other'?(saved.match(/^\\+[1-9][0-9]{0,2}/)?.[0]||''):'';
+ const other=saved.startsWith('+')&&prefix==='other'?(saved.match(/^\+[1-9][0-9]{0,2}/)?.[0]||''):'';
  const national=saved.startsWith('+')?saved.slice((prefix==='other'?other:prefix).length):saved;
  return `<label>País / prefijo telefónico<select id="${id}-country">${PHONE_COUNTRIES.map(([code,name])=>'<option value="'+code+'" '+(prefix===code?'selected':'')+'>'+name+' ('+code+')</option>').join('')}<option value="other" ${prefix==='other'?'selected':''}>Otro país</option></select></label>
  <label>Prefijo de otro país (si corresponde)<input id="${id}-custom-code" inputmode="tel" maxlength="4" value="${esc(other)}" placeholder="+XX"></label>
@@ -2779,7 +2779,7 @@ function readPhoneFields(id){
  const country=v(id+'-country');
  const code=country==='other'?v(id+'-custom-code').trim():country;
  const national=v(id).trim();
- if(!/^\\+[1-9][0-9]{0,2}$/.test(code)||!/^[0-9]{4,14}$/.test(national))
+ if(!/^\+[1-9][0-9]{0,2}$/.test(code)||!/^[0-9]{4,14}$/.test(national))
   throw Error('Revisa el código de país y el número nacional.');
  return internationalMobile(code+national);
 }
@@ -3162,7 +3162,7 @@ async function submitPickupRequest(){
    throw Error('El local ya no está habilitado para este recojo.');
   await validateCartPromotionsBeforeRequest();
   const items=publishedOrderItems();
-  if(!/^\\+[1-9][0-9]{6,14}$/.test(String(st.profile.phone||'').trim())||!String(st.profile.first||'').trim()||
+  if(!/^\+[1-9][0-9]{6,14}$/.test(String(st.profile.phone||'').trim())||!String(st.profile.first||'').trim()||
      !String(st.profile.last||'').trim())throw Error('Confirma tus nombres y celular.');
   const input={storeName:selected.name,customerName:[st.profile.first,st.profile.last].filter(Boolean).join(' '),customerPhone:internationalMobile(st.profile.phone),when:st.scheduleMode==='reservation'?'scheduled':'now',
    dateTime:st.reservationAt,items:st.cart.map(x=>{const p=product(x.id);return {
