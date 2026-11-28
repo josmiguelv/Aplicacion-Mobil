@@ -451,32 +451,43 @@
       !items.every(i=>i&&UUID.test(i.productId)&&Number.isInteger(i.quantity)&&
         i.quantity>=1&&i.quantity<=99))
       throw Error('La solicitud de atención no tiene sede, revisión o productos publicados válidos.');
-    // Only an explicitly completed delivery contact is added; existing clients remain compatible.
+    // Attach the verified contact for every new interaction, including pickup.
+    // Pickup has no delivery address: never invent one.
     let safeCustomer;
     if(customer!==undefined){
       const field=(value,min,max)=>typeof value==='string'&&value.trim().length>=min&&
-        value.length<=max&&!/[\x00-\x1f]/.test(value);
+        value.length<=max&&!/[\\x00-\\x1f]/.test(value);
+      const mode=customer?.mode;
+      const allowed=mode==='delivery'
+        ?['firstName','lastName','phone','address','district','reference','mode']
+        :['firstName','lastName','phone','mode'];
       if(!customer||typeof customer!=='object'||Array.isArray(customer)||
-        Object.keys(customer).some(k=>!['firstName','lastName','phone','address','district','reference','mode'].includes(k))||
-        customer.mode!=='delivery'||!field(customer.firstName,2,60)||!field(customer.lastName,2,60)||
-        typeof customer.phone!=='string'||!/^\+[1-9][0-9]{6,14}$/.test(customer.phone)||
-        !field(customer.address,6,180)||!field(customer.district,2,80)||
-        (customer.reference!==undefined&&
-         (typeof customer.reference!=='string'||customer.reference.length>180||
-          /[\x00-\x1f]/.test(customer.reference))))
-        throw Error('Completa nombres, apellidos, celular y dirección antes de enviar el pedido.');
+        !['delivery','pickup'].includes(mode)||
+        Object.keys(customer).some(k=>!allowed.includes(k))||
+        !field(customer.firstName,2,60)||!field(customer.lastName,2,60)||
+        typeof customer.phone!=='string'||!/^\\+[1-9][0-9]{6,14}$/.test(customer.phone))
+        throw Error('Completa nombres, apellidos y celular internacional antes de enviar el pedido.');
       safeCustomer={firstName:customer.firstName.trim(),lastName:customer.lastName.trim(),
-        phone:customer.phone,address:customer.address.trim(),district:customer.district.trim(),
-        reference:String(customer.reference||'').trim(),mode:'delivery'};
-      if(safeCustomer.address!==String(address||'').trim()||
-        safeCustomer.district!==String(district||'').trim())
-        throw Error('La dirección de la solicitud no coincide con la confirmada.');
+        phone:customer.phone,mode};
+      if(mode==='delivery'){
+        if(!field(customer.address,6,180)||!field(customer.district,2,80)||
+          (customer.reference!==undefined&&
+           (typeof customer.reference!=='string'||customer.reference.length>180||
+            /[\\x00-\\x1f]/.test(customer.reference))))
+          throw Error('Completa la dirección de entrega.');
+        safeCustomer.address=customer.address.trim();
+        safeCustomer.district=customer.district.trim();
+        safeCustomer.reference=String(customer.reference||'').trim();
+        if(safeCustomer.address!==String(address||'').trim()||
+          safeCustomer.district!==String(district||'').trim())
+          throw Error('La dirección de la solicitud no coincide con la confirmada.');
+      }
     }
     const body={appId,storeId,catalogRevision,customerExternalId:externalCustomerId(),
       items:items.map(i=>({productId:i.productId,quantity:i.quantity}))
         .sort((a,b)=>a.productId.localeCompare(b.productId))};
     if(safeCustomer)body.customer=safeCustomer;
-    // A submitted Delivery order must have the exact approval ticket before its message POST.
+    // Every customer-attached order must have an approval ticket before its message POST.
     // Do not change the CREATE payload or reissue an existing interaction.
     const formSnapshot=orderForm===undefined?null:normalizeOrderForm(orderForm);
     if(safeCustomer&&!formSnapshot)
@@ -546,7 +557,7 @@
   async function sendInteractionMessageOnce(entry) {
     syncFormDeliveryState(entry);
     if(!entry||!UUID.test(entry.interactionId)||!UUID.test(entry.idempotencyKey)||
-       !(entry.body?.customer?.mode==='delivery'||entry.orderForm?.title==='VALIDACIÓN DE RECOJO')||
+       !(['delivery','pickup'].includes(entry.body?.customer?.mode)||entry.orderForm?.title==='VALIDACIÓN DE RECOJO')||
        !['PENDING','ACCEPTED'].includes(entry.status))
       throw Error('No existe una solicitud de aprobación pendiente.');
     if(entry.messageDelivered===true)return {interactionId:entry.interactionId,delivered:true};
