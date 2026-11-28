@@ -2764,18 +2764,29 @@ function identity(){
  const p=st.mode==='delivery'?currentDeliveryOrderContact():st.profile;
  return `<div class="page form">${heading('Datos de este pedido','cart')}<p class="sub">${st.mode==='delivery'?'Confirma o cambia el nombre de quien recibirá este pedido. Puedes pedir para otra persona sin modificar tu perfil.':'Confirma los datos de quien recibirá el pedido.'}</p><label>Nombres<input id="first" autocomplete="given-name" value="${esc(p.first)}" maxlength="60" placeholder="Ingresa sus nombres"></label><label>Apellidos<input id="last" autocomplete="family-name" value="${esc(p.last)}" maxlength="60" placeholder="Ingresa sus apellidos"></label><label>DNI o CE (opcional)<input id="doc" autocomplete="off" value="${esc(p.doc)}" placeholder="Solo si necesitas un comprobante"></label><button class="primary full" data-identity-next="1">Continuar</button></div>`;
 }
+const PHONE_COUNTRIES=[['+51','Perú'],['+57','Colombia'],['+593','Ecuador'],['+56','Chile'],['+54','Argentina'],['+52','México'],['+1','Estados Unidos / Canadá'],['+34','España'],['+55','Brasil'],['+58','Venezuela'],['+591','Bolivia']];
+function phoneFields(id,value){
+ const saved=String(value||'').trim();
+ const known=PHONE_COUNTRIES.slice().sort((a,b)=>b[0].length-a[0].length);
+ const prefix=saved.startsWith('+')?(known.find(x=>saved.startsWith(x[0]))?.[0]||'other'):'+51';
+ const other=saved.startsWith('+')&&prefix==='other'?(saved.match(/^\\+[1-9][0-9]{0,2}/)?.[0]||''):'';
+ const national=saved.startsWith('+')?saved.slice((prefix==='other'?other:prefix).length):saved;
+ return `<label>País / prefijo telefónico<select id="${id}-country">${PHONE_COUNTRIES.map(([code,name])=>'<option value="'+code+'" '+(prefix===code?'selected':'')+'>'+name+' ('+code+')</option>').join('')}<option value="other" ${prefix==='other'?'selected':''}>Otro país</option></select></label>
+ <label>Prefijo de otro país (si corresponde)<input id="${id}-custom-code" inputmode="tel" maxlength="4" value="${esc(other)}" placeholder="+XX"></label>
+ <label>Número nacional<input id="${id}" inputmode="tel" maxlength="15" value="${esc(national)}" placeholder="Número sin prefijo"></label>`;
+}
+function readPhoneFields(id){
+ const country=v(id+'-country');
+ const code=country==='other'?v(id+'-custom-code').trim():country;
+ const national=v(id).trim();
+ if(!/^\\+[1-9][0-9]{0,2}$/.test(code)||!/^[0-9]{4,14}$/.test(national))
+  throw Error('Revisa el código de país y el número nacional.');
+ return internationalMobile(code+national);
+}
 function phone(){
  const p=st.mode==='delivery'?currentDeliveryOrderContact():st.profile;
- const saved=String(p.phone||'').trim();
- const choices=[['+51','Perú'],['+57','Colombia'],['+593','Ecuador'],['+56','Chile'],['+54','Argentina'],['+52','México'],['+1','Estados Unidos / Canadá'],['+34','España'],['+55','Brasil'],['+58','Venezuela'],['+591','Bolivia']];
- const known=choices.slice().sort((a,b)=>b[0].length-a[0].length);
- const prefix=saved.startsWith('+')?(known.find(x=>saved.startsWith(x[0]))?.[0]||'other'):'+51';
- const national=saved.startsWith('+')?(prefix==='other'?'':saved.slice(prefix.length)):saved;
- const other=saved.startsWith('+')&&prefix==='other'?(saved.match(/^\\+[1-9][0-9]{0,2}/)?.[0]||''):'';
  return `<div class="page form">${heading('Teléfono de este pedido','identity')}<p class="sub">Selecciona el código de país de la persona que recibirá el pedido.</p>
- <label>País / prefijo telefónico<select id="phone-country">${choices.map(([code,name])=>'<option value="'+code+'" '+(prefix===code?'selected':'')+'>'+name+' ('+code+')</option>').join('')}<option value="other" ${prefix==='other'?'selected':''}>Otro país</option></select></label>
- <label>Otro prefijo internacional (si corresponde)<input id="phone-custom-code" inputmode="tel" maxlength="4" value="${esc(other)}" placeholder="+XX"></label>
- <label>Número nacional<input id="phone" inputmode="tel" maxlength="15" value="${esc(national)}" placeholder="Número sin prefijo"></label>
+ ${phoneFields('phone',p.phone)}
  <button class="primary full" data-phone-next="1">Continuar</button></div>`;
 }
 function confirmDetails(){
@@ -3473,7 +3484,7 @@ function profileScreen(){
    <div class="b3-profile-hero"><span class="b3-profile-avatar">${ic('user',31)}</span><div><strong>Mis datos personales</strong><small>Actualiza la información para tus pedidos.</small></div></div>
    <label>Nombres<input id="profile-first" autocomplete="given-name" maxlength="80" value="${esc(p.first||'')}" placeholder="Tus nombres"></label>
    <label>Apellidos<input id="profile-last" autocomplete="family-name" maxlength="80" value="${esc(p.last||'')}" placeholder="Tus apellidos"></label>
-   <label>Celular de Perú<div class="phone-field"><b>+51</b><input id="profile-phone" inputmode="numeric" maxlength="9" value="${esc(p.phone||'')}" placeholder="9 dígitos"></div></label>
+   ${phoneFields('profile-phone',p.phone||'')}
    <p class="smallprint">Validamos el formato del celular; todavía no enviamos códigos de verificación ni SMS.</p>
    <label>Correo electrónico (opcional)<input id="profile-email" type="email" autocomplete="email" maxlength="150" value="${esc(p.email||'')}" placeholder="correo@ejemplo.com"></label>
    <label>Fecha de nacimiento (opcional)<input id="profile-birthday" type="date" max="${new Date().toISOString().slice(0,10)}" value="${esc(p.birthday||'')}"></label>
@@ -3483,9 +3494,10 @@ function profileScreen(){
  </div>`;
 }
 function saveProfile(){
- const first=v('profile-first'),last=v('profile-last'),phone=v('profile-phone'),email=v('profile-email'),birthday=v('profile-birthday');
+ const first=v('profile-first'),last=v('profile-last'),email=v('profile-email'),birthday=v('profile-birthday');
+ let phone='';try{if(v('profile-phone').trim())phone=readPhoneFields('profile-phone')}catch(error){return toast(error.message)}
  if(first.length<2||last.length<2)return toast('Completa tus nombres y apellidos');
- if(phone&&!/^9\d{8}$/.test(phone))return toast('Ingresa un celular peruano válido de 9 dígitos');
+ if(phone&&!/^\+[1-9][0-9]{6,14}$/.test(phone))return toast('Ingresa un teléfono internacional válido');
  if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return toast('Verifica el correo electrónico');
  if(birthday&&(birthday>new Date().toISOString().slice(0,10)||!/^\d{4}-\d{2}-\d{2}$/.test(birthday)))return toast('Fecha de nacimiento inválida');
  st.profile={...st.profile,first,last,phone,email,birthday,marketingConsent:!!document.getElementById('profile-marketing')?.checked};
@@ -3608,7 +3620,7 @@ function openPrivacyLaw(){
  else window.open(url,'_blank','noopener,noreferrer');
 }
 function infoScreen(){const content={methods:['Métodos de pago','Podrás elegir el método de pago en el paso de compra. No guardamos tarjetas.'],history:['Nuestra Historia','Contenido oficial de la historia de Pollos B3 pendiente de recibir.']};let [title,body]=content[st.stage]||['Información',''];return `<div class="page">${heading(title,'app')}<p class="sub">${esc(body)}</p></div>`}
-function signin(){return `<div class="page form">${heading('Continuar con teléfono','login')}<p class="sub">Ingresa tu celular peruano. No enviamos SMS ni verificamos que seas titular de este número. Para cada pedido deberás confirmar los datos del destinatario.</p><label>Celular (+51)<input id="signin-value" type="tel" inputmode="numeric" autocomplete="tel-national" maxlength="9" pattern="9[0-9]{8}" placeholder="9 dígitos"></label><button class="primary full" data-phone-continue="1">Continuar sin verificación SMS</button><p class="smallprint">Tu número se guarda en este dispositivo como dato de contacto, no como identidad verificada.</p></div>`}
+function signin(){return `<div class="page form">${heading('Continuar con teléfono','login')}<p class="sub">Selecciona tu país e ingresa tu celular. No enviamos SMS ni verificamos que seas titular de este número. Para cada pedido deberás confirmar los datos del destinatario.</p>${phoneFields('signin-value',st.profile.phone||'')}<button class="primary full" data-phone-continue="1">Continuar sin verificación SMS</button><p class="smallprint">Tu número se guarda en este dispositivo como dato de contacto, no como identidad verificada.</p></div>`}
 function render(){
  // Resume an acknowledged-delivery notice after app restart without reopening
  // favorites or surveys before the customer accepts the delivery message.
@@ -4133,13 +4145,7 @@ if(b.hasAttribute('data-review-confirm')){
 }
 if(b.hasAttribute('data-phone-next')){
  let fullPhone;
- try{
-  const country=v('phone-country');
-  const code=country==='other'?v('phone-custom-code').trim():country;
-  if(!/^\\+[1-9][0-9]{0,2}$/.test(code)||!/^[0-9]{4,14}$/.test(v('phone').trim()))
-   throw Error('Revisa el prefijo de país y el número nacional.');
-  fullPhone=internationalMobile(code+v('phone').trim());
- }catch(error){return toast(error.message)}
+ try{fullPhone=readPhoneFields('phone')}catch(error){return toast(error.message)}
  if(st.mode==='delivery'){
   currentDeliveryOrderContact().phone=fullPhone;
   st.deliveryContactConfirmed=true;
@@ -4194,7 +4200,7 @@ if(b.hasAttribute('data-pay-next')){
 if(b.hasAttribute('data-confirm')){toast('Este recorrido no confirma pedidos. Inicia una solicitud con la sede.');screen('cart');return}
 if(b.hasAttribute('data-google-login')){if(googleSignInPending)return;if(!window.AndroidBridge?.signInWithGoogle){toast('El acceso con Google requiere actualizar Android.');return}googleSignInPending=true;render();window.AndroidBridge.signInWithGoogle();return}
 
-if(b.hasAttribute('data-phone-continue')){const phone=v('signin-value');if(!/^9\d{8}$/.test(phone))return toast('Ingresa un celular peruano válido de 9 dígitos');if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=true;st.authProvider='local-phone';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';st.profile.phone=phone;save();enterApp();return}
+if(b.hasAttribute('data-phone-continue')){let phone;try{phone=readPhoneFields('signin-value')}catch(error){return toast(error.message)}if(st.authProvider==='google')window.AndroidBridge?.signOutGoogle?.();st.registered=true;st.authProvider='local-phone';st.authUid='';st.authDisplayName='';st.authGoogleEmail='';st.profile.phone=phone;save();enterApp();return}
 if(b.hasAttribute('data-logout')){if(st.authProvider==='google'){window.AndroidBridge?.signOutGoogle?.();return}st.registered=false;st.authProvider='';st.authUid='';save();render();return}
 if(b.dataset.openmaps){if(window.AndroidBridge?.openMaps)window.AndroidBridge.openMaps(b.dataset.openmaps);else window.open(b.dataset.openmaps,'_blank');return}
 if(b.hasAttribute('data-clear')){
