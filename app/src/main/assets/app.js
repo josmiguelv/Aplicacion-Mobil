@@ -1077,14 +1077,10 @@ async function pollAgentDecision(){
     else ensureFormDelivery(updated);
     return;
    }
-   if(updated.body?.customer&&updated.messageDelivered!==true){
-    if(st.stage==='availability'){
-     deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:store?.name||'',candidateNames:[],
-      message:formWaitingMessage(updated)};render();
-    }else if(chatOverlay)refreshChatTimeline();else if(st.stage!=='chat'){render();toast('La sede respondió. Sincronizando los detalles del pedido.')}
-   }else if(st.stage==='availability')await completeAcceptedQuote(updated);
+   if(st.stage==='availability')await completeAcceptedQuote(updated);
    else if(st.stage==='chat'){
-    revealVerifiedResponse(updated,'order','ACCEPTED');await completeAcceptedQuote(updated);
+    screen('availability');
+    await completeAcceptedQuote(updated);
    }else{revealVerifiedResponse(updated,'order','ACCEPTED');await completeAcceptedQuote(updated);}
    return;
   }
@@ -1130,8 +1126,7 @@ async function pollAgentDecision(){
   const sending=pending&&latest?.interactionId&&latest.body?.customer&&latest.messageDelivered!==true;
   const transientDeliveryFailure=[429,500,502,503,504].includes(error?.httpStatus)||
    ['TIMEOUT','CONNECTION_FAILED'].includes(error?.code);
-  const quotePending=latest?.status==='ACCEPTED'&&latest.agentDecision==='ACCEPTED'&&
-   (!latest.body?.customer||latest.messageDelivered===true);
+  const quotePending=latest?.status==='ACCEPTED'&&latest.agentDecision==='ACCEPTED';
   if(quotePending){
    if(acceptedQuoteInteractionId!==latest.interactionId){
     acceptedQuoteInteractionId=latest.interactionId;acceptedQuoteFailures=0;
