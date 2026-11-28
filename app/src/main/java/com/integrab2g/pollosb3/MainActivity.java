@@ -741,7 +741,7 @@ public class MainActivity extends Activity {
                            !(payload.opt("text") instanceof String)||
                            payload.optString("text","").trim().isEmpty()||
                            payload.optString("text","").length()>8000||
-                           java.util.regex.Pattern.compile("[\\\\x00-\\\\x09\\\\x0B-\\\\x1F]").matcher(payload.optString("text","")).find())
+                           payload.optString("text","").chars().anyMatch(c -> c<=9 || (c>=11 && c<=31)))
                             throw new IllegalArgumentException("Invalid chat text request");
                         body=payload.toString();
                         path="/api/v1/mobile/interactions/"+interactionId+"/messages";
