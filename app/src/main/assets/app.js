@@ -932,7 +932,9 @@ async function completeAcceptedQuote(entry){
  if(!interactionMatchesCart(entry,address,district))
   throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
  if(entry.status!=='ACCEPTED')throw Error('Todavía no existe una aceptación válida del agente.');
- if(entry.body?.customer&&entry.messageDelivered!==true)throw Error('El formulario de aprobación todavía no tiene entrega confirmada.');
+ // A verified agent ACCEPTED decision proves the interaction reached the agent.
+ // FORM delivery acknowledgement may arrive later and must not block checkout.
+ if(entry.agentDecision!=='ACCEPTED')throw Error('Esperando la aceptación verificada del asesor.');
  // An already approved order keeps its original catalog revision and price.
  // New catalog publications must not invalidate a frozen interaction quote.
  const selected=shops.find(s=>s.id===entry.body.storeId);
@@ -1043,13 +1045,10 @@ async function pollAgentDecision(){
     else ensureFormDelivery(entry);
     return;
    }
-   if(st.stage==='availability'){
-    if(entry.body?.customer&&entry.messageDelivered!==true){
-     deliveryAvailability={status:'CREATE_UNCERTAIN',storeName:'',candidateNames:[],
-      message:formWaitingMessage(entry)};render();
-    }else await completeAcceptedQuote(entry);
-   }else if(st.stage==='chat'&&(!entry.body?.customer||entry.messageDelivered===true)){
-    screen('availability');
+   if(st.stage==='availability'||st.stage==='chat'){
+    // A verified acceptance is authoritative even if the FORM delivery
+    // acknowledgement is still pending. Do not wait for a second UI state.
+    if(st.stage==='chat')screen('availability');
     await completeAcceptedQuote(entry);
    }
    return;
