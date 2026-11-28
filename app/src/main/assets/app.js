@@ -2117,13 +2117,13 @@ function reviewSheet(){
  const o=findLocalOrder(reviewSheetOrderId);
  if(!o||!orderDelivered(o)||o.review)return '';
  const submission=o.surveySubmission;
- return '<div class="b3-overlay"><div class="b3-bottom-sheet" role="dialog" aria-modal="true" aria-label="Encuesta de satisfacción"><div class="b3-sheet-grip"></div><h2>¿Qué tal estuvo tu pedido?</h2><p>Tu opinión nos ayuda a mejorar.</p>'+
- '<button type="button" data-review-close="1" aria-label="Cerrar encuesta" style="position:absolute;right:20px;top:18px;border:0;background:transparent;font-size:30px;line-height:1;padding:8px;cursor:pointer">×</button><div class="b3-rating-stars">'+[1,2,3,4,5].map(n=>'<button data-review-star="'+n+'" '+(reviewSending||submission?'disabled':'')+' aria-label="'+n+' estrellas">'+((submission?.rating||reviewScore)>=n?'★':'☆')+'</button>').join('')+'</div>'+
+ return '<div class="b3-overlay"><div class="b3-bottom-sheet" role="dialog" aria-modal="true" aria-label="Encuesta de satisfacción"><div class="b3-sheet-grip"></div><div class="b3-review-header"><h2>¿Qué tal estuvo tu pedido?</h2><button type="button" class="b3-review-close" data-review-close="1" aria-label="Cerrar encuesta sin responder">×</button></div><p>Tu opinión nos ayuda a mejorar.</p><div class="b3-rating-stars">'+[1,2,3,4,5].map(n=>'<button data-review-star="'+n+'" '+(reviewSending||submission?'disabled':'')+' aria-label="'+n+' estrellas">'+((submission?.rating||reviewScore)>=n?'★':'☆')+'</button>').join('')+'</div>'+
  '<div class="b3-feedback-tags">'+['Sabor','Temperatura','Tiempo','Presentación','Atención'].map(k=>'<button class="'+((submission?.tags||reviewTags).includes(k)?'selected':'')+'" data-review-tag="'+k+'" '+(reviewSending||submission?'disabled':'')+'>'+k+'</button>').join('')+'</div>'+
  '<label>Comentario (opcional)<textarea id="review-comment" maxlength="500" rows="3" '+(reviewSending||submission?'disabled':'')+' placeholder="Cuéntanos tu experiencia">'+esc(submission?.comment||'')+'</textarea></label>'+
  (reviewSendError?'<div class="notice" role="alert">'+esc(reviewSendError)+'</div>':'')+
  '<button class="primary full" data-review-send="1" '+(reviewSending?'disabled':'')+'>'+
  (reviewSending?'Enviando encuesta...':submission?'Reintentar envío':'Enviar opinión')+'</button>'+
+ '<button type="button" class="outline full b3-review-skip" data-review-close="1">Ahora no, cerrar encuesta</button>'+
  '<small>La encuesta se envía a Pollos B3. Solo aparecerá como registrada cuando el servidor la confirme.</small></div></div>';
 }
 function newSurveyId(){
