@@ -2603,7 +2603,7 @@ async function checkReservationQuote(){
     // Other failures are reported if no store is eventually confirmed.
     continue;
    }
-   const matching=permitted.find(x=>x.id===result.storeId);
+   const matching=result&&permitted.find(x=>x.id===result.storeId);
    if(!matching||candidate&&result.storeId!==candidate.id||
       result.date!==params.date||result.time!==params.time||
       result.mode!==mode||result.revision!==publishedRevision||
