@@ -1105,3 +1105,9 @@ html,body,#app{min-width:0;width:100%;overflow-x:clip}
 .b3-chat-compose-row button:disabled{opacity:.55}
 #b3-chat-error{display:block;color:#9f1730;margin-top:6px}
 .b3-chat-line.customer{margin-left:12%;background:#fff1f3;border-radius:14px;padding:10px}
+
+/* The post-delivery survey is optional; both dismissal controls stay visible. */
+.b3-review-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.b3-review-header h2{flex:1;min-width:0;margin:0}
+.b3-review-close{flex:none;display:grid;place-items:center;width:44px;height:44px;border:1px solid #e8dce0;border-radius:50%;background:#fff6f7;color:#8c1730;font-size:29px;line-height:1;cursor:pointer}
+.b3-review-skip{margin-top:10px;min-height:48px}
