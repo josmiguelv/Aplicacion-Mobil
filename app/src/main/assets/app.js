@@ -2423,7 +2423,12 @@ let reservationQuote=null;
 let reservationQuoteBusy=false;
 let reservationQuoteError='';
 let reservationQuoteGeneration=0;
- function resetReservationQuote(){++reservationQuoteGeneration;reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';reservationAddressEditing=false;}
+let reservationQuoteTimer=null;
+function scheduleReservationQuoteCheck(){
+ if(reservationQuoteTimer!==null)clearTimeout(reservationQuoteTimer);
+ reservationQuoteTimer=setTimeout(()=>{reservationQuoteTimer=null;autoCheckReservationQuote()},450);
+}
+ function resetReservationQuote(){if(reservationQuoteTimer!==null){clearTimeout(reservationQuoteTimer);reservationQuoteTimer=null}++reservationQuoteGeneration;reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';reservationAddressEditing=false;}
 // For Delivery the Admin selects the eligible store using the same location and
 // online-agent principle as immediate Delivery; no customer store selection.
 // For pickup the current reservations quote contract requires a storeId, so
@@ -2493,12 +2498,22 @@ async function checkReservationQuote(){
   }else for(const candidate of permitted){
    if(generation!==reservationQuoteGeneration)return;
    const query=candidate?{...params,storeId:candidate.id}:params;
-   const response=await fetch(API_BASE+'/api/v1/mobile/reservations/quote',{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(query),cache:'no-store'});
+   const controller=typeof AbortController==='function'?new AbortController():null;
+   const timeout=controller?setTimeout(()=>controller.abort(),12000):null;
+   let response;
+   try{
+    response=await fetch(API_BASE+'/api/v1/mobile/reservations/quote',{
+     method:'POST',headers:{'Content-Type':'application/json'},
+     body:JSON.stringify(query),cache:'no-store',...(controller?{signal:controller.signal}:{})});
+   }catch(networkError){
+    throw Error(networkError?.name==='AbortError'?
+     'La consulta de disponibilidad tardó demasiado. Revisa tu conexión e inténtalo nuevamente.':
+     'No se pudo conectar con el servicio de reservas. Revisa tu conexión e inténtalo nuevamente.');
+   }finally{if(timeout!==null)clearTimeout(timeout)}
    const result=await response.json().catch(()=>({}));
    if(!response.ok){
-    if(mode==='pickup'&&[404,409].includes(response.status))continue;
+    if(mode==='pickup'&&response.status===409)continue;
+    if(response.status===404)throw Error('El servicio de reservas programadas no está disponible en este momento.');
     throw Error(response.status===503?'La atención de reservas no está disponible por ahora.':
      'No encontramos una sede que pueda atender la reserva en este momento.');
    }
@@ -2584,7 +2599,7 @@ function autoCheckReservationQuote(){
   reservationQuoteError='Primero completa la dirección y distrito de entrega.';
   render();return;
  }
- void checkReservationQuote();
+ scheduleReservationQuoteCheck();
 }
 function reservationPicker(){
  const selected=reservationQuote?shops.find(x=>x.id===reservationQuote.storeId):null;
@@ -4403,7 +4418,7 @@ if(b.hasAttribute('data-clear')){
 }
 });
 root.addEventListener('change',e=>{
- if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';st.store='';st.pay='';++reservationQuoteGeneration;save();render();autoCheckReservationQuote();return}
+ if(e.target?.id==='b3-reservation-at'){st.reservationAt=e.target.value;reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';st.store='';st.pay='';++reservationQuoteGeneration;save();render();scheduleReservationQuoteCheck();return}
  if(e.target?.id==='b3-reservation-cash-amount'){st.reservationCashAmount=e.target.value;save();render();return}
  if(e.target?.id!=='b3-payment-proof')return;const file=e.target.files?.[0];if(receiptPreviewUrl)URL.revokeObjectURL(receiptPreviewUrl);receiptPreviewUrl='';receiptFileSelected=false;if(!file)return;if(!['image/jpeg','image/png'].includes(file.type)||file.size>4*1024*1024||file.size===0){toast('Elige una imagen JPG o PNG de hasta 4 MB');render();return}receiptFileSelected=true;receiptPreviewUrl=URL.createObjectURL(file);render()});
 document.addEventListener('keydown',e=>{
