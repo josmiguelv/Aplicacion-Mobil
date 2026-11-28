@@ -3997,9 +3997,12 @@ async function revalidateCheckout(next){
 }
 function startCheckout(){
  const issue=checkoutCartIssue();if(issue){toast(issue);return}
- if(st.mode==='pickup'&&!st.pickupScheduleSelected){checkoutPending=true;screen('scheduleChoice');return}
- if(st.scheduleMode==='reservation'){checkoutPending=false;screen('reservationPicker');return}
+ // Every new cart checkout starts at modality (first use) or scheduling (saved choice).
+ // Do not reuse a previous order's date, store, payment, or scheduling decision.
  if(!st.mode){checkoutPending=true;screen('choice');return}
+ if(!checkoutPending){checkoutPending=true;st.pickupScheduleSelected=false;st.scheduleMode='now';st.reservationAt='';st.store='';st.quote=null;st.pay='';resetReservationQuote();save();screen('scheduleChoice');return}
+ if(st.scheduleMode==='reservation'){checkoutPending=false;screen('reservationPicker');return}
+ if(st.mode==='pickup'&&!st.pickupScheduleSelected){screen('scheduleChoice');return}
  if(st.mode==='delivery'){
   // A fresh checkout must reconfirm who receives the order.
   // Do not reset the identity of an active or uncertain interaction.
@@ -4186,7 +4189,9 @@ if(b.dataset.modalMode){
  const next=b.dataset.modalMode;
  if(next!=='delivery'&&next!=='pickup')return;
  if(st.mode!==next){st.pickupScheduleSelected=false;deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.mode=next;if(st.scheduleMode==='reservation'){resetReservationQuote();}else st.reservationAt='';st.store='';st.quote=null;st.pay='';st.coords=null;save();if(st.cart.length)queueNotice('Al cambiar de modalidad se deberán verificar los productos, precios y medios de pago.')}
- fulfillmentOutcomeNote='';scheduleReturnToModal=true;fulfillmentModal=null;screen('scheduleChoice');return;
+ // The header selector only saves the modality. Scheduling starts from checkout.
+ st.scheduleMode='now';st.reservationAt='';st.pickupScheduleSelected=false;
+ scheduleReturnToModal=false;checkoutPending=false;fulfillmentOutcomeNote='';fulfillmentModal=null;save();render();return;
 }
 if(b.hasAttribute('data-profile-save')){saveProfile();return}
 if(b.dataset.addressCreate){addressEditId=null;screen('addressEdit');return}
@@ -4261,6 +4266,7 @@ if(b.hasAttribute('data-guest')){if(st.authProvider==='google')window.AndroidBri
 if(b.dataset.scheduleChoice){
  const choice=b.dataset.scheduleChoice;
  if(choice==='reservation'){
+   checkoutPending=false;
    // Release only a verified, locally recorded paid order. Delivery does not block another purchase.
    beginNewOrderAfterPayment();
    const reservationEntry=window.B3OrderAvailability?.readInteraction?.();
@@ -4270,7 +4276,7 @@ if(b.dataset.scheduleChoice){
    if(reservationEntry?.paymentConfirmation?.status==='ACCEPTED')
      return toast('No se pudo guardar el pedido anterior. Reintenta desde Mis pedidos.');
    ++deliveryValidationGeneration;deliveryRequestPending=false;resetReservationQuote();st.scheduleMode='reservation';if(st.mode==='pickup')st.pickupScheduleSelected=true;save();screen('reservationPicker');return}
- if(choice==='now'){resetReservationQuote();st.scheduleMode='now';st.reservationAt='';if(st.mode==='pickup')st.pickupScheduleSelected=true;save();
+ if(choice==='now'){checkoutPending=false;resetReservationQuote();st.scheduleMode='now';st.reservationAt='';if(st.mode==='pickup')st.pickupScheduleSelected=true;save();
    if(scheduleReturnToModal){scheduleReturnToModal=false;st.stage='app';st.tab='inicio';fulfillmentModal=st.mode;render();if(st.mode==='pickup'&&API_BASE)void fetchConfig();return}
    if(st.mode==='delivery')screen('deliveryAddress');
    else {screen('locations');if(API_BASE)void fetchConfig().then(()=>refreshPickupAgentStatus()).catch(()=>{})}
@@ -4344,7 +4350,7 @@ if(b.hasAttribute('data-reservation-verify')){
  resetDeliveryOrderContact();checkoutPending=true;confirmedDeliveryReviewKey=null;screen('identity');
  return;
 }
-if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){st.pickupScheduleSelected=false;deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;scheduleReturnToModal=false;save();screen('scheduleChoice');return}
+if(b.dataset.mode){if(activePersonalCheckout()){returnToPersonalCheckout();return}if(st.mode!==b.dataset.mode){st.pickupScheduleSelected=false;deliveryValidationGeneration++;deliveryRequestPending=false;window.B3OrderAvailability?.clear();st.store='';st.quote=null;clearDeliveryAvailability();st.pay='';st.coords=null;if(st.cart.length)queueNotice('Modalidad modificada. Verifica productos, importes y pagos.')}st.mode=b.dataset.mode;st.scheduleMode='now';st.reservationAt='';scheduleReturnToModal=false;save();screen('scheduleChoice');return}
 if(b.dataset.store){if(st.mode==='pickup'&&!st.pickupScheduleSelected){checkoutPending=true;screen('scheduleChoice');return}void confirmStore('pickup',b.dataset.store,{showDetails:!checkoutPending});return}if(b.dataset.pickstore){if(st.mode==='pickup'&&!st.pickupScheduleSelected){checkoutPending=true;screen('scheduleChoice');return}void confirmStore('pickup',b.dataset.pickstore,{showDetails:!checkoutPending});return}
 if(b.dataset.fulfillment){st.fulfillment=b.dataset.fulfillment;render();return}
 if(b.hasAttribute('data-start')){
