@@ -107,9 +107,11 @@ const enterApp=()=>{
  void (async()=>{
   try{
    await fetchConfig({strict:true});
-   if(st.stage!=='app'||!interactionMatchesCart(pending,st.profile.address,st.profile.district))return;
+   if(st.stage!=='app'||pending.status!=='ACCEPTED'&&
+      !interactionMatchesCart(pending,st.profile.address,st.profile.district))return;
    st.stage='availability';save();render();
-   void resolveDelivery({silent:true,skipConfig:true});
+   if(pending.status==='ACCEPTED')scheduleAgentDecisionPoll(100);
+   else void resolveDelivery({silent:true,skipConfig:true});
   }catch(_){/* A lost network must not create another interaction or authorize payment. */}
  })();
 };
@@ -598,7 +600,7 @@ function rememberPreApprovalQuote(entry,selected,address,district,quote){
     Number(quote.deliveryFeePen)<0||!Array.isArray(quote.paymentMethods)||!quote.paymentMethods.length)return;
  localStorage.setItem(APPROVAL_QUOTE_KEY,JSON.stringify({
   interactionId:entry.interactionId,storeId:selected.id,revision:publishedRevision,
-  addressKey:deliveryAddressKey(address,district),cartSignature:currentCartSignature(),
+  addressKey:deliveryAddressKey(address,district),cartSignature:orderItemsSignature(entry.body.items),
   quote
  }));
 }
@@ -608,7 +610,7 @@ function preApprovalQuoteFor(entry,selected,address,district){
   if(!record||!entry?.interactionId||record.interactionId!==entry.interactionId||
      record.storeId!==selected?.id||record.revision!==publishedRevision||
      record.addressKey!==deliveryAddressKey(address,district)||
-     record.cartSignature!==currentCartSignature())return null;
+     record.cartSignature!==orderItemsSignature(entry.body.items))return null;
   const quote=record.quote;
   if(!quote||quote.storeId!==selected.id||quote.revision!==publishedRevision||
      quote.distanceSource!=='STRAIGHT_LINE'||
@@ -673,8 +675,60 @@ async function acceptedStoreQuote(entry,selected,address,district){
  pendingDeliveryQuote={key,quote};
  return quote;
 }
+function orderItemsSignature(items){
+ return JSON.stringify(items.slice().sort((a,b)=>a.productId.localeCompare(b.productId)));
+}
 function currentCartSignature(){
- return JSON.stringify(publishedOrderItems().slice().sort((a,b)=>a.productId.localeCompare(b.productId)));
+ return orderItemsSignature(publishedOrderItems());
+}
+// Immutable creation snapshot, not the live cart or editable profile.
+// Only use this after a verified interaction acceptance.
+function acceptedInteractionSnapshot(entry){
+ if(!entry?.interactionId||entry.status!=='ACCEPTED'||entry.agentDecision!=='ACCEPTED'||
+    !entry.agentMessageId||!entry.body?.storeId||!Array.isArray(entry.body?.items)||
+    !entry.body.items.length||typeof entry.fingerprint!=='string')
+  throw Error('No existe una aceptación identificada para esta solicitud.');
+ let original;
+ try{original=JSON.parse(entry.fingerprint)}catch{throw Error('No se pudo leer la solicitud original.')}
+ if(!original||original.appId!==entry.body.appId||
+    original.storeId!==entry.body.storeId||
+    original.catalogRevision!==entry.body.catalogRevision||
+    !Array.isArray(original.items)||
+    orderItemsSignature(original.items)!==orderItemsSignature(entry.body.items)||
+    (original.customer||null)&&JSON.stringify(original.customer)!==JSON.stringify(entry.body.customer))
+  throw Error('El registro original de la interacción no coincide con el pedido aceptado.');
+ const address=String(original.address||'').trim();
+ const district=String(original.district||'').trim();
+ if(!address||!district||!entry.body.items.every(i=>
+    typeof i.productId==='string'&&Number.isInteger(i.quantity)&&i.quantity>0))
+  throw Error('La interacción aceptada no conserva los datos originales del pedido.');
+ return {address,district,items:entry.body.items,customer:entry.body.customer||null};
+}
+function restoreAcceptedOrderSnapshot(snapshot){
+ // Restore the accepted basket for display/totals; do not create an order or
+ // silently adopt a different cart as the one the agent approved.
+ const signature=orderItemsSignature(snapshot.items);
+ let current='';
+ try{current=currentCartSignature()}catch{}
+ if(current!==signature){
+  const restored=snapshot.items.map(i=>{
+   const id='api:'+i.productId;
+   const item=product(id);
+   if(!item?.isPublished||promotionNotPurchasable(item))
+    throw Error('No se pudo recuperar un producto del pedido aceptado. No se realizará ningún cobro.');
+   return {id,qty:i.quantity};
+  });
+  st.cart=restored;
+ }
+ st.profile.address=snapshot.address;
+ st.profile.district=snapshot.district;
+ if(snapshot.customer){
+  st.profile.reference=String(snapshot.customer.reference||'');
+  st.orderContactDraft={first:String(snapshot.customer.firstName||''),
+   last:String(snapshot.customer.lastName||''),phone:String(snapshot.customer.phone||''),
+   doc:String(st.orderContactDraft?.doc||'')};
+  st.deliveryContactConfirmed=true;
+ }
 }
 function resetDeliveryOrderContact(){
  st.orderContactDraft=null;
@@ -789,27 +843,17 @@ function scheduleAgentDecisionPoll(delay=2000){
 async function completeAcceptedQuote(entry){
  const api=window.B3OrderAvailability;
  if(acceptedQuoteInteractionId!==entry.interactionId){acceptedQuoteInteractionId=entry.interactionId;acceptedQuoteFailures=0;acceptedQuotePaused=false;}
- const address=st.profile.address,district=st.profile.district;
- if(!interactionMatchesCart(entry,address,district))
-  throw Error('El carrito cambió después de la aceptación. La solicitud anterior debe cancelarse.');
- if(entry.status!=='ACCEPTED')throw Error('Todavía no existe una aceptación válida del agente.');
+ const snapshot=acceptedInteractionSnapshot(entry);
+ const {address,district}=snapshot;
  if(entry.body?.customer&&entry.messageDelivered!==true)throw Error('El formulario de aprobación todavía no tiene entrega confirmada.');
  if(entry.body.catalogRevision!==publishedRevision)throw Error('El catálogo cambió después de la aceptación. Debes cancelar y solicitar una nueva confirmación.');
  const selected=shops.find(s=>s.id===entry.body.storeId);
  if(!selected)throw Error('La sede que aceptó ya no aparece en el catálogo publicado.');
- deliveryValidationStep='COTIZANDO_DELIVERY';
- deliveryAvailability={status:'CHECKING_STORES',storeName:selected.name,candidateNames:[],
-  message:'Solicitud aceptada. Calculando delivery desde '+selected.name+'.'};
- render();
- // The signed-in agent accepted the exact request. Use its previously
- // calculated delivery price; geocode again only to recover a missing quote.
- if(!preApprovalQuoteFor(entry,selected,address,district)&&!hasDeliveryDestination(address,district)){
-  const geocoded=await geocodeDeliveryDestination(address,district);
-  if(st.stage!=='availability')return false;
-  deliveryLocation={...geocoded,key:deliveryAddressKey(address,district)};
- }
+ deliveryValidationStep='RECUPERANDO_COTIZACION_ORIGINAL';
+ // This quote was calculated and saved before requesting agent approval.
+ // Do not geocode or validate the current editable cart after acceptance.
  const quote=await acceptedStoreQuote(entry,selected,address,district);
- if(st.stage!=='availability'||st.profile.address!==address||st.profile.district!==district)return false;
+ if(st.stage!=='availability')return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
  const fee=Number(quote.deliveryFeePen);
@@ -820,12 +864,13 @@ async function completeAcceptedQuote(entry){
  const wait=api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);
  if(wait.status!=='PAYMENT_PENDING')throw Error('No se pudo iniciar el plazo local de pago.');
  if(st.stage!=='availability')return false;
+ restoreAcceptedOrderSnapshot(snapshot);
  st.store=selected.id;
  st.quote={storeId:selected.id,storeName:selected.name,deliveryFeePen:fee,
   paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
   routeDistanceKm:Number.isFinite(Number(quote.routeDistanceKm))?Number(quote.routeDistanceKm):null,
   distanceSource:'STRAIGHT_LINE',quoteOrigin:'ANDROID_CATALOG_ACCEPTED',serverValidated:false,
-  provisional:true,quoteRevision:quote.revision,cartSignature:currentCartSignature(),
+  provisional:true,quoteRevision:quote.revision,cartSignature:orderItemsSignature(snapshot.items),
   quotedAt:Date.now(),destinationKey:deliveryAddressKey(address,district)};
  acceptedQuoteFailures=0;acceptedQuotePaused=false;
  st.pay='';save();
@@ -1032,7 +1077,7 @@ async function requestBackendOrderAvailability({address,district,run,silent}){
  deliveryValidationStep='RECUPERANDO_SOLICITUD';
  const prior=api.readInteraction?.();
  if(prior&&['PENDING','ACCEPTED','SUBMITTING'].includes(prior.status)){
-  if(!interactionMatchesCart(prior,address,district))
+  if(prior.status!=='ACCEPTED'&&!interactionMatchesCart(prior,address,district))
    throw Error('Existe una solicitud anterior con productos diferentes. Cancélala antes de empezar otra.');
   const store=shops.find(s=>s.id===prior.body.storeId);
   deliveryAvailability={status:prior.messageDelivered===false?'CREATE_UNCERTAIN':'WAITING_APPROVAL',
