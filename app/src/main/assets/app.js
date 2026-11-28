@@ -3677,6 +3677,52 @@ const B3_CHAT_ACTIVITY=Object.freeze({
  payment_window:'La sede aceptó y se habilitó el plazo para elegir cómo pagar.'
 });
 const b3ChatSent=new Map();
+const b3ChatReceived=new Map();
+const B3_CONFIRMED_CHAT_KEY='b3-confirmed-customer-chat-v1';
+let b3ChatInteractionId=null;
+function chatEntry(){
+ const api=window.B3OrderAvailability;
+ if(b3ChatInteractionId)return api?.readOrderInteraction?.(b3ChatInteractionId)||null;
+ return api?.readInteraction?.()||null;
+}
+function confirmedChatMessages(id){
+ try{
+  const entries=JSON.parse(localStorage.getItem(B3_CONFIRMED_CHAT_KEY)||'{}');
+  const rows=entries?.[id];
+  return Array.isArray(rows)?rows.filter(x=>x&&typeof x.id==='string'&&
+   typeof x.text==='string'&&Number.isFinite(x.at)).slice(-40):[];
+ }catch{return []}
+}
+function saveConfirmedChatMessage(id,message){
+ try{
+  const all=JSON.parse(localStorage.getItem(B3_CONFIRMED_CHAT_KEY)||'{}');
+  const entries=all&&typeof all==='object'&&!Array.isArray(all)?all:{};
+  entries[id]=[...confirmedChatMessages(id).filter(x=>x.id!==message.id),message].slice(-40);
+  const kept=Object.keys(entries).slice(-100);
+  localStorage.setItem(B3_CONFIRMED_CHAT_KEY,JSON.stringify(Object.fromEntries(kept.map(k=>[k,entries[k]]))));
+ }catch(error){console.warn('[B3 chat] Persistence unavailable',error?.name||'STORAGE_ERROR')}
+}
+function openOrderConversation(id){
+ const entry=window.B3OrderAvailability?.readOrderInteraction?.(id);
+ if(!entry){toast('El chat de este pedido no está disponible en el dispositivo.');return}
+ openChatOverlay(id);
+}
+async function fetchOrderChatMessages(id){
+ const api=window.B3OrderAvailability;
+ const entry=chatEntry();
+ if(entry?.interactionId!==id||!api?.readTrackingMessages||b3ChatStatusInFlight.has(id))return;
+ b3ChatStatusInFlight.add(id);
+ try{
+  const result=await api.readTrackingMessages(entry);
+  if(result.available===true)b3ChatReceived.set(id,result.messages);
+  observeChatConversationState(id,result.conversationState);
+ }catch(error){console.warn('[B3 chat] Read failed',error?.message||'UNAVAILABLE')}
+ finally{
+  b3ChatStatusInFlight.delete(id);
+  if(chatEntry()?.interactionId===id)refreshChatTimeline();
+ }
+}
+
 let b3ChatBusy=false;
 const b3ChatClosedByServer=new Set();
 function chatWritable(entry){
@@ -3714,7 +3760,7 @@ async function sendChatTextFromOverlay(){
  if(b3ChatBusy||!chatOverlay)return;
  const input=chatOverlay.querySelector('#b3-chat-input');
  const error=chatOverlay.querySelector('#b3-chat-error');
- const entry=window.B3OrderAvailability?.readInteraction?.();
+ const entry=chatEntry();
  const text=input?.value.trim()||'';
  if(!chatWritable(entry)||!text||text.length>2000)return;
  const id=entry.interactionId;
@@ -3733,17 +3779,18 @@ async function sendChatTextFromOverlay(){
   const sent=b3ChatSent.get(id)||[];
   sent.push({id:key,text,at:Date.now()});
   b3ChatSent.set(id,sent.slice(-40));
+  saveConfirmedChatMessage(id,sent[sent.length-1]);
   if(input)input.value='';
   refreshChatTimeline();
  }catch(e){
   if(error)error.textContent='No se confirmó el envío. Verifica el chat antes de reintentar.';
  }finally{
   b3ChatBusy=false;
-  if(send)send.disabled=!chatWritable(window.B3OrderAvailability?.readInteraction?.());
+  if(send)send.disabled=!chatWritable(chatEntry());
  }
 }
 function chatTranscript(){
- const entry=window.B3OrderAvailability?.readInteraction?.();
+ const entry=chatEntry();
  if(!entry)return '<div class="b3-chat-empty">Aún no tienes una solicitud registrada. Cuando envíes un pedido, aquí aparecerá su seguimiento.</div>';
  const activities=Array.isArray(entry.activity)?entry.activity.filter(x=>x&&
    Object.prototype.hasOwnProperty.call(B3_CHAT_ACTIVITY,x.type)&&Number.isFinite(x.at)):[];
@@ -3758,7 +3805,8 @@ function chatTranscript(){
    lines.push({kind:'live',text:'La interacción existe. El detalle sigue pendiente de confirmación; continuamos consultando al asesor.',time:Date.now(),order:100});
  else if(['PENDING','ACCEPTED'].includes(entry.status)&&entry.agentDecision!=='ACCEPTED'&&entry.agentDecision!=='REJECTED')
    lines.push({kind:'live',text:'Esperando la respuesta de la sede. Actualizaremos el chat al recibirla.',time:Date.now(),order:100});
- const messages=Array.isArray(entry.agentMessages)?entry.agentMessages:[];
+ const messages=b3ChatReceived.get(entry.interactionId)||
+  (Array.isArray(entry.agentMessages)?entry.agentMessages:[]);
  const seen=new Set();
  for(const msg of messages){
    if(!msg||typeof msg.id!=='string'||seen.has(msg.id)||typeof msg.text!=='string'||msg.text.length>8000)continue;
@@ -3767,8 +3815,12 @@ function chatTranscript(){
    seen.add(msg.id);
    lines.push({kind:'advisor',text:msg.text,time:date,order:50});
  }
- for(const msg of b3ChatSent.get(entry.interactionId)||[])
+ const seenCustomer=new Set();
+ for(const msg of [...confirmedChatMessages(entry.interactionId),...(b3ChatSent.get(entry.interactionId)||[])]){
+  if(seenCustomer.has(msg.id))continue;
+  seenCustomer.add(msg.id);
   lines.push({kind:'customer',text:msg.text,time:msg.at,order:60});
+ }
  lines.sort((a,b)=>a.time-b.time||a.order-b.order);
  return lines.slice(-65).map(line=>{
    const date=new Date(line.time);
