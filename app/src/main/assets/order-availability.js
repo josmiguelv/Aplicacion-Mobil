@@ -470,6 +470,12 @@
       safeCustomer={firstName:customer.firstName.trim(),lastName:customer.lastName.trim(),
         phone:customer.phone,mode};
       if(mode==='delivery'){
+        // Current Admin Web API accepts only a national Peruvian 9-digit
+        // mobile and adds +51 when forwarding to TU VERSO.
+        // Never silently replace a foreign country code or drop the phone.
+        if(!/^\+519[0-9]{8}$/.test(customer.phone))
+          throw Error('El servidor de pedidos aún no admite teléfonos de otros países. No se envió la solicitud.');
+        safeCustomer.phone=customer.phone.slice(3);
         if(!field(customer.address,6,180)||!field(customer.district,2,80)||
           (customer.reference!==undefined&&
            (typeof customer.reference!=='string'||customer.reference.length>180||
