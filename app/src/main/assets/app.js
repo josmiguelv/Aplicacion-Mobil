@@ -2451,6 +2451,7 @@ function reservationTimeValue(input){
 }
 let reservationAddressEditing=false;
 let reservationQuote=null;
+let pickupReservationQuotes=[];
 let reservationQuoteBusy=false;
 let reservationQuoteError='';
 let reservationQuoteGeneration=0;
@@ -2461,7 +2462,7 @@ function scheduleReservationQuoteCheck(){
  if(reservationQuoteTimer!==null)clearTimeout(reservationQuoteTimer);
  reservationQuoteTimer=setTimeout(()=>{reservationQuoteTimer=null;autoCheckReservationQuote()},450);
 }
- function resetReservationQuote(){if(reservationQuoteTimer!==null){clearTimeout(reservationQuoteTimer);reservationQuoteTimer=null}if(reservationQuoteController){reservationQuoteController.abort();reservationQuoteController=null}++reservationQuoteGeneration;reservationQuote=null;reservationQuoteBusy=false;reservationQuoteError='';reservationAddressEditing=false;}
+ function resetReservationQuote(){if(reservationQuoteTimer!==null){clearTimeout(reservationQuoteTimer);reservationQuoteTimer=null}if(reservationQuoteController){reservationQuoteController.abort();reservationQuoteController=null}++reservationQuoteGeneration;reservationQuote=null;pickupReservationQuotes=[];reservationQuoteBusy=false;reservationQuoteError='';reservationAddressEditing=false;}
 // For Delivery the Admin selects the eligible store using the same location and
 // online-agent principle as immediate Delivery; no customer store selection.
 // For pickup the current reservations quote contract requires a storeId, so
@@ -2514,7 +2515,7 @@ async function checkReservationQuote(){
   Object.assign(params,{latitude:loc.latitude,longitude:loc.longitude,useGps:true,
    address,district,reference:st.profile.reference||''});
  }
- reservationQuoteBusy=true;reservationQuote=null;reservationQuoteError='';st.store='';st.pay='';render();
+ reservationQuoteBusy=true;reservationQuote=null;pickupReservationQuotes=[];reservationQuoteError='';if(mode==='delivery'){st.store='';st.pay=''}render();
  try{
   let selected=null;
   if(mode==='delivery'){
@@ -2562,13 +2563,14 @@ async function checkReservationQuote(){
       !Number.isFinite(result.deliveryFeePen)||result.deliveryFeePen<0||
       result.agentAvailable!==true||result.acceptingRequests!==true)
      throw Error('No pudimos confirmar la disponibilidad. Vuelve a consultar.');
+   if(mode==='pickup'){pickupReservationQuotes.push({...result,dateTime:scheduledAt});continue}
    selected=result;break;
   }
-  if(!selected)throw Error('Ninguna sede tiene un agente disponible para confirmar esta reserva.');
+  if(mode==='pickup')selected=pickupReservationQuotes.find(q=>String(q.storeId)===String(st.store))||null;
+  if(!selected&&mode!=='pickup')throw Error('Ninguna sede tiene un agente disponible para confirmar esta reserva.');
   if(generation!==reservationQuoteGeneration||st.scheduleMode!=='reservation'||st.reservationAt!==scheduledAt||st.mode!==mode)return;
-  st.store=selected.storeId;
-  reservationQuote={...selected,dateTime:scheduledAt};
-  st.pay='';
+  if(selected){st.store=selected.storeId;reservationQuote={...selected,dateTime:scheduledAt}}
+  if(mode==='delivery')st.pay='';
   save();
  }catch(error){if(generation===reservationQuoteGeneration){reservationQuoteError=
    error.message||'No pudimos consultar la reserva.';
@@ -2666,9 +2668,23 @@ function reservationPicker(){
    '')+
   (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div><button type="button" class="outline full" data-reservation-retry="1" '+(reservationQuoteBusy?'disabled':'')+'>Reintentar disponibilidad</button>':'')+
   (st.mode==='pickup'&&reservationQuote?.mode==='pickup'&&reservationQuote.dateTime===st.reservationAt?'<div class="summary-card"><b>Sede confirmada:</b> '+esc(shops.find(x=>x.id===reservationQuote.storeId)?.name||'Sede asignada')+'<p>Un agente está disponible para revisar la solicitud. Los productos se confirmarán antes del pago.</p></div>':'')+
-  (st.mode==='pickup'?'<button class="primary full" data-reservation-verify="1">Continuar con recojo programado</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
+  (st.mode==='pickup'?'<button class="primary full" data-reservation-next="1">Siguiente · Ver sedes</button>':reservationQuote?'<button class="primary full" data-reservation-verify="1">Continuar con la reserva</button>':'')+
   '<button class="outline full" data-schedule-choice="now">Cambiar a pedido inmediato (sin reserva)</button>'+
   '</div>';
+}
+function pickupScheduledLocations(){
+ const eligible=shops.filter(x=>x.active===true&&x.pickup_enabled===true&&x.reservation_enabled===true);
+ return '<div class="page pickup-page">'+heading('Sedes para tu recojo','reservationPicker')+
+  '<p class="sub">'+esc(reservationSummary())+'</p>'+
+  (reservationQuoteBusy?'<div class="notice">Consultando disponibilidad...</div>':'')+
+  (reservationQuoteError?'<div class="notice" role="alert">'+esc(reservationQuoteError)+'</div>':'')+
+  '<div class="locations pickup-list">'+eligible.map(store=>{
+   const quote=pickupReservationQuotes.find(q=>String(q.storeId)===String(store.id)&&q.dateTime===st.reservationAt);
+   return '<div class="pickup-location '+(quote?'':'unavailable')+'" style="'+(quote?'':'background:#eee;color:#777;opacity:.72;')+'">'+
+    '<div class="pickup-location-title"><b>'+esc(store.name)+'</b><span class="pickup-status '+(quote?'open':'closed')+'">'+(quote?'Disponible':'No confirmado')+'</span></div>'+
+    (store.address?'<p class="pickup-address">'+esc(store.address)+'</p>':'')+
+    (quote?'<button class="primary full" data-pickup-scheduled-store="'+esc(store.id)+'">Elegir local</button>':'')+'</div>';
+  }).join('')+'</div><button class="outline full" data-reservation-retry="1">Reintentar disponibilidad</button></div>';
 }
 function choice(){return `<div class="page">${heading('Cómo recibir tu pedido','app')}<p class="sub">Puedes modificar esta selección antes de pagar.</p><div class="choice-list">${[['delivery','bike','Pollo Delivery','Te lo llevamos'],['pickup','store','Pide y Retira','Elige dónde recoger']].map(([m,icon,title,desc])=>`<button data-mode="${m}">${ic(icon,34)}<div><b>${title}</b><span>${desc}</span></div>${ic('chev')}</button>`).join('')}</div></div>`}
 function locations(){
@@ -3858,7 +3874,7 @@ function render(){
   const pending=(Array.isArray(st.orders)?st.orders:[]).find(o=>o?.deliveryNoticePending&&orderDelivered(o));
   if(pending)deliveredNoticeOrderId=pending.id;
  }
- if(visibleLiveOrder()&&!trackingPollBusy&&trackingPollTimer===null)scheduleLiveTracking(3000);else if(!visibleLiveOrder()&&trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='scheduleChoice')html=scheduleChoice();else if(st.stage==='reservationPicker')html=reservationPicker();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='pickupRequestPending')html=pickupRequestPending();else if(st.stage==='confirmDetails')html=confirmDetails();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
+ if(visibleLiveOrder()&&!trackingPollBusy&&trackingPollTimer===null)scheduleLiveTracking(3000);else if(!visibleLiveOrder()&&trackingPollTimer!==null){clearTimeout(trackingPollTimer);trackingPollTimer=null}if(['PENDING','ACCEPTED','SUBMITTING'].includes(window.B3OrderAvailability?.readInteraction?.()?.status)&&!agentDecisionTimer&&!agentDecisionPolling)scheduleAgentDecisionPoll(1500);if(st.stage==='app'&&st.tab==='inicio'&&!homeLocationPrompted){homeLocationPrompted=true}if(window.AndroidBridge?.setSplash)window.AndroidBridge.setSplash(st.stage==='splash');let html='';if(st.stage==='splash')html=splash();else if(st.stage==='login')html=login();else if(st.stage==='app')html=main();else if(st.stage==='choice')html=choice();else if(st.stage==='scheduleChoice')html=scheduleChoice();else if(st.stage==='reservationPicker')html=reservationPicker();else if(st.stage==='pickupScheduledLocations')html=pickupScheduledLocations();else if(st.stage==='locations')html=locations();else if(st.stage==='localDetail')html=localDetail();else if(st.stage==='orderDetail')html=orderDetail();else if(st.stage==='profile')html=profileScreen();else if(st.stage==='address')html=addressesScreen();else if(st.stage==='addressEdit')html=addressEditScreen();else if(st.stage==='deliveryAddress')html=address();else if(st.stage==='availability')html=availability();else if(st.stage==='detail')html=detail();else if(st.stage==='cart')html=cart();else if(st.stage==='identity')html=identity();else if(st.stage==='phone')html=phone();else if(st.stage==='pickupRequestPending')html=pickupRequestPending();else if(st.stage==='confirmDetails')html=confirmDetails();else if(st.stage==='prepaymentReview')html=prepaymentReview();else if(st.stage==='payment')html=payment();else if(st.stage==='paymentInstructions')html=paymentInstructions();else if(st.stage==='paymentProofPreview')html=paymentProofPreview();else if(st.stage==='paymentWaiting')html=paymentWaiting();else if(st.stage==='paymentOutcome')html=paymentOutcome();else if(st.stage==='summary')html=summary();else if(st.stage==='success')html=success();else if(st.stage==='chat')html=chat();else if(st.stage==='jobs')html=jobsScreen();else if(st.stage==='vacancyDetail')html=vacancyDetail();else if(st.stage==='about')html=about();else if(st.stage==='faq')html=faqScreen();else if(st.stage==='claims')html=complaintsScreen();else if(st.stage==='privacy')html=privacyScreen();else if(st.stage==='notifications')html=notificationsScreen();else if(st.stage==='notificationDetail')html=notificationDetailScreen();else if(st.stage.startsWith('signin-'))html=signin();else html=infoScreen();root.innerHTML=html+(st.stage!=='availability'&&st.stage!=='chat'&&st.stage!=='splash'&&st.stage!=='prepaymentReview'&&st.stage!=='payment'?personalCheckoutBanner():'')+(!['splash','login','app','chat','signin-phone','signin-email'].includes(st.stage)?
   `<button class="persistent-chat ${st.stage==='availability'?'b3-wait-chat-fab':''}" data-screen="chat" aria-label="Abrir chat flotante y regresar a mi pedido sin perder avances">${ic('chat',23)}</button>`:'')+deliveredNotice()+favoritePrompt()+reviewSheet()+marketingPrompt();if(st.stage==='app'&&st.tab==='inicio')scheduleMarketingPrompt();}
 function v(id){return document.getElementById(id)?.value.trim()||''}
 function checkoutSnapshot(){
@@ -4037,7 +4053,7 @@ async function validateCartPromotionsBeforeRequest(){
 }
 function addToCart(id,qty=1){let p=product(id);if(!p||promotionNotPurchasable(p))return false;if(activePersonalCheckout()){const draft=nextCartDraft();let found=draft.find(x=>x.id===id);if(found)found.qty=Math.min(99,found.qty+qty);else draft.push({id,qty:Math.min(99,qty)});saveNextCartDraft(draft)}else{let found=st.cart.find(x=>x.id===id);if(found)found.qty+=qty;else st.cart.push({id,qty});invalidateDeliverySelection();save()}vibrateCartAddition();toast('Producto agregado',{kind:'cart',quantity:qty});return true}
 
-root.addEventListener('click',async e=>{const orderFilter=e.target.closest('[data-orders-filter]');if(orderFilter){const next=orderFilter.dataset.ordersFilter;if(['all','active','history'].includes(next)){b3OrdersFilter=next;render()}return}if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-delivery-notice-ok],[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-address],[data-reservation-address-save],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-phone-continue],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
+root.addEventListener('click',async e=>{const orderFilter=e.target.closest('[data-orders-filter]');if(orderFilter){const next=orderFilter.dataset.ordersFilter;if(['all','active','history'].includes(next)){b3OrdersFilter=next;render()}return}if(e.target.closest('[data-splash-retry]')){void initializeCatalogAtSplash();return}let b=e.target.closest('[data-delivery-notice-ok],[data-notification-open],[data-notification-catalog],[data-marketing-first-accept],[data-marketing-first-later],[data-marketing-toggle],[data-notifications-refresh],[data-order-open],[data-demo-next],[data-repeat-order],[data-fav-reorder],[data-fav-remove],[data-accept-favorite],[data-decline-favorite],[data-open-review],[data-review-backdrop],[data-review-close],[data-review-star],[data-review-tag],[data-review-send],[data-privacy-clear],[data-privacy-law],[data-book-open],[data-book-guidance],[data-profile-save],[data-address-create],[data-address-edit],[data-address-delete],[data-address-default],[data-address-choose],[data-address-save],[data-vacancy],[data-apply-vacancy],[data-home-store],[data-home-store-close],[data-home-store-mode],[data-home-local],[data-open-fulfillment],[data-modal-mode],[data-modal-save-delivery],[data-modal-pickstore],[data-modal-close],[data-modal-back],[data-gps],[data-pickup-origin-save],[data-clearsearch],[data-tab],[data-screen],[data-guest],[data-schedule-choice],[data-reservation-verify],[data-reservation-next],[data-pickup-scheduled-store],[data-reservation-retry],[data-reservation-address],[data-reservation-address-save],[data-reservation-pay],[data-reservation-cash-mode],[data-mode],[data-store],[data-pickstore],[data-fulfillment],[data-start],[data-product],[data-quick],[data-add],[data-qty],[data-filter],[data-carousel],[data-promo],[data-local],[data-cartdelta],[data-remove],[data-prepay-payment],[data-prepay-add],[data-prepay-cancel],[data-prepay-retry],[data-checkout-return],[data-checkout-leave],[data-checkout-cancel],[data-availability-continue],[data-quote-retry],[data-change-fulfillment],[data-availability-pickup],[data-rejected-new-catalog],[data-availability-retry],[data-identity-next],[data-phone-next],[data-address-next],[data-review-confirm],[data-review-edit],[data-pay],[data-payment-start],[data-payment-done],[data-payment-save-image],[data-payment-confirm],[data-pay-next],[data-confirm],[data-google-login],[data-phone-continue],[data-logout],[data-openmaps],[data-clear]');if(!b)return;
 const liveRequest=window.B3OrderAvailability?.readInteraction?.();
 if(activePersonalCheckout()&&
    (b.hasAttribute('data-identity-next')||b.hasAttribute('data-phone-next')||
@@ -4235,6 +4251,20 @@ if(b.dataset.reservationCashMode){
  st.reservationCashExact=b.dataset.reservationCashMode==='exact';
  if(st.reservationCashExact)st.reservationCashAmount='';
  save();render();return;
+}
+if(b.hasAttribute('data-reservation-next')){
+ st.reservationAt=document.getElementById('b3-reservation-at')?.value||st.reservationAt;
+ let when;try{when=window.B3ReservationForms.schedule(st.reservationAt)}catch(error){return toast(error.message,{durationMs:2000})}
+ if(when.from<=Date.now())return toast('Selecciona una fecha y hora futuras.',{durationMs:2000});
+ const issue=pickupScheduledHoursIssue(st.reservationAt);if(issue)return toast(issue,{durationMs:2000});
+ save();screen('pickupScheduledLocations');
+ if(!reservationQuoteBusy&&(!pickupReservationQuotes.length||pickupReservationQuotes[0].dateTime!==st.reservationAt))void checkReservationQuote();return;
+}
+if(b.dataset.pickupScheduledStore){
+ const quote=pickupReservationQuotes.find(q=>String(q.storeId)===String(b.dataset.pickupScheduledStore)&&q.dateTime===st.reservationAt);
+ if(!quote)return toast('Esta sede no tiene disponibilidad confirmada.',{durationMs:2000});
+ st.store=quote.storeId;reservationQuote=quote;st.fulfillment='pickup';st.pickupScheduleSelected=true;save();
+ st.stage='app';st.tab='inicio';fulfillmentModal=null;render();toast('Recojo programado guardado.',{durationMs:2000});return;
 }
 if(b.hasAttribute('data-reservation-verify')){
  st.reservationAt=document.getElementById('b3-reservation-at')?.value||st.reservationAt;
