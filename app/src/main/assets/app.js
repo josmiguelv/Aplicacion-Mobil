@@ -695,7 +695,7 @@ function acceptedInteractionSnapshot(entry){
     original.catalogRevision!==entry.body.catalogRevision||
     !Array.isArray(original.items)||
     orderItemsSignature(original.items)!==orderItemsSignature(entry.body.items)||
-    (original.customer||null)&&JSON.stringify(original.customer)!==JSON.stringify(entry.body.customer))
+    JSON.stringify(original.customer||null)!==JSON.stringify(entry.body.customer||null))
   throw Error('El registro original de la interacción no coincide con el pedido aceptado.');
  const address=String(original.address||'').trim();
  const district=String(original.district||'').trim();
@@ -853,7 +853,10 @@ async function completeAcceptedQuote(entry){
  // This quote was calculated and saved before requesting agent approval.
  // Do not geocode or validate the current editable cart after acceptance.
  const quote=await acceptedStoreQuote(entry,selected,address,district);
- if(st.stage!=='availability')return false;
+ const current=api.readInteraction?.();
+ if(st.stage!=='availability'||current?.interactionId!==entry.interactionId||
+    current?.idempotencyKey!==entry.idempotencyKey||
+    current?.agentMessageId!==entry.agentMessageId)return false;
  if(quote.storeId!==selected.id)throw Error('La cotización no corresponde al local que aceptó.');
  if(quote.revision!==publishedRevision)throw Error('La carta cambió. Necesitamos revisar tu pedido.');
  const fee=Number(quote.deliveryFeePen);
@@ -861,10 +864,10 @@ async function completeAcceptedQuote(entry){
  // Android starts the payment clock from the verified agent acceptance.
  // No payment POST, extra TU VERSO read or fee recalculation is necessary here.
  deliveryValidationStep='HABILITANDO_PAGO';
+ restoreAcceptedOrderSnapshot(snapshot);
  const wait=api.startLocalPaymentWindow(entry,publishedPaymentWaitMinutes);
  if(wait.status!=='PAYMENT_PENDING')throw Error('No se pudo iniciar el plazo local de pago.');
  if(st.stage!=='availability')return false;
- restoreAcceptedOrderSnapshot(snapshot);
  st.store=selected.id;
  st.quote={storeId:selected.id,storeName:selected.name,deliveryFeePen:fee,
   paymentMethods:quote.paymentMethods.filter(x=>['yape','plin','card','cash'].includes(x)),
